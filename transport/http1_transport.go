@@ -422,6 +422,26 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request)
 
 	// Write headers in preferred order
 	for _, key := range headerOrder {
+		// Special handling for Content-Length - also check req.ContentLength
+		if key == "Content-Length" {
+			// First check if header is set
+			if values, ok := req.Header[key]; ok {
+				for _, v := range values {
+					fmt.Fprintf(w, "%s: %s\r\n", key, v)
+				}
+				written[key] = true
+			} else if req.ContentLength > 0 {
+				// Fallback to ContentLength field
+				fmt.Fprintf(w, "Content-Length: %d\r\n", req.ContentLength)
+				written[key] = true
+			} else if req.ContentLength == 0 && req.Body != nil {
+				// Empty body but Body is set (POST/PUT/PATCH with empty body)
+				fmt.Fprintf(w, "Content-Length: 0\r\n")
+				written[key] = true
+			}
+			continue
+		}
+
 		if values, ok := req.Header[key]; ok {
 			for _, v := range values {
 				fmt.Fprintf(w, "%s: %s\r\n", key, v)
