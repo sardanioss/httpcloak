@@ -656,8 +656,6 @@ This test:
 
 ## Security Considerations
 
-This lib is not specifically created to **bypass cloudflare** or other similar bot detection tools but mainly was created for implementing a transport layer identical to the ones is used by present in all modern browsers.
-
 This library is intended for:
 - Web scraping where you have permission
 - Automated testing of your own services
