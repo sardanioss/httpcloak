@@ -2,14 +2,22 @@ package session
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/transport"
 )
+
+// generateID generates a random session ID (16 bytes = 32 hex chars)
+func generateID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 var (
 	ErrSessionClosed = errors.New("session is closed")
@@ -43,7 +51,7 @@ type Session struct {
 // NewSession creates a new session with its own connection pool
 func NewSession(id string, config *protocol.SessionConfig) *Session {
 	if id == "" {
-		id = uuid.New().String()
+		id = generateID()
 	}
 
 	presetName := "chrome-131"

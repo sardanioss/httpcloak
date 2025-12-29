@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/sardanioss/httpcloak/protocol"
 )
 
@@ -50,7 +49,7 @@ func (m *Manager) CreateSession(config *protocol.SessionConfig) (string, error) 
 	}
 
 	// Generate unique session ID
-	sessionID := uuid.New().String()
+	sessionID := generateID()
 
 	// Create session
 	session := NewSession(sessionID, config)

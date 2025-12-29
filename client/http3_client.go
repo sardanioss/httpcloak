@@ -128,6 +128,9 @@ func (c *HTTP3Client) Do(ctx context.Context, req *Request) (*Response, error) {
 	var bodyReader io.Reader
 	if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
+	} else if method == "POST" || method == "PUT" || method == "PATCH" {
+		// POST/PUT/PATCH with empty body must send Content-Length: 0
+		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)

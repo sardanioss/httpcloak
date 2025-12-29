@@ -4,7 +4,6 @@ go 1.24
 
 require (
 	github.com/andybalholm/brotli v1.1.1
-	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.18.2
 	github.com/quic-go/quic-go v0.58.0
 	github.com/refraction-networking/utls v1.8.1
