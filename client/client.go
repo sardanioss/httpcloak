@@ -764,6 +764,11 @@ func isRedirect(statusCode int) bool {
 
 // shouldTryHTTP3 checks if we should try HTTP/3 for this host
 func (c *Client) shouldTryHTTP3(hostKey string) bool {
+	// If QUIC manager is nil (H3 disabled or proxy configured), don't try HTTP/3
+	if c.quicManager == nil {
+		return false
+	}
+
 	c.h3FailuresMu.RLock()
 	defer c.h3FailuresMu.RUnlock()
 

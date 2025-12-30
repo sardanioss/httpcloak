@@ -194,6 +194,14 @@ func WithDisableHTTP3() Option {
 	}
 }
 
+// WithForceHTTP2 forces HTTP/2 for all requests (disables HTTP/3, still allows HTTP/1.1 fallback)
+// This is useful when you want to ensure HTTP/2 is used without attempting HTTP/3
+func WithForceHTTP2() Option {
+	return func(c *ClientConfig) {
+		c.DisableH3 = true
+	}
+}
+
 // Protocol enum for forcing specific HTTP protocol versions
 type Protocol int
 
