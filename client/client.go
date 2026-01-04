@@ -1156,39 +1156,12 @@ func extractSite(hostname string) string {
 	return strings.Join(parts[len(parts)-2:], ".")
 }
 
-// applyOrganicJitter adds slight randomization to headers to mimic real browser behavior.
-// Real browsers have minor variations in header values - perfect consistency is a bot fingerprint.
+// applyOrganicJitter is intentionally a no-op.
+// Random header variation is a BOT fingerprint, not organic behavior.
+// Real browsers are consistent - Chrome always uses q=0.9, never q=0.85 or q=0.8.
+// Randomness in headers is detectable and flags requests as non-browser traffic.
 func applyOrganicJitter(req *http.Request) {
-	// Randomly vary Accept-Language quality values slightly
-	// e.g., "en-US,en;q=0.9" might become "en-US,en;q=0.8" or stay the same
-	acceptLang := req.Header.Get("Accept-Language")
-	if acceptLang != "" {
-		// 30% chance to slightly modify quality value
-		if rand.Float32() < 0.3 {
-			// Replace q=0.9 with q=0.8 or q=0.85 occasionally
-			variants := []string{"0.9", "0.8", "0.85", "0.9"}
-			choice := variants[rand.Intn(len(variants))]
-			acceptLang = strings.Replace(acceptLang, "q=0.9", "q="+choice, 1)
-			req.Header.Set("Accept-Language", acceptLang)
-		}
-	}
-
-	// Occasionally vary Cache-Control (browsers are inconsistent)
-	// Default is max-age=0, but sometimes browsers send no-cache
-	cacheControl := req.Header.Get("Cache-Control")
-	if cacheControl != "" && rand.Float32() < 0.15 {
-		req.Header.Set("Cache-Control", "no-cache")
-	}
-
-	// Occasionally add Pragma header (older compatibility, Chrome sometimes does this)
-	if rand.Float32() < 0.1 {
-		req.Header.Set("Pragma", "no-cache")
-	}
-
-	// Very rarely, some users have DNT enabled (about 5% of users)
-	if rand.Float32() < 0.05 {
-		req.Header.Set("DNT", "1")
-	}
+	// Do nothing - consistency is key
 }
 
 // decompress decompresses response body based on Content-Encoding

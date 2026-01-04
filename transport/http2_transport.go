@@ -15,7 +15,7 @@ import (
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/net/http2"
-	utls "github.com/refraction-networking/utls"
+	utls "github.com/sardanioss/utls"
 )
 
 // HTTP2Transport is a custom HTTP/2 transport with uTLS fingerprinting

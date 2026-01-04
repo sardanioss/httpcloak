@@ -16,7 +16,7 @@ import (
 
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
-	utls "github.com/refraction-networking/utls"
+	utls "github.com/sardanioss/utls"
 )
 
 // HTTP1Transport is a custom HTTP/1.1 transport with uTLS fingerprinting

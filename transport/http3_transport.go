@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -14,6 +15,11 @@ import (
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 )
+
+func init() {
+	// Suppress quic-go UDP buffer size warning
+	os.Setenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING", "1")
+}
 
 // HTTP3Transport is an HTTP/3 transport with proper QUIC connection reuse
 // http3.Transport handles connection pooling internally - we just provide DNS resolution

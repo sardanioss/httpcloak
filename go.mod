@@ -6,7 +6,7 @@ require (
 	github.com/andybalholm/brotli v1.1.1
 	github.com/klauspost/compress v1.18.2
 	github.com/quic-go/quic-go v0.58.0
-	github.com/refraction-networking/utls v1.8.1
+	github.com/sardanioss/utls v0.1.0
 	github.com/sardanioss/net v0.1.0
 )
 
@@ -19,3 +19,5 @@ require (
 )
 
 replace github.com/sardanioss/net => ./temp/sardanioss-net
+
+replace github.com/sardanioss/utls => ./temp/sardanioss-utls

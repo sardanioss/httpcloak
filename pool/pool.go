@@ -15,7 +15,7 @@ import (
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/net/http2"
 	"github.com/sardanioss/net/http2/hpack"
-	utls "github.com/refraction-networking/utls"
+	utls "github.com/sardanioss/utls"
 )
 
 var (

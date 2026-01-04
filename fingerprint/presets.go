@@ -3,7 +3,7 @@ package fingerprint
 import (
 	"runtime"
 
-	tls "github.com/refraction-networking/utls"
+	tls "github.com/sardanioss/utls"
 )
 
 // PlatformInfo contains platform-specific header values
@@ -220,12 +220,22 @@ func Firefox133() *Preset {
 	}
 }
 
-// Chrome143 returns the Chrome 143 fingerprint preset
+// Chrome143 returns the Chrome 143 fingerprint preset with platform-specific TLS fingerprint
 func Chrome143() *Preset {
 	p := GetPlatformInfo()
+	// Use platform-specific TLS fingerprint with fixed extension order
+	var clientHelloID tls.ClientHelloID
+	switch p.Platform {
+	case "Windows":
+		clientHelloID = tls.HelloChrome_143_Windows
+	case "macOS":
+		clientHelloID = tls.HelloChrome_143_macOS
+	default: // Linux and others
+		clientHelloID = tls.HelloChrome_143_Linux
+	}
 	return &Preset{
 		Name:          "chrome-143",
-		ClientHelloID: tls.HelloChrome_133, // Chrome 133 TLS fingerprint with X25519MLKEM768
+		ClientHelloID: clientHelloID,
 		UserAgent:     "Mozilla/5.0 " + p.UserAgentOS + " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 		Headers: map[string]string{
 			// Low-entropy Client Hints ONLY
@@ -259,17 +269,93 @@ func Chrome143() *Preset {
 	}
 }
 
-// Chrome143Windows returns Chrome 143 with Windows platform
+// Chrome143Windows returns Chrome 143 with Windows platform and fixed TLS extension order
 func Chrome143Windows() *Preset {
 	return &Preset{
 		Name:          "chrome-143-windows",
-		ClientHelloID: tls.HelloChrome_133, // Chrome 133 TLS fingerprint with X25519MLKEM768
+		ClientHelloID: tls.HelloChrome_143_Windows, // Chrome 143 Windows with fixed extension order
 		UserAgent:     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 		Headers: map[string]string{
 			// Low-entropy Client Hints ONLY
 			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
 			"sec-ch-ua-mobile":   "?0",
 			"sec-ch-ua-platform": `"Windows"`,
+			// Standard navigation headers (human clicked link)
+			"Cache-Control":             "max-age=0",
+			"Upgrade-Insecure-Requests": "1",
+			"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+			"Sec-Fetch-Site":            "none",
+			"Sec-Fetch-Mode":            "navigate",
+			"Sec-Fetch-User":            "?1",
+			"Sec-Fetch-Dest":            "document",
+			"Accept-Encoding":           "gzip, deflate, br, zstd",
+			"Accept-Language":           "en-US,en;q=0.9",
+			"Priority":                  "u=0, i",
+		},
+		HTTP2Settings: HTTP2Settings{
+			HeaderTableSize:        65536,
+			EnablePush:             false,
+			MaxConcurrentStreams:   0,
+			InitialWindowSize:      6291456,
+			MaxFrameSize:           16384,
+			MaxHeaderListSize:      262144,
+			ConnectionWindowUpdate: 15663105,
+			StreamWeight:           256,
+			StreamExclusive:        true,
+		},
+		SupportHTTP3: true,
+	}
+}
+
+// Chrome143Linux returns Chrome 143 with Linux platform and fixed TLS extension order
+func Chrome143Linux() *Preset {
+	return &Preset{
+		Name:          "chrome-143-linux",
+		ClientHelloID: tls.HelloChrome_143_Linux, // Chrome 143 Linux with fixed extension order
+		UserAgent:     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+		Headers: map[string]string{
+			// Low-entropy Client Hints ONLY
+			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
+			"sec-ch-ua-mobile":   "?0",
+			"sec-ch-ua-platform": `"Linux"`,
+			// Standard navigation headers (human clicked link)
+			"Cache-Control":             "max-age=0",
+			"Upgrade-Insecure-Requests": "1",
+			"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+			"Sec-Fetch-Site":            "none",
+			"Sec-Fetch-Mode":            "navigate",
+			"Sec-Fetch-User":            "?1",
+			"Sec-Fetch-Dest":            "document",
+			"Accept-Encoding":           "gzip, deflate, br, zstd",
+			"Accept-Language":           "en-US,en;q=0.9",
+			"Priority":                  "u=0, i",
+		},
+		HTTP2Settings: HTTP2Settings{
+			HeaderTableSize:        65536,
+			EnablePush:             false,
+			MaxConcurrentStreams:   0,
+			InitialWindowSize:      6291456,
+			MaxFrameSize:           16384,
+			MaxHeaderListSize:      262144,
+			ConnectionWindowUpdate: 15663105,
+			StreamWeight:           256,
+			StreamExclusive:        true,
+		},
+		SupportHTTP3: true,
+	}
+}
+
+// Chrome143macOS returns Chrome 143 with macOS platform and fixed TLS extension order
+func Chrome143macOS() *Preset {
+	return &Preset{
+		Name:          "chrome-143-macos",
+		ClientHelloID: tls.HelloChrome_143_macOS, // Chrome 143 macOS with fixed extension order
+		UserAgent:     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+		Headers: map[string]string{
+			// Low-entropy Client Hints ONLY
+			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
+			"sec-ch-ua-mobile":   "?0",
+			"sec-ch-ua-platform": `"macOS"`,
 			// Standard navigation headers (human clicked link)
 			"Cache-Control":             "max-age=0",
 			"Upgrade-Insecure-Requests": "1",
@@ -334,6 +420,8 @@ var presets = map[string]func() *Preset{
 	"chrome-141":         Chrome141,
 	"chrome-143":         Chrome143,
 	"chrome-143-windows": Chrome143Windows,
+	"chrome-143-linux":   Chrome143Linux,
+	"chrome-143-macos":   Chrome143macOS,
 	"firefox-133":        Firefox133,
 	"safari-18":          Safari18,
 }
