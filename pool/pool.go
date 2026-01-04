@@ -13,9 +13,9 @@ import (
 
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/net/http2"
+	"github.com/sardanioss/net/http2/hpack"
 	utls "github.com/refraction-networking/utls"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/hpack"
 )
 
 var (
