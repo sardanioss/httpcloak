@@ -1,18 +1,21 @@
 module github.com/sardanioss/httpcloak
 
-go 1.24
+go 1.24.0
 
 require (
 	github.com/andybalholm/brotli v1.1.1
 	github.com/klauspost/compress v1.18.2
 	github.com/quic-go/quic-go v0.58.0
 	github.com/refraction-networking/utls v1.8.1
-	golang.org/x/net v0.43.0
+	github.com/sardanioss/net v0.1.0
 )
 
 require (
 	github.com/quic-go/qpack v0.6.0 // indirect
-	golang.org/x/crypto v0.41.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/crypto v0.46.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sys v0.39.0 // indirect
+	golang.org/x/text v0.32.0 // indirect
 )
+
+replace github.com/sardanioss/net => ./temp/sardanioss-net

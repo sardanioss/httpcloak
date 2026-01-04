@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/net/http2/hpack"
 	utls "github.com/refraction-networking/utls"
-	"golang.org/x/net/http2/hpack"
 )
 
 // HTTP/2 frame types
