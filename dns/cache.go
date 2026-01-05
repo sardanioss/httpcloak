@@ -2,9 +2,12 @@ package dns
 
 import (
 	"context"
+	"encoding/base64"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 // Entry represents a cached DNS entry
@@ -237,4 +240,109 @@ func (c *Cache) StartCleanup(ctx context.Context, interval time.Duration) {
 			}
 		}
 	}()
+}
+
+// ECHEntry represents a cached ECH config entry
+type ECHEntry struct {
+	ConfigList []byte
+	ExpiresAt  time.Time
+}
+
+// echCache stores ECH configs separately
+var (
+	echCache   = make(map[string]*ECHEntry)
+	echCacheMu sync.RWMutex
+)
+
+// FetchECHConfigs fetches ECH configs from DNS HTTPS records for the given hostname.
+// Returns nil if no ECH configs are available (this is not an error).
+func FetchECHConfigs(ctx context.Context, hostname string) ([]byte, error) {
+	// Check cache first
+	echCacheMu.RLock()
+	entry, exists := echCache[hostname]
+	echCacheMu.RUnlock()
+
+	if exists && time.Now().Before(entry.ExpiresAt) {
+		return entry.ConfigList, nil
+	}
+
+	// Query DNS for HTTPS records
+	echConfigList, ttl, err := queryECHFromDNS(ctx, hostname)
+	if err != nil {
+		// Return cached value if available, even if expired
+		if exists {
+			return entry.ConfigList, nil
+		}
+		return nil, nil // No ECH available is not an error
+	}
+
+	// Cache the result
+	if echConfigList != nil {
+		echCacheMu.Lock()
+		echCache[hostname] = &ECHEntry{
+			ConfigList: echConfigList,
+			ExpiresAt:  time.Now().Add(time.Duration(ttl) * time.Second),
+		}
+		echCacheMu.Unlock()
+	}
+
+	return echConfigList, nil
+}
+
+// queryECHFromDNS queries HTTPS records and extracts ECH config
+func queryECHFromDNS(ctx context.Context, hostname string) ([]byte, uint32, error) {
+	// Create DNS client
+	client := &dns.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	// Create HTTPS query (type 65)
+	msg := new(dns.Msg)
+	msg.SetQuestion(dns.Fqdn(hostname), dns.TypeHTTPS)
+	msg.RecursionDesired = true
+
+	// Use system resolver or fallback to well-known DNS
+	dnsServers := []string{"8.8.8.8:53", "1.1.1.1:53", "9.9.9.9:53"}
+
+	var lastErr error
+	for _, server := range dnsServers {
+		resp, _, err := client.ExchangeContext(ctx, msg, server)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.Rcode != dns.RcodeSuccess {
+			continue
+		}
+
+		// Parse HTTPS records for ECH config
+		for _, answer := range resp.Answer {
+			if https, ok := answer.(*dns.HTTPS); ok {
+				for _, kv := range https.Value {
+					if kv.Key() == dns.SVCB_ECHCONFIG {
+						// ECH config is base64 encoded in the SVCB record
+						echParam, ok := kv.(*dns.SVCBECHConfig)
+						if ok && len(echParam.ECH) > 0 {
+							return echParam.ECH, https.Hdr.Ttl, nil
+						}
+					}
+				}
+			}
+		}
+
+		// No ECH found in this response, but query succeeded
+		return nil, 300, nil
+	}
+
+	return nil, 0, lastErr
+}
+
+// FetchECHConfigsBase64 returns ECH configs as base64 string (for debugging)
+func FetchECHConfigsBase64(ctx context.Context, hostname string) (string, error) {
+	configs, err := FetchECHConfigs(ctx, hostname)
+	if err != nil || configs == nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(configs), nil
 }
