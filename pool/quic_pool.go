@@ -324,7 +324,10 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		greaseSettingID:              greaseSettingValue, // Randomized GREASE value
 	}
 
-	// Create HTTP/3 transport with custom dial function for IPv6-first
+	// Combine all IPs for racing (already sorted by preference from DNS cache)
+	allIPs := append(ipv6, ipv4...)
+
+	// Create HTTP/3 transport with Happy Eyeballs-style racing
 	h3Transport := &http3.Transport{
 		TLSClientConfig:        tlsConfig,
 		QUICConfig:             quicConfig,
@@ -333,35 +336,94 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		MaxResponseHeaderBytes: 262144,     // Chrome's MAX_FIELD_SECTION_SIZE
 		SendGreaseFrames:       true,       // Chrome sends GREASE frames
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-			// Try IPv6 first
-			for _, ip := range ipv6 {
-				udpAddr := &net.UDPAddr{IP: ip, Port: port}
-				udpConn, err := net.ListenUDP("udp6", nil)
-				if err != nil {
-					continue
-				}
-				conn, err := quic.Dial(ctx, udpConn, udpAddr, tlsCfg, cfg)
-				if err == nil {
-					return conn, nil
-				}
-				udpConn.Close()
+			type dialResult struct {
+				conn    *quic.Conn
+				udpConn *net.UDPConn
+				err     error
 			}
 
-			// Fallback to IPv4
-			for _, ip := range ipv4 {
-				udpAddr := &net.UDPAddr{IP: ip, Port: port}
-				udpConn, err := net.ListenUDP("udp4", nil)
-				if err != nil {
-					continue
+			dialCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
+			resultCh := make(chan dialResult, len(allIPs))
+			started := 0
+
+			// Race all addresses with 250ms stagger
+			for i, ip := range allIPs {
+				// Check for early success
+				select {
+				case result := <-resultCh:
+					if result.conn != nil {
+						cancel()
+						return result.conn, nil
+					}
+					if result.udpConn != nil {
+						result.udpConn.Close()
+					}
+				default:
 				}
-				conn, err := quic.Dial(ctx, udpConn, udpAddr, tlsCfg, cfg)
-				if err == nil {
-					return conn, nil
+
+				go func(ip net.IP) {
+					network := "udp4"
+					if ip.To4() == nil {
+						network = "udp6"
+					}
+					udpAddr := &net.UDPAddr{IP: ip, Port: port}
+					udpConn, err := net.ListenUDP(network, nil)
+					if err != nil {
+						resultCh <- dialResult{err: err}
+						return
+					}
+					conn, err := quic.Dial(dialCtx, udpConn, udpAddr, tlsCfg, cfg)
+					if err != nil {
+						udpConn.Close()
+						resultCh <- dialResult{err: err}
+						return
+					}
+					resultCh <- dialResult{conn: conn, udpConn: udpConn}
+				}(ip)
+				started++
+
+				// Wait 250ms before next attempt
+				if i < len(allIPs)-1 {
+					select {
+					case result := <-resultCh:
+						if result.conn != nil {
+							cancel()
+							return result.conn, nil
+						}
+						if result.udpConn != nil {
+							result.udpConn.Close()
+						}
+					case <-time.After(250 * time.Millisecond):
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
 				}
-				udpConn.Close()
 			}
 
-			return nil, fmt.Errorf("all connection attempts failed for %s", addr)
+			// Wait for any success
+			var lastErr error
+			for i := 0; i < started; i++ {
+				select {
+				case result := <-resultCh:
+					if result.conn != nil {
+						cancel()
+						return result.conn, nil
+					}
+					if result.udpConn != nil {
+						result.udpConn.Close()
+					}
+					lastErr = result.err
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, fmt.Errorf("all QUIC connection attempts failed for %s", addr)
 		},
 	}
 

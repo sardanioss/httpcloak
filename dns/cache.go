@@ -326,9 +326,9 @@ func FetchECHConfigs(ctx context.Context, hostname string) ([]byte, error) {
 
 // queryECHFromDNS queries HTTPS records and extracts ECH config
 func queryECHFromDNS(ctx context.Context, hostname string) ([]byte, uint32, error) {
-	// Create DNS client
+	// Create DNS client with short timeout - ECH is optional, shouldn't block connections
 	client := &dns.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 500 * time.Millisecond, // Short timeout - ECH is optional
 	}
 
 	// Create HTTPS query (type 65)

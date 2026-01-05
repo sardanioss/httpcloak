@@ -323,49 +323,94 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 	return conn, nil
 }
 
-// dialIPv6First tries IPv6 addresses first, falls back to IPv4 only if all IPv6 fail
-// This matches modern browser behavior where IPv6 is strongly preferred
+// dialHappyEyeballs implements RFC 8305 Happy Eyeballs v2
+// Races connections with 250ms stagger - doesn't wait for timeout on each address
 func (p *HostPool) dialHappyEyeballs(ctx context.Context, ips []net.IP) (net.Conn, error) {
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("no IP addresses available")
 	}
 
-	// Separate IPv6 and IPv4 from the provided IPs (already resolved, no second lookup)
-	var ipv6, ipv4 []net.IP
-	for _, ip := range ips {
-		if ip.To4() != nil {
-			ipv4 = append(ipv4, ip)
-		} else {
-			ipv6 = append(ipv6, ip)
+	type dialResult struct {
+		conn net.Conn
+		err  error
+	}
+
+	// Create cancellable context for racing
+	dialCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	resultCh := make(chan dialResult, len(ips))
+	started := 0
+
+	// Per-address timeout (shorter than overall for racing)
+	perAddrTimeout := 5 * time.Second
+
+	// Start dialing with 250ms stagger between attempts (RFC 8305)
+	for i, ip := range ips {
+		// Check if we already got a connection before starting more
+		select {
+		case result := <-resultCh:
+			if result.conn != nil {
+				cancel() // Stop other dials
+				return result.conn, nil
+			}
+		default:
+		}
+
+		// Start this dial
+		go func(ip net.IP) {
+			network := "tcp4"
+			if ip.To4() == nil {
+				network = "tcp6"
+			}
+			addr := net.JoinHostPort(ip.String(), p.port)
+			dialer := &net.Dialer{Timeout: perAddrTimeout}
+			conn, err := dialer.DialContext(dialCtx, network, addr)
+			select {
+			case resultCh <- dialResult{conn: conn, err: err}:
+			case <-dialCtx.Done():
+				if conn != nil {
+					conn.Close()
+				}
+			}
+		}(ip)
+		started++
+
+		// Wait 250ms before starting next attempt (unless it's the last one)
+		if i < len(ips)-1 {
+			select {
+			case result := <-resultCh:
+				if result.conn != nil {
+					cancel()
+					return result.conn, nil
+				}
+			case <-time.After(250 * time.Millisecond):
+				// Continue to next address
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 	}
 
-	dialer := &net.Dialer{Timeout: p.connectTimeout}
-
-	// Try all IPv6 addresses first
-	for _, ip := range ipv6 {
-		addr := net.JoinHostPort(ip.String(), p.port)
-		conn, err := dialer.DialContext(ctx, "tcp6", addr)
-		if err == nil {
-			return conn, nil
-		}
-	}
-
-	// If no IPv6 worked, try IPv4 addresses
+	// Wait for all started dials to complete or succeed
 	var lastErr error
-	for _, ip := range ipv4 {
-		addr := net.JoinHostPort(ip.String(), p.port)
-		conn, err := dialer.DialContext(ctx, "tcp4", addr)
-		if err == nil {
-			return conn, nil
+	for i := 0; i < started; i++ {
+		select {
+		case result := <-resultCh:
+			if result.conn != nil {
+				cancel()
+				return result.conn, nil
+			}
+			lastErr = result.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
-		lastErr = err
 	}
 
 	if lastErr != nil {
 		return nil, lastErr
 	}
-	return nil, fmt.Errorf("no IP addresses available for connection")
+	return nil, fmt.Errorf("all connection attempts failed")
 }
 
 // dialThroughProxy connects to the target host through a proxy
