@@ -278,6 +278,13 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		clientHelloID = &p.preset.QUICClientHelloID
 	}
 
+	// Fetch ECH configs from DNS HTTPS records for real ECH negotiation
+	// This is non-blocking - if it fails, we proceed without ECH
+	var echConfigList []byte
+	if clientHelloID != nil {
+		echConfigList, _ = dns.FetchECHConfigs(ctx, p.host)
+	}
+
 	// QUIC config with Chrome-like settings
 	quicConfig := &quic.Config{
 		MaxIdleTimeout:        30 * time.Second, // Chrome uses 30s
@@ -288,6 +295,7 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		EnableDatagrams:       true, // Chrome enables QUIC datagrams
 		InitialPacketSize:     1200,
 		ClientHelloID:         clientHelloID, // uTLS TLS fingerprinting
+		ECHConfigList:         echConfigList, // ECH from DNS HTTPS records
 	}
 
 	// Get IPv6 and IPv4 addresses
