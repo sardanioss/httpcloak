@@ -3,16 +3,90 @@ package pool
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
 
-	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/http3"
+	"github.com/sardanioss/quic-go"
+	"github.com/sardanioss/quic-go/http3"
+	"github.com/sardanioss/quic-go/quicvarint"
+	utls "github.com/sardanioss/utls"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 )
+
+// HTTP/3 SETTINGS identifiers (Chrome-like)
+const (
+	settingQPACKMaxTableCapacity = 0x1
+	settingQPACKBlockedStreams   = 0x7
+)
+
+// QUIC Transport Parameter IDs
+const (
+	transportParamVersionInfo  = 0x11   // version_information
+	transportParamGoogleVer    = 0x4752 // google_version (18258)
+	transportParamInitialRTT   = 0x3127 // initial_rtt (12583)
+)
+
+func init() {
+	// Set Chrome-like connection ID length (8 bytes vs default 4)
+	quic.SetDefaultConnectionIDLength(8)
+
+	// Set Chrome-like max_datagram_frame_size (65536 vs default 16383)
+	quic.SetMaxDatagramSize(65536)
+
+	// Set additional transport parameters to match Chrome fingerprint
+	quic.SetAdditionalTransportParameters(buildChromeTransportParams())
+}
+
+// buildChromeTransportParams builds Chrome-like QUIC transport parameters
+func buildChromeTransportParams() map[uint64][]byte {
+	params := make(map[uint64][]byte)
+
+	// version_information (0x11): chosen_version=QUICv1, available_versions=[QUICv1, GREASE]
+	// Format: chosen_version (4 bytes) + available_versions_length (varint) + versions...
+	versionInfo := make([]byte, 0, 16)
+	versionInfo = binary.BigEndian.AppendUint32(versionInfo, 0x00000001) // QUICv1 chosen
+	versionInfo = binary.BigEndian.AppendUint32(versionInfo, 0x00000001) // QUICv1 available
+	greaseVersion := generateGREASEVersion()
+	versionInfo = binary.BigEndian.AppendUint32(versionInfo, greaseVersion) // GREASE version
+	params[transportParamVersionInfo] = versionInfo
+
+	// google_version (0x4752): QUICv1
+	googleVer := make([]byte, 4)
+	binary.BigEndian.PutUint32(googleVer, 0x00000001) // QUICv1
+	params[transportParamGoogleVer] = googleVer
+
+	// initial_rtt (12583/0x3127): varies, use ~230ms in microseconds
+	initialRTT := make([]byte, 0, 8)
+	initialRTT = quicvarint.Append(initialRTT, 230000+uint64(rand.Intn(10000))) // ~230-240ms
+	params[transportParamInitialRTT] = initialRTT
+
+	// GREASE transport parameter
+	greaseID := generateGREASETransportParamID()
+	greaseData := make([]byte, 9)
+	rand.Read(greaseData)
+	params[greaseID] = greaseData
+
+	return params
+}
+
+// generateGREASEVersion generates a GREASE version value
+// GREASE versions are of form 0x?a?a?a?a where ? is any hex digit
+func generateGREASEVersion() uint32 {
+	n := rand.Uint32()
+	return (n & 0xf0f0f0f0) | 0x0a0a0a0a
+}
+
+// generateGREASETransportParamID generates a GREASE transport parameter ID
+// GREASE IDs are of form 27 + 31*N for some N
+func generateGREASETransportParamID() uint64 {
+	n := rand.Uint64() % (1 << 16)
+	return 27 + 31*n
+}
 
 // Note: quic-go may print buffer size warnings to stderr. These are informational
 // and don't affect functionality. We don't suppress them globally as that would
@@ -198,10 +272,22 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		MinVersion:         tls.VersionTLS13,
 	}
 
-	// QUIC config
+	// Get ClientHelloID from preset for TLS fingerprinting
+	var clientHelloID *utls.ClientHelloID
+	if p.preset != nil && p.preset.QUICClientHelloID.Client != "" {
+		clientHelloID = &p.preset.QUICClientHelloID
+	}
+
+	// QUIC config with Chrome-like settings
 	quicConfig := &quic.Config{
-		MaxIdleTimeout:  p.maxIdleTime,
-		KeepAlivePeriod: 30 * time.Second,
+		MaxIdleTimeout:        30 * time.Second, // Chrome uses 30s
+		KeepAlivePeriod:       30 * time.Second,
+		MaxIncomingStreams:    100,
+		MaxIncomingUniStreams: 103, // Chrome uses 103
+		Allow0RTT:             true,
+		EnableDatagrams:       true, // Chrome enables QUIC datagrams
+		InitialPacketSize:     1200,
+		ClientHelloID:         clientHelloID, // uTLS TLS fingerprinting
 	}
 
 	// Get IPv6 and IPv4 addresses
@@ -215,10 +301,25 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		port = 443
 	}
 
+	// Generate GREASE setting ID (must be of form 0x1f * N + 0x21)
+	greaseSettingID := generateGREASESettingID()
+
+	// Chrome-like HTTP/3 additional settings
+	// Chrome uses GREASE setting with value 0
+	additionalSettings := map[uint64]uint64{
+		settingQPACKMaxTableCapacity: 65536, // Chrome's QPACK table capacity
+		settingQPACKBlockedStreams:   100,   // Chrome's blocked streams limit
+		greaseSettingID:              0,     // GREASE setting with value 0
+	}
+
 	// Create HTTP/3 transport with custom dial function for IPv6-first
 	h3Transport := &http3.Transport{
-		TLSClientConfig: tlsConfig,
-		QUICConfig:      quicConfig,
+		TLSClientConfig:        tlsConfig,
+		QUICConfig:             quicConfig,
+		EnableDatagrams:        true,       // Chrome enables H3_DATAGRAM
+		AdditionalSettings:     additionalSettings,
+		MaxResponseHeaderBytes: 262144,     // Chrome's MAX_FIELD_SECTION_SIZE
+		SendGreaseFrames:       true,       // Chrome sends GREASE frames
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
 			// Try IPv6 first
 			for _, ip := range ipv6 {
@@ -468,4 +569,11 @@ func (m *QUICManager) Stats() map[string]struct {
 	}
 
 	return stats
+}
+
+// generateGREASESettingID generates a valid GREASE setting ID
+// GREASE IDs are of the form 0x1f * N + 0x21 where N is random
+func generateGREASESettingID() uint64 {
+	n := rand.Uint64() % (1 << 16)
+	return 0x1f*n + 0x21
 }

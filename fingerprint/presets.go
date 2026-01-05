@@ -47,12 +47,13 @@ func GetPlatformInfo() PlatformInfo {
 
 // Preset represents a browser fingerprint configuration
 type Preset struct {
-	Name           string
-	ClientHelloID  tls.ClientHelloID
-	UserAgent      string
-	Headers        map[string]string
-	HTTP2Settings  HTTP2Settings
-	SupportHTTP3   bool
+	Name              string
+	ClientHelloID     tls.ClientHelloID // For TCP/TLS (HTTP/1.1, HTTP/2)
+	QUICClientHelloID tls.ClientHelloID // For QUIC/HTTP/3 (different TLS extensions)
+	UserAgent         string
+	Headers           map[string]string
+	HTTP2Settings     HTTP2Settings
+	SupportHTTP3      bool
 }
 
 // HTTP2Settings contains HTTP/2 connection settings
@@ -234,9 +235,10 @@ func Chrome143() *Preset {
 		clientHelloID = tls.HelloChrome_143_Linux
 	}
 	return &Preset{
-		Name:          "chrome-143",
-		ClientHelloID: clientHelloID,
-		UserAgent:     "Mozilla/5.0 " + p.UserAgentOS + " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+		Name:              "chrome-143",
+		ClientHelloID:     clientHelloID,
+		QUICClientHelloID: tls.HelloChrome_143_QUIC, // QUIC-specific preset for HTTP/3
+		UserAgent:         "Mozilla/5.0 " + p.UserAgentOS + " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 		Headers: map[string]string{
 			// Low-entropy Client Hints ONLY
 			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
@@ -272,9 +274,10 @@ func Chrome143() *Preset {
 // Chrome143Windows returns Chrome 143 with Windows platform and fixed TLS extension order
 func Chrome143Windows() *Preset {
 	return &Preset{
-		Name:          "chrome-143-windows",
-		ClientHelloID: tls.HelloChrome_143_Windows, // Chrome 143 Windows with fixed extension order
-		UserAgent:     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+		Name:              "chrome-143-windows",
+		ClientHelloID:     tls.HelloChrome_143_Windows, // Chrome 143 Windows with fixed extension order
+		QUICClientHelloID: tls.HelloChrome_143_QUIC,    // QUIC-specific preset for HTTP/3
+		UserAgent:         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 		Headers: map[string]string{
 			// Low-entropy Client Hints ONLY
 			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
@@ -310,9 +313,10 @@ func Chrome143Windows() *Preset {
 // Chrome143Linux returns Chrome 143 with Linux platform and fixed TLS extension order
 func Chrome143Linux() *Preset {
 	return &Preset{
-		Name:          "chrome-143-linux",
-		ClientHelloID: tls.HelloChrome_143_Linux, // Chrome 143 Linux with fixed extension order
-		UserAgent:     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+		Name:              "chrome-143-linux",
+		ClientHelloID:     tls.HelloChrome_143_Linux, // Chrome 143 Linux with fixed extension order
+		QUICClientHelloID: tls.HelloChrome_143_QUIC,  // QUIC-specific preset for HTTP/3
+		UserAgent:         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 		Headers: map[string]string{
 			// Low-entropy Client Hints ONLY
 			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
@@ -348,9 +352,10 @@ func Chrome143Linux() *Preset {
 // Chrome143macOS returns Chrome 143 with macOS platform and fixed TLS extension order
 func Chrome143macOS() *Preset {
 	return &Preset{
-		Name:          "chrome-143-macos",
-		ClientHelloID: tls.HelloChrome_143_macOS, // Chrome 143 macOS with fixed extension order
-		UserAgent:     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+		Name:              "chrome-143-macos",
+		ClientHelloID:     tls.HelloChrome_143_macOS, // Chrome 143 macOS with fixed extension order
+		QUICClientHelloID: tls.HelloChrome_143_QUIC,  // QUIC-specific preset for HTTP/3
+		UserAgent:         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 		Headers: map[string]string{
 			// Low-entropy Client Hints ONLY
 			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,

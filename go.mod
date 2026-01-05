@@ -5,9 +5,9 @@ go 1.24.0
 require (
 	github.com/andybalholm/brotli v1.1.1
 	github.com/klauspost/compress v1.18.2
-	github.com/quic-go/quic-go v0.58.0
-	github.com/sardanioss/utls v0.1.0
 	github.com/sardanioss/net v0.1.0
+	github.com/sardanioss/quic-go v0.1.0
+	github.com/sardanioss/utls v0.1.0
 )
 
 require (
@@ -21,3 +21,5 @@ require (
 replace github.com/sardanioss/net => ./temp/sardanioss-net
 
 replace github.com/sardanioss/utls => ./temp/sardanioss-utls
+
+replace github.com/sardanioss/quic-go => ./temp/sardanioss-quic-go
