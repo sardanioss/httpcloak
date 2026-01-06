@@ -16,8 +16,10 @@ github.com/sardanioss/http v1.1.0 h1:i+dMfvlD51TCWRyfiXjrdi/R0+FLCloEQB4XsBStmuU
 github.com/sardanioss/http v1.1.0/go.mod h1:Bn2qBFItWB9mLCxWW+tnwDe0stlrxhXaVZKtrLn4dc0=
 github.com/sardanioss/net v1.1.0 h1:70N+rulliNxjf7aqs63G40TPjjkeaSZyj4zY4xIVg+I=
 github.com/sardanioss/net v1.1.0/go.mod h1:vXglhDyVX/Ii73SZV93E6x4fSmOFtJGZzZqKK0KZ4uI=
-github.com/sardanioss/utls v1.9.1-0.20260106065245-2e685cf72b97 h1:nbqVKnQ+zpKwXy5fAb02BFt9D4NeYIV9xmlwqFT0vUs=
-github.com/sardanioss/utls v1.9.1-0.20260106065245-2e685cf72b97/go.mod h1:D2VupP5ZCEaQ9ZYIjXPJh4NmqjTlu9oMzGeyybQWCN4=
+github.com/sardanioss/quic-go v1.2.8-0.20260106102242-5ef850d18925 h1:QKuBNB6YL5jIUxyn2QaJT3UpvDxOnI52UUyKDI5I2Vs=
+github.com/sardanioss/quic-go v1.2.8-0.20260106102242-5ef850d18925/go.mod h1:yekJIu+mVRS6JSPKrc8L07dSAFIIXr1cB55tQm5fA2E=
+github.com/sardanioss/utls v1.9.1-0.20260106101921-55c5f50f21a7 h1:UFJgE/f5P3ulhlZOQTGkxBrGkz/2gsl5p34e0KQ/GTM=
+github.com/sardanioss/utls v1.9.1-0.20260106101921-55c5f50f21a7/go.mod h1:D2VupP5ZCEaQ9ZYIjXPJh4NmqjTlu9oMzGeyybQWCN4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=

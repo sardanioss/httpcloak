@@ -8,13 +8,9 @@ require (
 	github.com/miekg/dns v1.1.69
 	github.com/sardanioss/http v1.1.0
 	github.com/sardanioss/net v1.1.0
-	github.com/sardanioss/quic-go v1.2.7
-	github.com/sardanioss/utls v1.9.1-0.20260106065245-2e685cf72b97
+	github.com/sardanioss/quic-go v1.2.8-0.20260106102242-5ef850d18925
+	github.com/sardanioss/utls v1.9.1-0.20260106101921-55c5f50f21a7
 )
-
-replace github.com/sardanioss/quic-go => ../quic-go
-
-replace github.com/sardanioss/utls => ../utls
 
 require (
 	github.com/quic-go/qpack v0.6.0 // indirect
