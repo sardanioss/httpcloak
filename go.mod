@@ -8,8 +8,8 @@ require (
 	github.com/miekg/dns v1.1.69
 	github.com/sardanioss/http v1.1.0
 	github.com/sardanioss/net v1.1.0
-	github.com/sardanioss/quic-go v1.2.8-0.20260106102242-5ef850d18925
-	github.com/sardanioss/utls v1.9.1-0.20260106101921-55c5f50f21a7
+	github.com/sardanioss/quic-go v1.2.8
+	github.com/sardanioss/utls v1.9.1
 )
 
 require (
