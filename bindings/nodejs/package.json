@@ -1,6 +1,6 @@
 {
   "name": "httpcloak",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Browser fingerprint emulation HTTP client with HTTP/1.1, HTTP/2, and HTTP/3 support",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

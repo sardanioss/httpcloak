@@ -433,6 +433,114 @@ func Safari18() *Preset {
 	}
 }
 
+// IOSChrome143 returns Chrome 143 on iOS fingerprint preset
+// Note: Chrome on iOS uses WebKit (Apple requirement), so TLS fingerprint is iOS Safari
+func IOSChrome143() *Preset {
+	return &Preset{
+		Name:          "ios-chrome-143",
+		ClientHelloID: tls.HelloIOS_14, // iOS Chrome uses Safari's TLS (WebKit requirement)
+		UserAgent:     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/143.0.6917.0 Mobile/15E148 Safari/604.1",
+		Headers: map[string]string{
+			// Chrome on iOS sends Client Hints
+			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
+			"sec-ch-ua-mobile":   "?1",
+			"sec-ch-ua-platform": `"iOS"`,
+			// Standard navigation headers
+			"Upgrade-Insecure-Requests": "1",
+			"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			"Sec-Fetch-Site":            "none",
+			"Sec-Fetch-Mode":            "navigate",
+			"Sec-Fetch-User":            "?1",
+			"Sec-Fetch-Dest":            "document",
+			"Accept-Encoding":           "gzip, deflate, br",
+			"Accept-Language":           "en-US,en;q=0.9",
+		},
+		HTTP2Settings: HTTP2Settings{
+			// iOS uses Safari's HTTP/2 settings
+			HeaderTableSize:        4096,
+			EnablePush:             true,
+			MaxConcurrentStreams:   100,
+			InitialWindowSize:      2097152,
+			MaxFrameSize:           16384,
+			MaxHeaderListSize:      0,
+			ConnectionWindowUpdate: 10485760,
+			StreamWeight:           255,
+			StreamExclusive:        false,
+		},
+		SupportHTTP3: false, // iOS Chrome HTTP/3 is limited
+	}
+}
+
+// IOSSafari17 returns Safari 17 on iOS fingerprint preset
+func IOSSafari17() *Preset {
+	return &Preset{
+		Name:          "ios-safari-17",
+		ClientHelloID: tls.HelloIOS_14,
+		UserAgent:     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.7 Mobile/15E148 Safari/604.1",
+		Headers: map[string]string{
+			// Safari doesn't send Client Hints
+			"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			"Accept-Language": "en-US,en;q=0.9",
+			"Accept-Encoding": "gzip, deflate, br",
+			"Sec-Fetch-Dest":  "document",
+			"Sec-Fetch-Mode":  "navigate",
+			"Sec-Fetch-Site":  "none",
+		},
+		HTTP2Settings: HTTP2Settings{
+			HeaderTableSize:        4096,
+			EnablePush:             true,
+			MaxConcurrentStreams:   100,
+			InitialWindowSize:      2097152,
+			MaxFrameSize:           16384,
+			MaxHeaderListSize:      0,
+			ConnectionWindowUpdate: 10485760,
+			StreamWeight:           255,
+			StreamExclusive:        false,
+		},
+		SupportHTTP3: false,
+	}
+}
+
+// AndroidChrome143 returns Chrome 143 on Android fingerprint preset
+// Note: Chrome on Android uses Chrome's TLS fingerprint (not WebKit restricted like iOS)
+func AndroidChrome143() *Preset {
+	return &Preset{
+		Name:             "android-chrome-143",
+		ClientHelloID:    tls.HelloChrome_143_Linux,     // Android Chrome uses Chrome's TLS
+		PSKClientHelloID: tls.HelloChrome_143_Linux_PSK, // PSK for session resumption
+		UserAgent:        "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.6917.0 Mobile Safari/537.36",
+		Headers: map[string]string{
+			// Low-entropy Client Hints for mobile
+			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
+			"sec-ch-ua-mobile":   "?1",
+			"sec-ch-ua-platform": `"Android"`,
+			// Standard navigation headers
+			"Upgrade-Insecure-Requests": "1",
+			"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+			"Sec-Fetch-Site":            "none",
+			"Sec-Fetch-Mode":            "navigate",
+			"Sec-Fetch-User":            "?1",
+			"Sec-Fetch-Dest":            "document",
+			"Accept-Encoding":           "gzip, deflate, br, zstd",
+			"Accept-Language":           "en-US,en;q=0.9",
+			"Priority":                  "u=0, i",
+		},
+		HTTP2Settings: HTTP2Settings{
+			// Android Chrome uses same HTTP/2 settings as desktop Chrome
+			HeaderTableSize:        65536,
+			EnablePush:             false,
+			MaxConcurrentStreams:   0,
+			InitialWindowSize:      6291456,
+			MaxFrameSize:           16384,
+			MaxHeaderListSize:      262144,
+			ConnectionWindowUpdate: 15663105,
+			StreamWeight:           256,
+			StreamExclusive:        true,
+		},
+		SupportHTTP3: true,
+	}
+}
+
 // presets is a map of all available presets
 var presets = map[string]func() *Preset{
 	"chrome-131":         Chrome131,
@@ -444,6 +552,9 @@ var presets = map[string]func() *Preset{
 	"chrome-143-macos":   Chrome143macOS,
 	"firefox-133":        Firefox133,
 	"safari-18":          Safari18,
+	"ios-chrome-143":     IOSChrome143,
+	"ios-safari-17":      IOSSafari17,
+	"android-chrome-143": AndroidChrome143,
 }
 
 // Get returns a preset by name, or Chrome143 as default

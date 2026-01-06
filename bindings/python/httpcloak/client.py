@@ -131,10 +131,11 @@ class Preset:
         session = httpcloak.Session(preset=httpcloak.Preset.FIREFOX_133)
 
     All available presets:
-        Chrome: CHROME_143, CHROME_143_WINDOWS, CHROME_143_LINUX, CHROME_143_MACOS
-                CHROME_131, CHROME_131_WINDOWS, CHROME_131_LINUX, CHROME_131_MACOS
+        Desktop Chrome: CHROME_143, CHROME_143_WINDOWS, CHROME_143_LINUX, CHROME_143_MACOS
+                        CHROME_131, CHROME_131_WINDOWS, CHROME_131_LINUX, CHROME_131_MACOS
+        Mobile Chrome: IOS_CHROME_143, ANDROID_CHROME_143
         Firefox: FIREFOX_133
-        Safari: SAFARI_18
+        Safari: SAFARI_18, IOS_SAFARI_17
     """
     # Chrome 143 (latest)
     CHROME_143 = "chrome-143"
@@ -148,11 +149,16 @@ class Preset:
     CHROME_131_LINUX = "chrome-131-linux"
     CHROME_131_MACOS = "chrome-131-macos"
 
+    # Mobile Chrome
+    IOS_CHROME_143 = "ios-chrome-143"
+    ANDROID_CHROME_143 = "android-chrome-143"
+
     # Firefox
     FIREFOX_133 = "firefox-133"
 
-    # Safari
+    # Safari (desktop and mobile)
     SAFARI_18 = "safari-18"
+    IOS_SAFARI_17 = "ios-safari-17"
 
     @classmethod
     def all(cls) -> List[str]:
@@ -160,7 +166,9 @@ class Preset:
         return [
             cls.CHROME_143, cls.CHROME_143_WINDOWS, cls.CHROME_143_LINUX, cls.CHROME_143_MACOS,
             cls.CHROME_131, cls.CHROME_131_WINDOWS, cls.CHROME_131_LINUX, cls.CHROME_131_MACOS,
-            cls.FIREFOX_133, cls.SAFARI_18,
+            cls.IOS_CHROME_143, cls.ANDROID_CHROME_143,
+            cls.FIREFOX_133,
+            cls.SAFARI_18, cls.IOS_SAFARI_17,
         ]
 
 
