@@ -1,181 +1,116 @@
 # httpcloak
 
-A Go HTTP client library with **completely identical to browser TLS/HTTP fingerprinting**. This library creates HTTP requests that are indistinguishable from real browsers, bypassing bot detection systems that fingerprint TLS handshakes, HTTP/2 settings, and header patterns.
+A Go HTTP client library with **browser-identical TLS/HTTP fingerprinting**. Makes HTTP requests indistinguishable from real browsers, bypassing bot detection systems that fingerprint TLS handshakes, HTTP/2 settings, and header patterns.
 
-## Why This Library Exists
+**Bindings available for:** Go (native) | Python | Node.js
 
-Modern bot detection systems don't just look at headers or cookies - they analyze the **cryptographic fingerprint** of your connection itself. Every HTTP client has a unique signature based on:
+## Why This Library?
 
-1. **TLS Fingerprint (JA3/JA4)**: The cipher suites, extensions, and elliptic curves offered during TLS handshake
-2. **HTTP/2 Fingerprint (Akamai)**: The SETTINGS frame values, WINDOW_UPDATE, PRIORITY frames
-3. **Header Order and Values**: The exact order and format of HTTP headers
+Modern bot detection doesn't just check headers or cookies - it analyzes the **cryptographic fingerprint** of your connection:
 
-Go's standard `net/http` library has a **recognizable fingerprint** that bot detection systems (Cloudflare, Akamai, PerimeterX, DataDome) can identify instantly.
+1. **TLS Fingerprint (JA3/JA4)**: Cipher suites, extensions, and elliptic curves in the TLS handshake
+2. **HTTP/2 Fingerprint**: SETTINGS frame values, WINDOW_UPDATE, PRIORITY frames
+3. **HTTP/3 Fingerprint**: QUIC transport parameters and settings
+4. **Header Order**: The exact order and format of HTTP headers
 
-**Note:** The requests made via this lib definitely passes through most of **medium** level Cloudflare, Akamai or PerimeterX detection but hardcore ones which check js runtime and other browser fingerprinting is where this will fail.
+Go's standard `net/http` has a recognizable fingerprint that bot detection systems (Cloudflare, Akamai, PerimeterX) identify instantly.
 
-### The Problem with Go's Standard Library
-
-Every TLS connection has a fingerprint. Bot detection services maintain databases of fingerprints for:
-- Every browser version (Chrome 143, Firefox 133, Safari 18, etc.)
-- Known bot libraries (Go net/http, Python requests, curl, etc.)
-- Known automation tools (Selenium, Puppeteer, etc.)
-
-When your Go application connects, the server instantly knows it's not a browser. Here's a side-by-side comparison with **real data** from [tls.peet.ws/api/all](https://tls.peet.ws/api/all):
+### Fingerprint Comparison
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                           FINGERPRINT COMPARISON (Real Data from tls.peet.ws)                        │
-├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                                      │
-│  METRIC                      │ GO STDLIB              │ HTTPCLOAK              │ REAL CHROME 143     │
-│  ────────────────────────────┼────────────────────────┼────────────────────────┼──────────────────── │
-│                                                                                                      │
-│  TLS FINGERPRINT                                                                                     │
-│  ────────────────────────────┼────────────────────────┼────────────────────────┼──────────────────── │
-│  Cipher Suites               │ 13                     │ 16                     │ 16                  │
-│  TLS Extensions              │ 12                     │ 18                     │ 18                  │
-│  GREASE Values               │ None                   │ Yes (random)           │ Yes (random)        │
-│  Post-Quantum (X25519MLKEM)  │ No                     │ Yes                    │ Yes                 │
-│  ECH (Encrypted ClientHello) │ No                     │ Yes                    │ Yes                 │
-│                                                                                                      │
-│  CIPHER SUITES (first 5)                                                                             │
-│  ────────────────────────────┼────────────────────────┼────────────────────────┼──────────────────── │
-│  1st cipher                  │ AES_128_GCM            │ GREASE (random)        │ GREASE (random)     │
-│  2nd cipher                  │ AES_256_GCM            │ AES_128_GCM            │ AES_128_GCM         │
-│  3rd cipher                  │ CHACHA20_POLY1305      │ AES_256_GCM            │ AES_256_GCM         │
-│  4th cipher                  │ ECDHE_ECDSA_AES128     │ CHACHA20_POLY1305      │ CHACHA20_POLY1305   │
-│  5th cipher                  │ ECDHE_RSA_AES128       │ ECDHE_ECDSA_AES128     │ ECDHE_ECDSA_AES128  │
-│                                                                                                      │
-│  SUPPORTED GROUPS                                                                                    │
-│  ────────────────────────────┼────────────────────────┼────────────────────────┼──────────────────── │
-│  Groups                      │ X25519, P-256,         │ GREASE, X25519MLKEM768,│ GREASE, X25519MLKEM,│
-│                              │ P-384, P-521           │ X25519, P-256, P-384   │ X25519, P-256, P-384│
-│                                                                                                      │
-│  FINGERPRINT HASHES (verified against real Chrome 143)                                               │
-│  ────────────────────────────┼────────────────────────┼────────────────────────┼──────────────────── │
-│  JA3 Hash*                   │ e69402f870ecf542...    │ (varies per request)   │ (varies per request)│
-│  JA4                         │ t13d1312h2_f57a46...   │ t13d1516h2_8daaf6152771_d8a2da3f94cd   MATCH │
-│  peetprint_hash              │ (different)            │ 1d4ffe9b0e34acac0bd883fa7f79d7b5       MATCH │
-│  Akamai HTTP/2 Hash          │ cbcbfae223bb97a0...    │ 52d84b11737d980aef856699f885ca86       MATCH │
-│                                                                                                      │
-│  * JA3 includes GREASE values which are randomized per connection (by design)                        │
-│                                                                                                      │
-│  HTTP/2 SETTINGS FRAME                                                                               │
-│  ────────────────────────────┼────────────────────────┼────────────────────────┼──────────────────── │
-│  HEADER_TABLE_SIZE           │ 4,096                  │ 65,536                 │ 65,536              │
-│  ENABLE_PUSH                 │ 1 (enabled)            │ 0 (disabled)           │ 0 (disabled)        │
-│  INITIAL_WINDOW_SIZE         │ 65,535 (64KB)          │ 6,291,456 (6MB)        │ 6,291,456 (6MB)     │
-│  MAX_HEADER_LIST_SIZE        │ 10,485,760             │ 262,144                │ 262,144             │
-│  WINDOW_UPDATE increment     │ (varies)               │ 15,663,105             │ 15,663,105          │
-│                                                                                                      │
-│  HTTP/2 HEADERS FRAME                                                                                │
-│  ────────────────────────────┼────────────────────────┼────────────────────────┼──────────────────── │
-│  Pseudo-header order         │ :method, :path,        │ :method, :authority,   │ :method, :authority,│
-│                              │ :scheme, :authority    │ :scheme, :path         │ :scheme, :path      │
-│  Header order                │ (Go's alphabetical)    │ sec-ch-ua, sec-ch-ua-  │ sec-ch-ua, sec-ch-  │
-│                              │                        │ mobile, sec-ch-ua-     │ ua-mobile, sec-ch-  │
-│                              │                        │ platform, upgrade-...  │ ua-platform, ...    │
-│  Priority flag               │ Not present            │ Present                │ Present             │
-│  Priority weight             │ N/A                    │ 256                    │ 256                 │
-│  Priority exclusive          │ N/A                    │ 1                      │ 1                   │
-│  Priority depends_on         │ N/A                    │ 0                      │ 0                   │
-│                                                                                                      │
-│  CLIENT HINTS                                                                                        │
-│  ────────────────────────────┼────────────────────────┼────────────────────────┼──────────────────── │
-│  sec-ch-ua                   │ (not sent)             │ "Google Chrome";v="143"│ "Google Chrome";v=" │
-│                              │                        │ "Chromium";v="143",    │ 143", "Chromium";   │
-│                              │                        │ "Not A(Brand";v="24"   │ v="143", "Not A(... │
-│                                                                                                      │
-│  MATCH STATUS                                                                                        │
-│  ────────────────────────────┼────────────────────────┼────────────────────────┼──────────────────── │
-│  Matches Chrome 143?         │           NO           │          YES           │     (is Chrome)     │
-│  Bot Detection Result        │         BLOCKED        │         PASSED         │        PASSED       │
-│                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                    FINGERPRINT COMPARISON (from tls.peet.ws)                    │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  METRIC                    │ GO STDLIB         │ HTTPCLOAK         │ CHROME 143│
+│  ──────────────────────────┼───────────────────┼───────────────────┼───────────│
+│  Cipher Suites             │ 13                │ 16                │ 16        │
+│  TLS Extensions            │ 12                │ 18                │ 18        │
+│  GREASE Values             │ None              │ Yes (random)      │ Yes       │
+│  Post-Quantum (X25519MLKEM)│ No                │ Yes               │ Yes       │
+│  ECH Support               │ No                │ Yes               │ Yes       │
+│                                                                                 │
+│  HTTP/2 SETTINGS                                                                │
+│  ──────────────────────────┼───────────────────┼───────────────────┼───────────│
+│  HEADER_TABLE_SIZE         │ 4,096             │ 65,536            │ 65,536    │
+│  ENABLE_PUSH               │ 1                 │ 0                 │ 0         │
+│  INITIAL_WINDOW_SIZE       │ 65,535 (64KB)     │ 6,291,456 (6MB)   │ 6,291,456 │
+│  MAX_HEADER_LIST_SIZE      │ 10,485,760        │ 262,144           │ 262,144   │
+│                                                                                 │
+│  FINGERPRINT HASHES                                                             │
+│  ──────────────────────────┼───────────────────┼───────────────────┼───────────│
+│  JA4                       │ t13d1312h2_...    │ t13d1516h2_8daaf6...    MATCH │
+│  Akamai HTTP/2             │ cbcbfae223...     │ 52d84b11737d...         MATCH │
+│  peetprint                 │ (different)       │ 1d4ffe9b0e34...         MATCH │
+│                                                                                 │
+│  RESULT                    │ BLOCKED           │ PASSED            │ PASSED    │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key observations:**
-- **Akamai HTTP/2 Hash**: `52d84b11737d980aef856699f885ca86` — **identical to real Chrome 143**
-- **JA4 Hash**: `t13d1516h2_8daaf6152771_d8a2da3f94cd` — **identical to real Chrome 143**
-- **peetprint_hash**: `1d4ffe9b0e34acac0bd883fa7f79d7b5` — **identical to real Chrome 143**
-- **GREASE**: Both Chrome and httpcloak randomize GREASE values per connection (this is correct behavior)
-- **JA3 varies**: JA3 includes GREASE values, so it changes per connection — this is expected and correct
-- **Priority frame**: Chrome 143 sends Priority data (weight=256, exclusive=1), and so does httpcloak
-- **Header order**: Both send sec-ch-ua headers first, matching Chrome's exact ordering
+### Cloudflare CDN Trace
 
-#### Why Each Metric Matters
-
-| Metric | Why It Matters |
-|--------|----------------|
-| **Cipher Suites** | Browsers offer more ciphers in a specific order. Go offers fewer in a different order. This alone identifies Go. |
-| **TLS Extensions** | Chrome sends 18 extensions including GREASE (random values). Go sends 12 with no GREASE. Dead giveaway. |
-| **Post-Quantum** | Chrome 131+ uses X25519MLKEM768 for quantum-resistant key exchange. Go doesn't support this yet. |
-| **GREASE** | Generate Random Extensions And Sustain Extensibility - Chrome randomizes these values per connection. Using the same GREASE value every time is itself a fingerprint! |
-| **JA3/JA4 Hash** | JA4 is the modern standard (JA3 is deprecated due to GREASE). Bot detection services maintain databases of known JA4 hashes. |
-| **HTTP/2 SETTINGS** | The first HTTP/2 frame contains settings. Chrome's values differ significantly from Go's defaults. |
-| **INITIAL_WINDOW_SIZE** | Chrome uses 6MB, Go uses 64KB. This 100x difference is instantly detectable. |
-| **Priority Frame** | Chrome 143 sends Priority data (weight=256, exclusive=1) on HEADERS frames. Go doesn't send this. |
-| **Header Order** | Chrome sends headers in a specific order (sec-ch-ua first). Go uses alphabetical order. The order itself is a fingerprint. |
-| **sec-ch-ua Brand** | Chrome 143 uses `"Not A(Brand";v="24"`. Older/wrong brand strings identify automation. |
-
-#### What Gets You Blocked
+The `/cdn-cgi/trace` endpoint reveals connection details. Here's what httpcloak achieves:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    BOT DETECTION LAYERS                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  Layer 1: TLS Fingerprint                                       │
-│  ├─ JA3/JA4 hash lookup in known-bot database                   │
-│  ├─ Cipher suite count and order analysis                       │
-│  ├─ Extension presence check (GREASE, etc.)                     │
-│  └─ Post-quantum support detection                              │
-│       ↓ FAIL = Instant block (403/503)                          │
-│                                                                 │
-│  Layer 2: HTTP/2 Fingerprint                                    │
-│  ├─ SETTINGS frame analysis                                     │
-│  ├─ WINDOW_UPDATE patterns                                      │
-│  └─ PRIORITY frame structure                                    │
-│       ↓ FAIL = Captcha or block                                 │
-│                                                                 │
-│  Layer 3: Header Analysis                                       │
-│  ├─ Header order (browsers have specific order)                 │
-│  ├─ Sec-Fetch-* header coherence                                │
-│  └─ Client Hints presence                                       │
-│       ↓ FAIL = Suspicious flag                                  │
-│                                                                 │
-│  Layer 4: JavaScript Challenge (not covered by httpcloak)       │
-│  ├─ Canvas fingerprint                                          │
-│  ├─ WebGL fingerprint                                           │
-│  └─ Browser API probing                                         │
-│       ↓ FAIL = Block                                            │
-│                                                                 │
-│  httpcloak passes Layers 1-3                                    │
-│  Layer 4 requires actual browser or specialized tools           │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+fl=283f39
+h=www.cloudflare.com
+ip=2401:4900:8899:xxxx:xxxx:xxxx:xxxx:xxxx
+ts=1767716387.683
+visit_scheme=https
+uag=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36
+colo=CCU
+sliver=none
+http=http/3          <-- HTTP/3 (QUIC) connection
+loc=IN
+tls=TLSv1.3          <-- TLS 1.3
+sni=plaintext
+warp=off
+gateway=off
+rbi=off
+kex=X25519MLKEM768   <-- Post-quantum key exchange (Chrome 143)
 ```
 
-### How httpcloak Solves This
+**Key fields:**
+- `http=http/3` - Using HTTP/3 over QUIC (fastest, most modern protocol)
+- `tls=TLSv1.3` - TLS 1.3 encryption
+- `kex=X25519MLKEM768` - Post-quantum hybrid key exchange (only Chrome 131+ supports this)
+- `uag` - User-Agent matching Chrome 143
 
-httpcloak uses **[uTLS](https://github.com/refraction-networking/utls)** to perfectly mimic browser TLS handshakes, combined with:
+The `kex=X25519MLKEM768` is critical - it's Chrome's post-quantum cryptography that Go's stdlib doesn't support. Bot detection systems check for this.
 
-- Correct HTTP/2 SETTINGS, WINDOW_UPDATE, and PRIORITY frames
-- Browser-accurate header ordering (`:method`, `:authority`, `:scheme`, `:path` pseudo-headers)
-- Proper Sec-Fetch-* headers for navigation vs CORS requests
-- Client Hints (Sec-Ch-Ua-*) matching the spoofed browser
-- Organic jitter in quality values to match real browser behavior
+### HTTP/3 Support
 
-The result: requests are **cryptographically indistinguishable** from a real Chrome browser.
+HTTP/3 uses QUIC (UDP-based) instead of TCP, providing:
+- **Faster connections**: 0-RTT resumption, no TCP handshake
+- **Better performance**: No head-of-line blocking
+- **Unique fingerprint**: QUIC transport parameters are also fingerprinted
+
+httpcloak supports HTTP/3 with proper Chrome fingerprinting, automatically falling back to HTTP/2 or HTTP/1.1 when needed.
+
+---
 
 ## Installation
 
+### Go
 ```bash
 go get github.com/sardanioss/httpcloak
 ```
 
-## Quick Start
+### Python
+```bash
+pip install httpcloak
+```
+
+### Node.js
+```bash
+npm install httpcloak
+```
+
+---
+
+## Usage
+
+### Go
 
 ```go
 package main
@@ -193,8 +128,8 @@ func main() {
     c := client.NewClient("chrome-143")
     defer c.Close()
 
-    // Make a request - looks exactly like Chrome to the server
-    resp, err := c.Get(context.Background(), "https://example.com", nil)
+    // Simple GET request
+    resp, err := c.Get(context.Background(), "https://www.cloudflare.com/cdn-cgi/trace", nil)
     if err != nil {
         log.Fatal(err)
     }
@@ -205,488 +140,428 @@ func main() {
 }
 ```
 
-## How TLS Fingerprinting Works
-
-When your client connects to a server over HTTPS, the TLS handshake exposes identifying information:
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                      TLS CLIENT HELLO                            │
-├──────────────────────────────────────────────────────────────────┤
-│ TLS Version: 1.3                                                 │
-│                                                                  │
-│ Cipher Suites (ordered list):                                    │
-│   TLS_AES_128_GCM_SHA256                                         │
-│   TLS_AES_256_GCM_SHA384                                         │
-│   TLS_CHACHA20_POLY1305_SHA256                                   │
-│   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256                        │
-│   ... (16 total for Chrome, 13 for Go)                           │
-│                                                                  │
-│ Extensions (ordered list):                                       │
-│   server_name (SNI)                                              │
-│   extended_master_secret                                         │
-│   signature_algorithms                                           │
-│   supported_versions                                             │
-│   psk_key_exchange_modes                                         │
-│   key_share (with X25519MLKEM768 for Chrome 131+)                │
-│   application_layer_protocol_negotiation                         │
-│   ... (18 total for Chrome, 12 for Go)                           │
-│                                                                  │
-│ Supported Groups (elliptic curves):                              │
-│   X25519MLKEM768 (post-quantum, Chrome 131+)                     │
-│   X25519                                                         │
-│   P-256                                                          │
-│   P-384                                                          │
-├──────────────────────────────────────────────────────────────────┤
-│                             ↓                                    │
-│                   JA3/JA4 Fingerprint                            │
-│                             ↓                                    │
-│            Server knows you're Go, not Chrome                    │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-**JA3** hashes these fields into a fingerprint. **JA4** is the newer standard with more detail. Bot detection services maintain databases of fingerprints for every browser version and known bot libraries.
-
-## How HTTP/2 Fingerprinting Works
-
-After TLS, the HTTP/2 connection also has a fingerprint based on the SETTINGS frame:
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                    HTTP/2 SETTINGS FRAME                         │
-├──────────────────────────────────────────────────────────────────┤
-│ Go stdlib                      │ Chrome (httpcloak)              │
-├────────────────────────────────┼─────────────────────────────────┤
-│ HEADER_TABLE_SIZE: 4096        │ HEADER_TABLE_SIZE: 65536        │
-│ ENABLE_PUSH: 1                 │ ENABLE_PUSH: 0                  │
-│ MAX_CONCURRENT_STREAMS: 250    │ MAX_CONCURRENT_STREAMS: 1000    │
-│ INITIAL_WINDOW_SIZE: 65535     │ INITIAL_WINDOW_SIZE: 6291456    │
-│ MAX_FRAME_SIZE: 16384          │ MAX_FRAME_SIZE: 16384           │
-│ MAX_HEADER_LIST_SIZE: 10485760 │ MAX_HEADER_LIST_SIZE: 262144    │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-These settings are hashed into the **Akamai fingerprint**. httpcloak sends the exact values Chrome uses.
-
-## Features
-
-### Browser Fingerprints
-- **TLS Fingerprinting**: JA3/JA4 fingerprints match real Chrome/Firefox
-- **HTTP/2 Fingerprinting**: SETTINGS, WINDOW_UPDATE, PRIORITY frames match browsers
-- **HTTP/3 Support**: QUIC with proper fingerprinting
-- **HTTP/1.1 Support**: For legacy servers with browser-like header ordering
-- **Client Hints**: Sec-Ch-Ua-* headers matching the spoofed browser
-- **Header Coherence**: Sec-Fetch-* headers are always consistent
-
-### Protocol Support
-- **Auto Protocol Selection**: Tries HTTP/3 → HTTP/2 → HTTP/1.1 with smart fallback
-- **Protocol Learning**: Remembers which protocol each host supports
-- **Force Protocol**: Can force specific protocol (H1, H2, or H3) per request
-- **Plain HTTP**: Automatically uses HTTP/1.1 for non-TLS connections
-
-### HTTP Features
-- **Connection Pooling**: Efficient connection reuse (H2 multiplexing, H1 keep-alive)
-- **Session Management**: Cookie jar for persistent sessions (like `requests.Session()`)
-- **Automatic Decompression**: gzip, brotli, zstd
-- **Redirect Following**: Configurable, with history tracking (`resp.RedirectHistory`)
-- **Retry with Backoff**: Exponential backoff with jitter
-- **Proxy Support**: HTTP, HTTPS, SOCKS5 proxies
-- **Authentication**: Basic, Bearer, Digest auth
-- **Better Error Handling**: Categorized errors (DNS, TLS, timeout, connection) with retry hints
-- **Request Hooks**: Pre-request and post-response callbacks
-- **Prepared Requests**: Inspect and modify requests before sending
-- **Certificate Pinning**: Pin certificates by SPKI hash for security
-
-### Request Modes
-- **Navigate Mode**: Simulates user-initiated navigation (Sec-Fetch-Mode: navigate)
-- **CORS Mode**: Simulates JavaScript fetch() call (Sec-Fetch-Mode: cors)
-- **Organic Jitter**: Random header variations to match real browser inconsistencies
-
-## Available Presets
-
-| Preset | Browser | TLS | HTTP/2 | HTTP/3 |
-|--------|---------|-----|--------|--------|
-| `chrome-143` | Chrome 143 | X25519MLKEM768 | ✓ | ✓ |
-| `chrome-143-windows` | Chrome 143 (Windows) | X25519MLKEM768 | ✓ | ✓ |
-| `chrome-141` | Chrome 141 | X25519MLKEM768 | ✓ | ✓ |
-| `chrome-133` | Chrome 133 | X25519MLKEM768 | ✓ | ✓ |
-| `chrome-131` | Chrome 131 | X25519MLKEM768 | ✓ | ✓ |
-| `firefox-133` | Firefox 133 | X25519 | ✓ | ✗ |
-| `safari-18` | Safari 18 | X25519 | ✓ | ✗ |
-
-Presets auto-adapt to your OS (Windows/macOS/Linux) for User-Agent and Sec-Ch-Ua-Platform.
-
-## Usage Examples
-
-### Simple GET Request
+#### POST with JSON
 
 ```go
 c := client.NewClient("chrome-143")
 defer c.Close()
 
-resp, err := c.Get(ctx, "https://api.example.com/data", nil)
-if err != nil {
-    log.Fatal(err)
-}
-
-fmt.Println(resp.Text())
-```
-
-### Session with Cookies
-
-```go
-// NewSession automatically persists cookies between requests
-session := client.NewSession("chrome-143")
-defer session.Close()
-
-// Login - cookies are saved
-session.Post(ctx, "https://example.com/login",
-    []byte(`{"user":"test","pass":"secret"}`),
-    map[string]string{"Content-Type": "application/json"})
-
-// Subsequent requests include cookies automatically
-resp, _ := session.Get(ctx, "https://example.com/dashboard", nil)
-```
-
-### API Request (CORS Mode)
-
-```go
-c := client.NewClient("chrome-143")
-defer c.Close()
-
-resp, err := c.Do(ctx, &client.Request{
-    Method:    "POST",
-    URL:       "https://api.example.com/graphql",
-    Body:      []byte(`{"query": "{ user { name } }"}`),
-    FetchMode: client.FetchModeCORS,  // Simulates fetch() call
-    Referer:   "https://app.example.com/",
+body := []byte(`{"username": "test", "password": "secret"}`)
+resp, err := c.Do(context.Background(), &client.Request{
+    Method:  "POST",
+    URL:     "https://api.example.com/login",
+    Body:    body,
     Headers: map[string]string{
         "Content-Type": "application/json",
     },
 })
 ```
 
-### With Proxy
+#### Session with Cookies
+
+```go
+// Sessions persist cookies between requests
+session := client.NewSession("chrome-143")
+defer session.Close()
+
+// Login - cookies are saved automatically
+session.Post(ctx, "https://example.com/login",
+    []byte(`{"user":"test"}`),
+    map[string]string{"Content-Type": "application/json"})
+
+// Subsequent requests include cookies
+resp, _ := session.Get(ctx, "https://example.com/dashboard", nil)
+```
+
+#### With Proxy
 
 ```go
 c := client.NewClient("chrome-143",
     client.WithProxy("http://user:pass@proxy.example.com:8080"),
-    client.WithTimeout(60*time.Second),
+    client.WithTimeout(30*time.Second),
 )
 defer c.Close()
 ```
 
-### With Retry
+#### With Retry
 
 ```go
 c := client.NewClient("chrome-143",
-    client.WithRetry(3),  // Retry up to 3 times on 429, 500, 502, 503, 504
+    client.WithRetry(3), // Retry up to 3 times on 429, 500, 502, 503, 504
 )
-defer c.Close()
 ```
 
-### Force Protocol
+#### Force Protocol
 
 ```go
-// Force HTTP/1.1 (for legacy servers or specific requirements)
-resp, err := c.Do(ctx, &client.Request{
-    Method:        "GET",
-    URL:           "https://example.com",
-    ForceProtocol: client.ProtocolHTTP1,
-})
-
 // Force HTTP/2 (skip HTTP/3 attempt)
-resp, err := c.Do(ctx, &client.Request{
-    Method:        "GET",
-    URL:           "https://example.com",
-    ForceProtocol: client.ProtocolHTTP2,
-})
+c := client.NewClient("chrome-143", client.WithForceHTTP2())
 
-// Force HTTP/3
-resp, err := c.Do(ctx, &client.Request{
-    Method:        "GET",
-    URL:           "https://example.com",
-    ForceProtocol: client.ProtocolHTTP3,
-})
-
-// Auto (default) - tries H3 → H2 → H1 with smart fallback
-resp, err := c.Do(ctx, &client.Request{
-    Method:        "GET",
-    URL:           "https://example.com",
-    ForceProtocol: client.ProtocolAuto,
-})
+// Force HTTP/1.1
+c := client.NewClient("chrome-143", client.WithForceHTTP1())
 ```
 
-### Request Hooks
+#### Redirect Control
 
 ```go
-c := client.NewClient("chrome-143")
-defer c.Close()
+// Disable redirects
+c := client.NewClient("chrome-143", client.WithoutRedirects())
 
-// Add pre-request hook (logging, modification)
-c.OnPreRequest(func(req *http.Request) error {
-    log.Printf("Requesting: %s %s", req.Method, req.URL)
-    req.Header.Set("X-Custom-Header", "value")
-    return nil
-})
-
-// Add post-response hook (logging, metrics)
-c.OnPostResponse(func(resp *client.Response) error {
-    log.Printf("Response: %d from %s", resp.StatusCode, resp.FinalURL)
-    return nil
-})
-
-resp, _ := c.Get(ctx, "https://example.com", nil)
+// Custom redirect limit
+c := client.NewClient("chrome-143", client.WithRedirects(true, 5))
 ```
 
-### Prepared Requests
+---
 
-```go
-c := client.NewClient("chrome-143")
-defer c.Close()
+### Python
 
-// Prepare a request without sending
-prepared, err := c.Prepare(ctx, &client.Request{
-    Method: "POST",
-    URL:    "https://api.example.com/data",
-    Body:   []byte(`{"key": "value"}`),
-})
+httpcloak for Python provides a **requests-compatible API** - drop-in replacement with browser fingerprinting.
 
-// Inspect and modify before sending
-prepared.SetHeader("X-Request-ID", "abc123")
-prepared.SetHeader("Authorization", "Bearer token")
+```python
+import httpcloak
 
-// Send when ready
-resp, err := prepared.Send(ctx)
+# Simple GET request
+r = httpcloak.get("https://www.cloudflare.com/cdn-cgi/trace")
+print(r.status_code)
+print(r.text)
+print(r.protocol)  # "h2" or "h3"
 ```
 
-### Certificate Pinning
+#### POST with JSON
 
-```go
-c := client.NewClient("chrome-143")
-defer c.Close()
+```python
+r = httpcloak.post("https://api.example.com/login", json={
+    "username": "test",
+    "password": "secret"
+})
+print(r.json())
+```
 
-// Pin by SPKI SHA256 hash (base64 encoded)
-c.PinCertificate("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-    client.ForHost("api.example.com"),
-    client.IncludeSubdomains())
+#### Session with Cookies
 
-// Or load from certificate file
-err := c.PinCertificateFromFile("/path/to/cert.pem",
-    client.ForHost("api.example.com"))
+```python
+# Sessions persist cookies and connections
+with httpcloak.Session(preset="chrome-143") as session:
+    # Login
+    session.post("https://example.com/login", json={"user": "test"})
 
-// Requests will fail if certificate doesn't match pin
-resp, err := c.Get(ctx, "https://api.example.com/data", nil)
-if err != nil {
-    // Check if it's a pinning error
-    var pinErr *client.CertPinError
-    if errors.As(err, &pinErr) {
-        log.Printf("Certificate pinning failed: %v", pinErr)
+    # Subsequent requests include cookies
+    r = session.get("https://example.com/dashboard")
+    print(r.json())
+```
+
+#### File Upload (Multipart)
+
+```python
+# Upload a file
+with open("image.png", "rb") as f:
+    r = httpcloak.post("https://api.example.com/upload", files={
+        "file": f
+    })
+
+# Upload with custom filename and content type
+r = httpcloak.post("https://api.example.com/upload", files={
+    "file": ("photo.jpg", image_bytes, "image/jpeg")
+})
+
+# Upload with form data
+r = httpcloak.post("https://api.example.com/upload",
+    data={"description": "My photo"},
+    files={"file": open("photo.jpg", "rb")}
+)
+```
+
+#### Configure Defaults
+
+```python
+# Configure global defaults
+httpcloak.configure(
+    preset="chrome-143",
+    proxy="http://user:pass@proxy:8080",
+    timeout=30,
+    verify=True,           # SSL verification
+    allow_redirects=True,
+    retry=3,               # Retry failed requests
+)
+
+# All subsequent requests use these defaults
+r = httpcloak.get("https://example.com")
+```
+
+#### Session Options
+
+```python
+session = httpcloak.Session(
+    preset="chrome-143",
+    proxy="http://proxy:8080",
+    timeout=30,
+    http_version="auto",      # "auto", "h1", "h2", "h3"
+    verify=True,              # SSL certificate verification
+    allow_redirects=True,
+    max_redirects=10,
+    retry=3,
+    retry_on_status=[429, 500, 502, 503, 504],
+)
+```
+
+#### Basic Authentication
+
+```python
+# Per-request auth
+r = httpcloak.get("https://api.example.com/data", auth=("user", "pass"))
+
+# Global auth
+httpcloak.configure(auth=("user", "pass"))
+```
+
+---
+
+### Node.js
+
+```javascript
+const httpcloak = require("httpcloak");
+
+// Simple GET request
+const r = await httpcloak.get("https://www.cloudflare.com/cdn-cgi/trace");
+console.log(r.statusCode);
+console.log(r.text);
+console.log(r.protocol); // "h2" or "h3"
+```
+
+#### POST with JSON
+
+```javascript
+const r = await httpcloak.post("https://api.example.com/login", {
+  json: { username: "test", password: "secret" }
+});
+console.log(r.json());
+```
+
+#### Session with Cookies
+
+```javascript
+const session = new httpcloak.Session({ preset: "chrome-143" });
+
+// Login
+await session.post("https://example.com/login", {
+  json: { user: "test" }
+});
+
+// Subsequent requests include cookies
+const r = await session.get("https://example.com/dashboard");
+console.log(r.json());
+
+session.close();
+```
+
+#### Synchronous Requests
+
+```javascript
+const session = new httpcloak.Session({ preset: "chrome-143" });
+
+// Sync methods available
+const r = session.getSync("https://example.com");
+console.log(r.statusCode);
+
+session.close();
+```
+
+#### File Upload (Multipart)
+
+```javascript
+const session = new httpcloak.Session({ preset: "chrome-143" });
+
+// Upload a buffer
+const r = session.postSync("https://api.example.com/upload", {
+  files: {
+    file: Buffer.from(fileData)
+  }
+});
+
+// Upload with filename and content type
+const r = session.postSync("https://api.example.com/upload", {
+  files: {
+    file: {
+      filename: "photo.jpg",
+      content: imageBuffer,
+      contentType: "image/jpeg"
     }
-}
+  }
+});
+
+// Upload with form data
+const r = session.postSync("https://api.example.com/upload", {
+  data: { description: "My photo" },
+  files: { file: imageBuffer }
+});
 ```
 
-### Redirect History
+#### Configure Defaults
 
+```javascript
+httpcloak.configure({
+  preset: "chrome-143",
+  proxy: "http://user:pass@proxy:8080",
+  timeout: 30,
+  verify: true,
+  allowRedirects: true,
+  retry: 3,
+});
+
+const r = await httpcloak.get("https://example.com");
+```
+
+#### Session Options
+
+```javascript
+const session = new httpcloak.Session({
+  preset: "chrome-143",
+  proxy: "http://proxy:8080",
+  timeout: 30,
+  httpVersion: "auto",     // "auto", "h1", "h2", "h3"
+  verify: true,
+  allowRedirects: true,
+  maxRedirects: 10,
+  retry: 3,
+  retryOnStatus: [429, 500, 502, 503, 504],
+});
+```
+
+---
+
+## Available Presets
+
+| Preset | Browser | Post-Quantum | HTTP/2 | HTTP/3 |
+|--------|---------|--------------|--------|--------|
+| `chrome-143` | Chrome 143 | X25519MLKEM768 | Yes | Yes |
+| `chrome-143-windows` | Chrome 143 (Windows) | X25519MLKEM768 | Yes | Yes |
+| `chrome-143-linux` | Chrome 143 (Linux) | X25519MLKEM768 | Yes | Yes |
+| `chrome-143-macos` | Chrome 143 (macOS) | X25519MLKEM768 | Yes | Yes |
+| `chrome-131` | Chrome 131 | X25519MLKEM768 | Yes | Yes |
+| `firefox-133` | Firefox 133 | X25519 | Yes | No |
+| `safari-18` | Safari 18 | X25519 | Yes | No |
+
+**Recommended:** Use `chrome-143` - it's the latest with full HTTP/3 and post-quantum support.
+
+---
+
+## Features
+
+### Browser Fingerprinting
+- **TLS Fingerprinting**: JA3/JA4 hashes match real Chrome
+- **HTTP/2 Fingerprinting**: SETTINGS, WINDOW_UPDATE, PRIORITY frames
+- **HTTP/3 Fingerprinting**: QUIC transport parameters
+- **Header Order**: Browser-accurate header ordering
+- **Client Hints**: Sec-Ch-Ua-* headers matching the preset
+
+### Protocol Support
+- **HTTP/3**: QUIC with Chrome fingerprinting
+- **HTTP/2**: Multiplexed connections with proper framing
+- **HTTP/1.1**: Keep-alive connection pooling
+- **Auto Fallback**: H3 -> H2 -> H1 with protocol learning
+
+### HTTP Features
+- **Connection Pooling**: Efficient connection reuse
+- **Session Management**: Cookie persistence
+- **Automatic Decompression**: gzip, brotli, zstd
+- **Redirect Following**: Configurable with history
+- **Retry with Backoff**: Exponential backoff with jitter
+- **Proxy Support**: HTTP, HTTPS, SOCKS5
+
+---
+
+## Proxy Support
+
+All languages support HTTP and SOCKS5 proxies:
+
+```
+http://host:port
+http://user:pass@host:port
+socks5://host:port
+socks5://user:pass@host:port
+```
+
+---
+
+## Response Object
+
+### Go
 ```go
-c := client.NewClient("chrome-143")
-defer c.Close()
-
-resp, _ := c.Get(ctx, "https://example.com/redirect-chain", nil)
-
-// Access redirect history
-for i, redirect := range resp.RedirectHistory {
-    fmt.Printf("Redirect %d: %d -> %s\n", i+1, redirect.StatusCode, redirect.URL)
-}
-fmt.Printf("Final URL: %s\n", resp.FinalURL)
+resp.StatusCode    // int
+resp.Headers       // map[string]string
+resp.Body          // []byte
+resp.Text()        // string
+resp.FinalURL      // string (after redirects)
+resp.Protocol      // "h1", "h2", or "h3"
 ```
+
+### Python
+```python
+r.status_code      # int
+r.headers          # dict
+r.content          # bytes
+r.text             # str
+r.json()           # parsed JSON
+r.url              # final URL after redirects
+r.protocol         # "h1", "h2", or "h3"
+r.ok               # True if status < 400
+r.raise_for_status()  # raises on 4xx/5xx
+```
+
+### Node.js
+```javascript
+r.statusCode       // number
+r.headers          // object
+r.content          // Buffer
+r.text             // string
+r.json()           // parsed JSON
+r.url              // final URL after redirects
+r.protocol         // "h1", "h2", or "h3"
+r.ok               // true if status < 400
+r.raiseForStatus() // throws on 4xx/5xx
+```
+
+---
 
 ## Examples
 
-The `examples/` directory contains runnable examples:
+See the `examples/` directory:
 
 ```bash
-# Basic usage - GET, POST, headers, timeout, redirects, retry, SSL, protocols
-go run examples/basic/main.go
+# Go examples
+go run examples/go-examples/basic/main.go
+go run examples/go-examples/session/main.go
+go run examples/go-examples/cloudflare/main.go
 
-# Session management - cookies, login flow, cookie inspection
-go run examples/session/main.go
+# Python examples
+python examples/python-examples/01_simple_requests.py
+python examples/python-examples/02_sessions.py
 
-# Cloudflare trace - multiple requests, protocol comparison
-go run examples/cloudflare/main.go
+# Node.js examples
+node examples/js-examples/01_simple_requests.js
+node examples/js-examples/02_sessions.js
 ```
 
-## Architecture
-
-```
-httpcloak/
-├── httpcloak.go       # High-level public API
-├── client/
-│   ├── client.go      # HTTP client with fingerprint spoofing
-│   ├── options.go     # Configuration options
-│   ├── cookie.go      # Cookie handling
-│   ├── cookiejar.go   # Cookie jar implementation
-│   ├── auth.go        # Authentication (Basic, Bearer, Digest)
-│   ├── multipart.go   # Multipart form data
-│   ├── stream.go      # SSE/streaming support
-│   ├── url.go         # URL building utilities
-│   ├── helpers.go     # Utility functions
-│   ├── hooks.go       # Request hooks (pre/post callbacks)
-│   ├── prepared.go    # Prepared requests pattern
-│   ├── certpin.go     # Certificate pinning
-│   └── http3_client.go # HTTP/3 client implementation
-├── fingerprint/
-│   └── presets.go     # Browser fingerprint definitions (TLS + HTTP/2)
-├── transport/
-│   ├── transport.go       # Unified transport (H1/H2/H3 with auto-fallback)
-│   ├── http1_transport.go # HTTP/1.1 with uTLS and keep-alive pooling
-│   ├── http2_transport.go # HTTP/2 with custom TLS
-│   ├── http3_transport.go # HTTP/3 (QUIC)
-│   ├── http2_custom.go    # Custom HTTP/2 framing
-│   └── errors.go          # Categorized errors (DNS, TLS, timeout, etc.)
-├── pool/
-│   ├── pool.go        # Connection pool for HTTP/2
-│   └── quic_pool.go   # Connection pool for HTTP/3
-├── dns/
-│   └── cache.go       # DNS caching
-├── session/
-│   ├── session.go     # Session management
-│   └── manager.go     # Session manager
-├── protocol/
-│   └── types.go       # IPC protocol types for multi-language support
-└── cmd/
-    └── httpcloak-daemon/
-        ├── main.go    # IPC daemon for Python/Node.js/Ruby SDKs
-        └── ipc_test.go # Comprehensive IPC tests
-```
-
-## Multi-Language Support (IPC Daemon)
-
-httpcloak includes an IPC daemon for use from **any programming language** via JSON over stdin/stdout.
-
-```bash
-# Build the daemon
-go build -o httpcloak-daemon ./cmd/httpcloak-daemon/
-
-# Simple request
-echo '{"id":"1","type":"request","method":"GET","url":"https://example.com"}' | ./httpcloak-daemon
-```
-
-### Message Types
-
-| Type | Description |
-|------|-------------|
-| `ping` | Health check |
-| `preset.list` | List available browser presets |
-| `session.create` | Create session with cookies |
-| `session.close` / `session.list` | Manage sessions |
-| `request` | Make HTTP request |
-| `cookie.get` / `cookie.set` / `cookie.clear` / `cookie.all` | Cookie management |
-
-### Example: Python
-
-```python
-import subprocess, json
-
-proc = subprocess.Popen(['./httpcloak-daemon'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-
-def send(msg):
-    proc.stdin.write(json.dumps(msg) + '\n')
-    proc.stdin.flush()
-    return json.loads(proc.stdout.readline())
-
-# Create session with Chrome 143 fingerprint
-session = send({"id": "1", "type": "session.create", "options": {"preset": "chrome-143"}})
-
-# Make request
-resp = send({"id": "2", "type": "request", "session": session["session"], "method": "GET", "url": "https://example.com"})
-print(f"Status: {resp['status']}, Protocol: {resp['protocol']}")
-```
-
-### Request Options
-
-```json
-{
-    "id": "1", "type": "request", "session": "session-123",
-    "method": "POST", "url": "https://api.example.com/data",
-    "headers": {"Content-Type": "application/json"},
-    "body": "{\"key\": \"value\"}",
-    "options": {
-        "timeout": 30000, "followRedirects": true, "forceProtocol": "h2",
-        "fetchMode": "cors", "referer": "https://example.com/",
-        "proxy": "http://user:pass@proxy:8080",
-        "auth": {"type": "bearer", "token": "your-token"}
-    }
-}
-```
-
-### Future SDKs
-
-| Language | Status |
-|----------|--------|
-| Go | ✅ `github.com/sardanioss/httpcloak` |
-| Python | 🔜 Planned |
-| Node.js | 🔜 Planned |
-
-## Testing
-
-Run the TLS fingerprint comparison test to verify httpcloak produces different fingerprints than Go's stdlib:
-
-```bash
-go test -v ./client -run TestTLSFingerprint_Comparison
-```
-
-This test:
-1. Fetches `https://tls.peet.ws/api/all` with Go's `net/http`
-2. Fetches the same URL with httpcloak
-3. Compares JA3, JA4, and Akamai fingerprints
-4. Asserts they are different (proving the fingerprint spoofing works)
-
-## Comparison with Other Libraries
-
-| Feature | net/http | resty | httpcloak |
-|---------|----------|-------|-----------|
-| TLS Fingerprint Spoofing | ✗ | ✗ | ✓ |
-| HTTP/2 Fingerprint Spoofing | ✗ | ✗ | ✓ |
-| HTTP/3 Support | ✗ | ✗ | ✓ |
-| Browser-like Headers | ✗ | ✗ | ✓ |
-| Connection Pooling | ✓ | ✓ | ✓ |
-| Cookie Jar | ✓ | ✓ | ✓ |
-| Bypasses Bot Detection | ✗ | ✗ | ✓ |
-
-## Security Considerations
-
-This library is intended for:
-- Web scraping where you have permission
-- Automated testing of your own services
-- Research and security analysis
-- Bypassing overly aggressive bot detection on legitimate use
-
-**Do not use for**:
-- Unauthorized access to systems
-- Circumventing security for malicious purposes
-- Violating terms of service
+---
 
 ## License
 
 MIT
 
+---
+
 ## Dependencies
 
-This library uses custom forks to enable browser-accurate fingerprinting:
+Uses custom forks for browser-accurate fingerprinting:
 
-| Library | Fork | Why |
-|---------|------|-----|
-| uTLS | [sardanioss/utls](https://github.com/sardanioss/utls) | Chrome 143 QUIC preset, platform-specific TLS fingerprints |
-| quic-go | [sardanioss/quic-go](https://github.com/sardanioss/quic-go) | uTLS integration, Chrome HTTP/3 SETTINGS, custom transport params |
-| net | [sardanioss/net](https://github.com/sardanioss/net) | HTTP/2 fingerprinting (SETTINGS, WINDOW_UPDATE, PRIORITY frames) |
+| Library | Fork | Purpose |
+|---------|------|---------|
+| uTLS | sardanioss/utls | Chrome 143 TLS presets |
+| quic-go | sardanioss/quic-go | HTTP/3 with Chrome fingerprinting |
+| net | sardanioss/net | HTTP/2 frame fingerprinting |
 
 ## Credits
 
-- [uTLS](https://github.com/refraction-networking/utls) - TLS fingerprint spoofing (upstream)
-- [quic-go](https://github.com/quic-go/quic-go) - HTTP/3 implementation (upstream)
-- [tls.peet.ws](https://tls.peet.ws) - TLS fingerprint analysis
-
-## AI Assistance Note
-
-I used claude code mainly to write code and a lot of it is written with its help. Just wanted to add this info, Thank you!
+- [uTLS](https://github.com/refraction-networking/utls) - TLS fingerprint spoofing
+- [quic-go](https://github.com/quic-go/quic-go) - HTTP/3 implementation
+- [tls.peet.ws](https://tls.peet.ws) - Fingerprint analysis
