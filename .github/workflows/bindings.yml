@@ -26,7 +26,7 @@ jobs:
             npm_platform: linux-arm64
           - os: darwin
             arch: amd64
-            runner: macos-13
+            runner: macos-15-large
             lib_ext: .dylib
             npm_platform: darwin-x64
           - os: darwin
@@ -91,7 +91,7 @@ jobs:
             lib_ext: .so
           - os: darwin
             arch: amd64
-            runner: macos-13
+            runner: macos-15-large
             plat_tag: macosx_10_9_x86_64
             lib_ext: .dylib
           - os: darwin
@@ -206,7 +206,7 @@ jobs:
             runner: ubuntu-24.04-arm
           - os: darwin
             arch: amd64
-            runner: macos-13
+            runner: macos-15-large
           - os: darwin
             arch: arm64
             runner: macos-14
