@@ -1,6 +1,6 @@
 {
   "name": "@httpcloak/linux-x64",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "HTTPCloak native binary for linux x64",
   "os": [
     "linux"

@@ -104,18 +104,6 @@ func (s *Session) Request(ctx context.Context, req *transport.Request) (*transpo
 		req.Headers = make(map[string]string)
 	}
 
-	// Add cookies to request headers
-	if len(s.cookies) > 0 {
-		cookieHeader := ""
-		for name, value := range s.cookies {
-			if cookieHeader != "" {
-				cookieHeader += "; "
-			}
-			cookieHeader += name + "=" + value
-		}
-		req.Headers["Cookie"] = cookieHeader
-	}
-
 	// Add cache validation headers (If-None-Match, If-Modified-Since)
 	// This makes requests look like a real browser that caches resources
 	if cached, exists := s.cacheEntries[req.URL]; exists {
@@ -154,11 +142,32 @@ func (s *Session) Request(ctx context.Context, req *transport.Request) (*transpo
 	}
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Add cookies to request headers BEFORE each attempt
+		// This ensures cookies from previous responses (including 429s) are used
+		s.mu.RLock()
+		if len(s.cookies) > 0 {
+			cookieHeader := ""
+			for name, value := range s.cookies {
+				if cookieHeader != "" {
+					cookieHeader += "; "
+				}
+				cookieHeader += name + "=" + value
+			}
+			req.Headers["Cookie"] = cookieHeader
+		}
+		s.mu.RUnlock()
+
 		resp, err = s.transport.Do(ctx, req)
 
 		// If no error and no retry config, or this is the last attempt, break
 		if maxRetries == 0 {
 			break
+		}
+
+		// Extract cookies from EVERY response (even 429s, 500s, etc.)
+		// This mimics browser behavior where cookies are stored regardless of status
+		if resp != nil {
+			s.extractCookies(resp.Headers)
 		}
 
 		// Check if we should retry
@@ -202,7 +211,7 @@ func (s *Session) Request(ctx context.Context, req *transport.Request) (*transpo
 		return nil, err
 	}
 
-	// Extract and store cookies from response
+	// Extract cookies from final response (in case we didn't retry or it's a success)
 	s.extractCookies(resp.Headers)
 
 	// Store cache validation headers from response for future requests

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "httpcloak"
-version = "1.0.2"
+version = "1.0.3"
 description = "Browser fingerprint emulation HTTP client with HTTP/1.1, HTTP/2, and HTTP/3 support"
 readme = "README.md"
 license = {text = "MIT"}
