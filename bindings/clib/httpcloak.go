@@ -552,7 +552,7 @@ func httpcloak_free_string(str *C.char) {
 
 //export httpcloak_version
 func httpcloak_version() *C.char {
-	return C.CString("1.0.7")
+	return C.CString("1.0.8")
 }
 
 //export httpcloak_available_presets

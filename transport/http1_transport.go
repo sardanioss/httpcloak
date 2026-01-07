@@ -33,11 +33,6 @@ type HTTP1Transport struct {
 	// TLS session cache for resumption
 	sessionCache utls.ClientSessionCache
 
-	// Cached ClientHelloSpec - shuffled once on transport creation, reused for all connections
-	// This matches Chrome's behavior: shuffle TLS extensions once per session, not per connection
-	cachedSpec    *utls.ClientHelloSpec
-	cachedPSKSpec *utls.ClientHelloSpec
-
 	// Configuration
 	maxIdleConnsPerHost int
 	maxIdleTime         time.Duration
@@ -84,20 +79,6 @@ func NewHTTP1TransportWithProxy(preset *fingerprint.Preset, dnsCache *dns.Cache,
 		connectTimeout:      30 * time.Second,
 		responseTimeout:     60 * time.Second,
 		stopCleanup:         make(chan struct{}),
-	}
-
-	// Generate and cache ClientHelloSpec once - this includes TLS extension shuffle
-	// Chrome shuffles extensions once at startup, not per connection
-	// This makes our fingerprint consistent within a session like real Chrome
-	if spec, err := utls.UTLSIdToSpec(preset.ClientHelloID); err == nil {
-		t.cachedSpec = &spec
-	}
-
-	// Also cache PSK variant if available
-	if preset.PSKClientHelloID.Client != "" {
-		if spec, err := utls.UTLSIdToSpec(preset.PSKClientHelloID); err == nil {
-			t.cachedPSKSpec = &spec
-		}
 	}
 
 	go t.cleanupLoop()
@@ -227,45 +208,23 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			MinVersion:                         tls.VersionTLS12,
 			MaxVersion:                         tls.VersionTLS13,
 			ClientSessionCache:                 t.sessionCache,
-			NextProtos:                         []string{"http/1.1"},
-			PreferSkipResumptionOnNilExtension: true, // Skip resumption if spec has no PSK extension
+			NextProtos:                         []string{"http/1.1"}, // Force HTTP/1.1 only
+			PreferSkipResumptionOnNilExtension: true,                 // Skip resumption if spec has no PSK extension
 		}
 
-		// Determine which cached spec to use
-		// Using cached specs ensures TLS extension order is consistent (shuffled once per session, like Chrome)
-		var specToUse *utls.ClientHelloSpec
-		if t.cachedPSKSpec != nil {
-			// Check if there's a cached session
-			if session, ok := t.sessionCache.Get(host); ok && session != nil {
-				specToUse = t.cachedPSKSpec
+		// For HTTP/1.1 transport, use ClientHelloID directly
+		// Note: ClientHelloID includes ALPN with [h2, http/1.1], so we must modify it after creation
+		tlsConn := utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+
+		// Force HTTP/1.1 only ALPN to prevent h2 negotiation
+		// This is safe to modify since ClientHelloID creates a fresh spec each time (not shared)
+		for _, ext := range tlsConn.Extensions {
+			if alpn, ok := ext.(*utls.ALPNExtension); ok {
+				alpn.AlpnProtocols = []string{"http/1.1"}
+				break
 			}
-		}
-		if specToUse == nil {
-			specToUse = t.cachedSpec
 		}
 
-		// Create UClient with HelloCustom and apply our cached spec
-		var tlsConn *utls.UConn
-		if specToUse != nil {
-			// Use cached spec - extension order is preserved from transport creation
-			tlsConn = utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
-			if err := tlsConn.ApplyPreset(specToUse); err != nil {
-				rawConn.Close()
-				return nil, NewTLSError("tls_preset", host, port, "h1", err)
-			}
-			// Force HTTP/1.1 ALPN after ApplyPreset (which overwrites it with Chrome's default h2,http/1.1)
-			tlsConn.SetSNI(host) // Refresh SNI after preset
-			for _, ext := range tlsConn.Extensions {
-				if alpn, ok := ext.(*utls.ALPNExtension); ok {
-					alpn.AlpnProtocols = []string{"http/1.1"}
-					break
-				}
-			}
-		} else {
-			// Fallback to ClientHelloID if spec caching failed
-			clientHelloID := t.getHTTP1ClientHelloID()
-			tlsConn = utls.UClient(rawConn, tlsConfig, clientHelloID)
-		}
 		tlsConn.SetSessionCache(t.sessionCache)
 
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
@@ -283,13 +242,6 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 	_ = targetAddr // suppress unused warning
 
 	return conn, nil
-}
-
-// getHTTP1ClientHelloID returns an appropriate ClientHelloID for HTTP/1.1
-// We modify the preset's ClientHelloID to not include h2 in ALPN
-func (t *HTTP1Transport) getHTTP1ClientHelloID() utls.ClientHelloID {
-	// Use the same TLS fingerprint but ensure we don't negotiate h2
-	return t.preset.ClientHelloID
 }
 
 // dialThroughProxy establishes a connection through an HTTP proxy
