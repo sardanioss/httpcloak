@@ -204,7 +204,8 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 	}
 }
 
-// doAuto tries protocols in order: H3 -> H2 -> H1, learning from failures
+// doAuto races HTTP/3 and HTTP/2 in parallel, using whichever succeeds first.
+// This avoids the 5-second HTTP/3 timeout delay when QUIC is blocked.
 func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error) {
 	host := extractHost(req.URL)
 
@@ -229,35 +230,29 @@ func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error)
 		}
 	}
 
-	// If preset supports HTTP/3, try it first
+	// Race HTTP/3 and HTTP/2 in parallel if H3 is supported
 	if t.preset.SupportHTTP3 {
-		resp, err := t.doHTTP3(ctx, req)
+		resp, protocol, err := t.raceH3H2(ctx, req)
 		if err == nil {
 			t.protocolSupportMu.Lock()
-			t.protocolSupport[host] = ProtocolHTTP3
+			t.protocolSupport[host] = protocol
+			t.protocolSupportMu.Unlock()
+			return resp, nil
+		}
+		// Both failed, try HTTP/1.1
+	} else {
+		// No H3 support, just try H2
+		resp, err := t.doHTTP2(ctx, req)
+		if err == nil {
+			t.protocolSupportMu.Lock()
+			t.protocolSupport[host] = ProtocolHTTP2
 			t.protocolSupportMu.Unlock()
 			return resp, nil
 		}
 	}
 
-	// Try HTTP/2
-	resp, err := t.doHTTP2(ctx, req)
-	if err == nil {
-		t.protocolSupportMu.Lock()
-		t.protocolSupport[host] = ProtocolHTTP2
-		t.protocolSupportMu.Unlock()
-		return resp, nil
-	}
-
-	// Check if it's a protocol negotiation failure (server doesn't support H2)
-	if isProtocolError(err) {
-		t.protocolSupportMu.Lock()
-		t.protocolSupport[host] = ProtocolHTTP1
-		t.protocolSupportMu.Unlock()
-	}
-
 	// Fallback to HTTP/1.1
-	resp, err = t.doHTTP1(ctx, req)
+	resp, err := t.doHTTP1(ctx, req)
 	if err == nil {
 		t.protocolSupportMu.Lock()
 		t.protocolSupport[host] = ProtocolHTTP1
@@ -266,6 +261,104 @@ func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error)
 	}
 
 	return nil, err
+}
+
+// connectResult holds the result of a connection race
+type connectResult struct {
+	protocol Protocol
+	err      error
+}
+
+// raceH3H2 races HTTP/3 and HTTP/2 connections in parallel, then makes the request
+// on whichever protocol connects first. This eliminates the 5-second delay when
+// HTTP/3 (QUIC) is blocked by firewalls or VPNs.
+func (t *Transport) raceH3H2(ctx context.Context, req *Request) (*Response, Protocol, error) {
+	// Parse URL to get host:port
+	parsedURL, err := url.Parse(req.URL)
+	if err != nil {
+		return nil, ProtocolHTTP2, err
+	}
+
+	host := parsedURL.Hostname()
+	port := parsedURL.Port()
+	if port == "" {
+		port = "443"
+	}
+
+	// Create cancellable context for the race
+	raceCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Channel to receive the winning protocol
+	winnerCh := make(chan Protocol, 1)
+	doneCh := make(chan struct{})
+
+	// Race HTTP/3 connection
+	go func() {
+		err := t.h3Transport.Connect(raceCtx, host, port)
+		if err == nil {
+			select {
+			case winnerCh <- ProtocolHTTP3:
+			default:
+			}
+		}
+	}()
+
+	// Race HTTP/2 connection
+	go func() {
+		err := t.h2Transport.Connect(raceCtx, host, port)
+		if err == nil {
+			select {
+			case winnerCh <- ProtocolHTTP2:
+			default:
+			}
+		}
+	}()
+
+	// Goroutine to signal when both attempts are likely done
+	go func() {
+		// Give both a chance to connect (with H3 timeout being the limiting factor)
+		// H3 typically times out in 5s if blocked, H2 connects in <1s
+		time.Sleep(6 * time.Second)
+		close(doneCh)
+	}()
+
+	// Wait for a winner or timeout
+	var winningProtocol Protocol
+	select {
+	case winningProtocol = <-winnerCh:
+		// We have a winner!
+		cancel() // Cancel the other connection attempt
+	case <-doneCh:
+		// Timeout - no winner, try H2 directly
+		cancel()
+		resp, err := t.doHTTP2(ctx, req)
+		if err != nil {
+			resp, err = t.doHTTP1(ctx, req)
+			return resp, ProtocolHTTP1, err
+		}
+		return resp, ProtocolHTTP2, nil
+	case <-ctx.Done():
+		return nil, ProtocolHTTP2, ctx.Err()
+	}
+
+	// Make the actual request using the winning protocol
+	switch winningProtocol {
+	case ProtocolHTTP3:
+		resp, err := t.doHTTP3(ctx, req)
+		return resp, ProtocolHTTP3, err
+	case ProtocolHTTP2:
+		resp, err := t.doHTTP2(ctx, req)
+		if err != nil {
+			// H2 failed after connect succeeded, try H1
+			resp, err = t.doHTTP1(ctx, req)
+			return resp, ProtocolHTTP1, err
+		}
+		return resp, ProtocolHTTP2, nil
+	default:
+		resp, err := t.doHTTP2(ctx, req)
+		return resp, ProtocolHTTP2, err
+	}
 }
 
 // isProtocolError checks if the error indicates protocol negotiation failure

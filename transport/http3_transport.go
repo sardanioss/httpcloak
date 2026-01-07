@@ -288,6 +288,56 @@ func (t *HTTP3Transport) Close() error {
 	return t.transport.Close()
 }
 
+// Connect establishes a QUIC connection to the host without making a request.
+// This is used for protocol racing - the first protocol to connect wins.
+func (t *HTTP3Transport) Connect(ctx context.Context, host, port string) error {
+	addr := net.JoinHostPort(host, port)
+
+	// Use DNS cache for resolution
+	ip, err := t.dnsCache.ResolveOne(ctx, host)
+	if err != nil {
+		return fmt.Errorf("DNS resolution failed: %w", err)
+	}
+
+	resolvedAddr := net.JoinHostPort(ip.String(), port)
+
+	// Create TLS config
+	tlsCfg := &tls.Config{
+		ServerName:         host,
+		NextProtos:         []string{"h3"},
+		InsecureSkipVerify: false,
+	}
+
+	// QUIC config with Chrome-like settings
+	quicCfg := &quic.Config{
+		MaxIdleTimeout:               30 * time.Second,
+		InitialStreamReceiveWindow:   512 * 1024,
+		MaxStreamReceiveWindow:       6 * 1024 * 1024,
+		InitialConnectionReceiveWindow: 15 * 1024 * 1024 / 2,
+		MaxConnectionReceiveWindow:   15 * 1024 * 1024,
+	}
+
+	// Try to establish QUIC connection
+	conn, err := quic.DialAddr(ctx, resolvedAddr, tlsCfg, quicCfg)
+	if err != nil {
+		return fmt.Errorf("QUIC dial failed: %w", err)
+	}
+
+	// Connection established successfully - the http3.Transport will reuse this
+	// via its internal pooling when we make a real request
+	// For now, just track that we successfully dialed
+	t.mu.Lock()
+	t.dialCount++
+	t.mu.Unlock()
+
+	// Close this test connection - http3.Transport will create its own
+	// This is just to verify QUIC/H3 is reachable
+	_ = conn.CloseWithError(0, "connect probe")
+	_ = addr // suppress unused warning
+
+	return nil
+}
+
 // Stats returns transport statistics
 func (t *HTTP3Transport) Stats() HTTP3Stats {
 	t.mu.RLock()

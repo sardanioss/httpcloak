@@ -600,6 +600,46 @@ func (t *HTTP2Transport) GetDNSCache() *dns.Cache {
 	return t.dnsCache
 }
 
+// Connect establishes a connection to the host without making a request.
+// This is used for protocol racing - the first protocol to connect wins.
+func (t *HTTP2Transport) Connect(ctx context.Context, host, port string) error {
+	key := net.JoinHostPort(host, port)
+
+	// Check if we already have a usable connection
+	t.connsMu.RLock()
+	existingConn, exists := t.conns[key]
+	t.connsMu.RUnlock()
+
+	if exists && t.isConnUsable(existingConn) {
+		return nil // Already connected
+	}
+
+	// Create new connection
+	conn, err := t.createConn(ctx, host, port)
+	if err != nil {
+		return err
+	}
+
+	// Store connection for reuse
+	t.connsMu.Lock()
+	// Check again in case another goroutine created one
+	if oldConn, exists := t.conns[key]; exists {
+		// Close the old one if not usable
+		if !t.isConnUsable(oldConn) {
+			oldConn.tlsConn.Close()
+		} else {
+			// Old one is still good, close the new one we just created
+			conn.tlsConn.Close()
+			t.connsMu.Unlock()
+			return nil
+		}
+	}
+	t.conns[key] = conn
+	t.connsMu.Unlock()
+
+	return nil
+}
+
 // boolToUint32 converts a bool to uint32 (for HTTP/2 SETTINGS)
 func boolToUint32(b bool) uint32 {
 	if b {
