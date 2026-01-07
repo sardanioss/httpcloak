@@ -45,6 +45,12 @@ func GetPlatformInfo() PlatformInfo {
 	}
 }
 
+// HeaderPair represents a single header key-value pair for ordered headers
+type HeaderPair struct {
+	Key   string
+	Value string
+}
+
 // Preset represents a browser fingerprint configuration
 type Preset struct {
 	Name              string
@@ -53,7 +59,8 @@ type Preset struct {
 	QUICClientHelloID tls.ClientHelloID // For QUIC/HTTP/3 (different TLS extensions)
 	QUICPSKClientHelloID tls.ClientHelloID // For QUIC/HTTP/3 with PSK (session resumption)
 	UserAgent         string
-	Headers           map[string]string
+	Headers           map[string]string // For backward compatibility
+	HeaderOrder       []HeaderPair      // Ordered headers for HTTP/2 and HTTP/3
 	HTTP2Settings     HTTP2Settings
 	SupportHTTP3      bool
 }
@@ -264,6 +271,21 @@ func Chrome143() *Preset {
 			"Accept-Encoding":           "gzip, deflate, br, zstd",
 			"Accept-Language":           "en-US,en;q=0.9",
 			"Priority":                  "u=0, i",
+		},
+		// Chrome 143 header order for HTTP/2 and HTTP/3 (order matters!)
+		HeaderOrder: []HeaderPair{
+			{"accept-language", "en-US,en;q=0.9"},
+			{"sec-ch-ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`},
+			{"accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"},
+			{"sec-fetch-site", "none"},
+			{"sec-fetch-user", "?1"},
+			{"accept-encoding", "gzip, deflate, br, zstd"},
+			{"upgrade-insecure-requests", "1"},
+			{"sec-ch-ua-platform", `"` + p.Platform + `"`},
+			{"sec-ch-ua-mobile", "?0"},
+			{"sec-fetch-dest", "document"},
+			{"priority", "u=0, i"},
+			{"sec-fetch-mode", "navigate"},
 		},
 		HTTP2Settings: HTTP2Settings{
 			HeaderTableSize:        65536,

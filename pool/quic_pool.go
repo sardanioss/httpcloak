@@ -66,11 +66,11 @@ func buildChromeTransportParams() map[uint64][]byte {
 	initialRTT = quicvarint.Append(initialRTT, 100000) // 100ms in microseconds
 	params[transportParamInitialRTT] = initialRTT
 
-	// GREASE transport parameter - use consistent ID and empty data like Chrome often does
-	// Chrome commonly uses small N values for GREASE IDs (27 + 31*N)
-	// N=0 gives 27, N=1 gives 58, N=2 gives 89, etc.
-	greaseID := uint64(27 + 31*2) // 89 (0x59) - a common Chrome GREASE ID
-	params[greaseID] = []byte{}   // Empty GREASE data is valid and common
+	// GREASE transport parameter - Chrome uses large random N values
+	// GREASE IDs are of form 27 + 31*N where N is random
+	// Chrome uses values like 25319800860025788 (very large N)
+	greaseID := generateGREASETransportParamID()
+	params[greaseID] = []byte{} // Empty GREASE data is valid and common
 
 	return params
 }
@@ -84,8 +84,10 @@ func generateGREASEVersion() uint32 {
 
 // generateGREASETransportParamID generates a GREASE transport parameter ID
 // GREASE IDs are of form 27 + 31*N for some N
+// Chrome uses very large N values, producing IDs like 25319800860025788
 func generateGREASETransportParamID() uint64 {
-	n := rand.Uint64() % (1 << 16)
+	// Generate large N values similar to Chrome (produces 15-17 digit IDs)
+	n := uint64(100000000000000 + rand.Int63n(900000000000000))
 	return 27 + 31*n
 }
 
@@ -338,16 +340,17 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		port = 443
 	}
 
-	// GREASE setting ID (must be of form 0x1f * N + 0x21)
-	// Chrome commonly uses small N values. N=1 gives 0x40, N=2 gives 0x5f
-	// Using 0x40 (N=1) which is a common Chrome GREASE setting ID
-	greaseSettingID := uint64(0x1f*1 + 0x21) // 0x40
+	// Generate large GREASE setting ID like Chrome (0x1f * N + 0x21 where N is large)
+	greaseSettingN := uint64(1000000000 + rand.Int63n(9000000000))
+	greaseSettingID := 0x1f*greaseSettingN + 0x21
+	// Generate non-zero random 32-bit value (Chrome never sends 0)
+	greaseSettingValue := uint64(1 + rand.Uint32()%(1<<32-1))
 
 	// Chrome-like HTTP/3 additional settings
 	additionalSettings := map[uint64]uint64{
-		settingQPACKMaxTableCapacity: 4096, // Chrome's QPACK table capacity
-		settingQPACKBlockedStreams:   100,  // Chrome's blocked streams limit
-		greaseSettingID:              0,    // Chrome uses 0 for GREASE setting value
+		settingQPACKMaxTableCapacity: 65536,             // Chrome's QPACK table capacity
+		settingQPACKBlockedStreams:   100,               // Chrome's blocked streams limit
+		greaseSettingID:              greaseSettingValue, // Random non-zero GREASE value
 	}
 
 	// Order IPs based on preference
@@ -366,7 +369,7 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		QUICConfig:             quicConfig,
 		EnableDatagrams:        true,       // Chrome enables H3_DATAGRAM
 		AdditionalSettings:     additionalSettings,
-		MaxResponseHeaderBytes: 16384,      // Chrome's actual MAX_FIELD_SECTION_SIZE (16KB)
+		MaxResponseHeaderBytes: 262144,     // Chrome's MAX_FIELD_SECTION_SIZE (256KB)
 		SendGreaseFrames:       true,       // Chrome sends GREASE frames
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
 			// Combine all IPs, preferred first
@@ -626,7 +629,9 @@ func (m *QUICManager) Stats() map[string]struct {
 
 // generateGREASESettingID generates a valid GREASE setting ID
 // GREASE IDs are of the form 0x1f * N + 0x21 where N is random
+// Chrome uses very large N values, producing setting IDs like 57836956465
 func generateGREASESettingID() uint64 {
-	n := rand.Uint64() % (1 << 16)
+	// Generate large N values similar to Chrome (produces 10-11 digit IDs)
+	n := uint64(1000000000 + rand.Int63n(9000000000))
 	return 0x1f*n + 0x21
 }

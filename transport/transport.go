@@ -417,11 +417,8 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 		return nil, NewRequestError("create_request", host, port, "h1", err)
 	}
 
-	// Set preset headers
-	for key, value := range t.preset.Headers {
-		httpReq.Header.Set(key, value)
-	}
-	httpReq.Header.Set("User-Agent", t.preset.UserAgent)
+	// Set preset headers (with ordering for fingerprinting)
+	applyPresetHeaders(httpReq, t.preset)
 
 	// Override with custom headers
 	for key, value := range req.Headers {
@@ -516,11 +513,8 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 		return nil, NewRequestError("create_request", host, port, "h2", err)
 	}
 
-	// Set preset headers
-	for key, value := range t.preset.Headers {
-		httpReq.Header.Set(key, value)
-	}
-	httpReq.Header.Set("User-Agent", t.preset.UserAgent)
+	// Set preset headers (with ordering for fingerprinting)
+	applyPresetHeaders(httpReq, t.preset)
 
 	// Override with custom headers
 	for key, value := range req.Headers {
@@ -630,11 +624,8 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 		return nil, NewRequestError("create_request", host, port, "h3", err)
 	}
 
-	// Set preset headers
-	for key, value := range t.preset.Headers {
-		httpReq.Header.Set(key, value)
-	}
-	httpReq.Header.Set("User-Agent", t.preset.UserAgent)
+	// Set preset headers (with ordering for fingerprinting)
+	applyPresetHeaders(httpReq, t.preset)
 
 	// Override with custom headers
 	for key, value := range req.Headers {
@@ -726,6 +717,23 @@ func (t *Transport) ClearProtocolCache() {
 }
 
 // Helper functions
+
+// applyPresetHeaders applies headers from the preset to the request.
+// Uses ordered headers (HeaderOrder) if available, otherwise falls back to the map.
+func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset) {
+	if len(preset.HeaderOrder) > 0 {
+		// Use ordered headers for HTTP/2 and HTTP/3 fingerprinting
+		for _, hp := range preset.HeaderOrder {
+			httpReq.Header.Set(hp.Key, hp.Value)
+		}
+	} else {
+		// Fallback to unordered headers map
+		for key, value := range preset.Headers {
+			httpReq.Header.Set(key, value)
+		}
+	}
+	httpReq.Header.Set("User-Agent", preset.UserAgent)
+}
 
 func extractHost(urlStr string) string {
 	parsed, err := url.Parse(urlStr)

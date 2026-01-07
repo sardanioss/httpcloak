@@ -47,15 +47,15 @@ func buildChromeTransportParams() map[uint64][]byte {
 
 	// version_information (0x11) - RFC 9368
 	// Format: chosen_version (4 bytes) + available_versions (4 bytes each)
-	// Chrome sends: QUICv1 (chosen) + [QUICv1, GREASE] (available)
+	// Chrome sends: QUICv1 (chosen) + [GREASE, QUICv1] (available)
 	versionInfo := make([]byte, 0, 12)
 	// Chosen version: QUICv1 (0x00000001)
 	versionInfo = binary.BigEndian.AppendUint32(versionInfo, 0x00000001)
-	// Available versions: QUICv1
-	versionInfo = binary.BigEndian.AppendUint32(versionInfo, 0x00000001)
-	// Available versions: GREASE (random value of form 0x?a?a?a?a)
+	// Available versions: GREASE first (Chrome puts GREASE before QUICv1)
 	greaseVersion := generateGREASEVersion()
 	versionInfo = binary.BigEndian.AppendUint32(versionInfo, greaseVersion)
+	// Available versions: QUICv1
+	versionInfo = binary.BigEndian.AppendUint32(versionInfo, 0x00000001)
 	params[tpVersionInformation] = versionInfo
 
 	// google_version (0x4752 / 18258) - Google's custom parameter
@@ -151,12 +151,14 @@ func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP3Tr
 		ChromeStyleInitialPackets:    true,  // Chrome-like frame patterns in Initial packets
 		ClientHelloID:                clientHelloID,           // Fallback if cached spec fails
 		CachedClientHelloSpec:        t.cachedClientHelloSpec, // Cached spec for consistent fingerprint
+		TransportParameterOrder:      quic.TransportParameterOrderChrome, // Chrome transport param ordering with large GREASE IDs
 	}
 
 	// Generate GREASE setting ID (must be of form 0x1f * N + 0x21)
 	// Chrome uses random GREASE values
 	greaseSettingID := generateGREASESettingID()
-	greaseSettingValue := rand.Uint64() & 0xFFFFFFFF // Random 32-bit value
+	// Generate non-zero random 32-bit value (Chrome never sends 0)
+	greaseSettingValue := uint64(1 + rand.Uint32()%(1<<32-1))
 
 	// Chrome-like HTTP/3 settings
 	// These match what Chrome 143 sends in SETTINGS frame
@@ -183,9 +185,10 @@ func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP3Tr
 
 // generateGREASESettingID generates a valid GREASE setting ID
 // GREASE IDs are of the form 0x1f * N + 0x21 where N is random
+// Chrome uses very large N values, producing setting IDs like 57836956465
 func generateGREASESettingID() uint64 {
-	// Generate a random N value (Chrome uses large values)
-	n := rand.Uint64() % (1 << 32)
+	// Generate large N values similar to Chrome (produces 10-11 digit IDs)
+	n := uint64(1000000000 + rand.Int63n(9000000000))
 	return 0x1f*n + 0x21
 }
 
@@ -243,10 +246,20 @@ func (t *HTTP3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	dialsBefore := t.dialCount
 	t.mu.Unlock()
 
-	// Add preset headers
-	for key, value := range t.preset.Headers {
-		if req.Header.Get(key) == "" {
-			req.Header.Set(key, value)
+	// Use ordered headers if available (HTTP/3 header order matters for fingerprinting)
+	if len(t.preset.HeaderOrder) > 0 {
+		// Apply headers in the specified order
+		for _, hp := range t.preset.HeaderOrder {
+			if req.Header.Get(hp.Key) == "" {
+				req.Header.Set(hp.Key, hp.Value)
+			}
+		}
+	} else {
+		// Fallback to unordered headers map
+		for key, value := range t.preset.Headers {
+			if req.Header.Get(key) == "" {
+				req.Header.Set(key, value)
+			}
 		}
 	}
 
@@ -331,6 +344,7 @@ func (t *HTTP3Transport) Connect(ctx context.Context, host, port string) error {
 		InitialConnectionReceiveWindow: 15 * 1024 * 1024 / 2,
 		MaxConnectionReceiveWindow:    15 * 1024 * 1024,
 		ECHConfigList:                 echConfigList,
+		TransportParameterOrder:       quic.TransportParameterOrderChrome, // Chrome transport param ordering
 	}
 
 	// Try to establish QUIC connection
