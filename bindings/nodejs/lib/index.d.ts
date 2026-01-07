@@ -58,11 +58,6 @@ export interface RequestOptions {
   timeout?: number;
 }
 
-export type RequestCallback = (
-  error: HTTPCloakError | null,
-  response: Response | null
-) => void;
-
 export class Session {
   constructor(options?: SessionOptions);
 
@@ -119,32 +114,6 @@ export class Session {
 
   /** Perform an async OPTIONS request */
   options(url: string, headers?: Record<string, string>): Promise<Response>;
-
-  // Callback-based methods
-  /** Perform a GET request with callback */
-  getCb(url: string, callback: RequestCallback): void;
-  getCb(
-    url: string,
-    headers: Record<string, string>,
-    callback: RequestCallback
-  ): void;
-
-  /** Perform a POST request with callback */
-  postCb(url: string, callback: RequestCallback): void;
-  postCb(
-    url: string,
-    body: string | Buffer | Record<string, any>,
-    callback: RequestCallback
-  ): void;
-  postCb(
-    url: string,
-    body: string | Buffer | Record<string, any>,
-    headers: Record<string, string>,
-    callback: RequestCallback
-  ): void;
-
-  /** Perform a custom request with callback */
-  requestCb(options: RequestOptions, callback: RequestCallback): void;
 
   // Cookie management
   /** Get all cookies from the session */

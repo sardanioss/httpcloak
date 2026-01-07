@@ -37,24 +37,6 @@ async function main() {
     console.log("Protocol:", asyncResponse.protocol);
     console.log("");
 
-    // Test callback GET
-    console.log("--- Callback GET ---");
-    await new Promise((resolve, reject) => {
-      session.getCb(
-        "https://www.cloudflare.com/cdn-cgi/trace",
-        (err, response) => {
-          if (err) {
-            console.error("Error:", err.message);
-            reject(err);
-            return;
-          }
-          console.log("Status:", response.statusCode);
-          console.log("Protocol:", response.protocol);
-          resolve();
-        }
-      );
-    });
-    console.log("");
 
     // Test concurrent requests
     console.log("--- Concurrent Requests ---");

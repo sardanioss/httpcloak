@@ -21,3 +21,9 @@ nodejs/lib/*.so
 nodejs/lib/*.dylib
 nodejs/lib/*.dll
 package-lock.json
+
+# .NET
+dotnet/**/bin/
+dotnet/**/obj/
+dotnet/nupkg/
+*.nupkg
