@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net6.0;net7.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- NuGet Package Info -->
+    <PackageId>HttpCloak</PackageId>
+    <Version>1.0.10</Version>
+    <Title>HttpCloak</Title>
+    <Description>Browser fingerprint emulation HTTP client with HTTP/1.1, HTTP/2, and HTTP/3 support. Bypass bot detection with accurate TLS fingerprints.</Description>
+    <PackageTags>http;http2;http3;quic;tls;fingerprint;browser;scraping;bot-detection</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/sardanioss/httpcloak</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sardanioss/httpcloak</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Native library handling -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+
+    <!-- Include native libraries for all platforms -->
+    <None Include="runtimes\linux-x64\native\*" Pack="true" PackagePath="runtimes\linux-x64\native" />
+    <None Include="runtimes\linux-arm64\native\*" Pack="true" PackagePath="runtimes\linux-arm64\native" />
+    <None Include="runtimes\osx-x64\native\*" Pack="true" PackagePath="runtimes\osx-x64\native" />
+    <None Include="runtimes\osx-arm64\native\*" Pack="true" PackagePath="runtimes\osx-arm64\native" />
+    <None Include="runtimes\win-x64\native\*" Pack="true" PackagePath="runtimes\win-x64\native" />
+  </ItemGroup>
+
+</Project>

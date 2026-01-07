@@ -60,6 +60,18 @@ echo "  -> clib/httpcloak.go"
 cd "$SCRIPT_DIR/clib"
 sed -i "s/return C.CString(\"[0-9]*\.[0-9]*\.[0-9]*\")/return C.CString(\"$NEW_VERSION\")/" httpcloak.go
 
+# Update Python __init__.py version string
+echo "  -> python/httpcloak/__init__.py"
+cd "$SCRIPT_DIR/python"
+sed -i "s/__version__ = \"[0-9]*\.[0-9]*\.[0-9]*\"/__version__ = \"$NEW_VERSION\"/" httpcloak/__init__.py
+
+# Update .NET HttpCloak.csproj version
+if [ -f "$SCRIPT_DIR/dotnet/HttpCloak/HttpCloak.csproj" ]; then
+    echo "  -> dotnet/HttpCloak/HttpCloak.csproj"
+    cd "$SCRIPT_DIR/dotnet/HttpCloak"
+    sed -i "s/<Version>[0-9]*\.[0-9]*\.[0-9]*<\/Version>/<Version>$NEW_VERSION<\/Version>/" HttpCloak.csproj
+fi
+
 echo ""
 echo "Version bumped to $NEW_VERSION successfully!"
 echo ""
@@ -67,7 +79,9 @@ echo "Files updated:"
 echo "  - bindings/nodejs/package.json (version + optionalDependencies)"
 echo "  - bindings/nodejs/npm/*/package.json (6 platform packages)"
 echo "  - bindings/python/pyproject.toml"
+echo "  - bindings/python/httpcloak/__init__.py"
 echo "  - bindings/clib/httpcloak.go"
+echo "  - bindings/dotnet/HttpCloak/HttpCloak.csproj (if exists)"
 echo ""
 echo "Next steps:"
 echo "  1. Rebuild native libraries: cd bindings && make build"
