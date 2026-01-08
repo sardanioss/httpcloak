@@ -2,14 +2,20 @@ module github.com/sardanioss/httpcloak
 
 go 1.24.1
 
+retract (
+	v1.4.0 // Published prematurely, use v1.1.x instead
+	v1.3.0 // Published prematurely, use v1.1.x instead
+	v1.2.0 // Published prematurely, use v1.1.x instead
+)
+
 require (
 	github.com/andybalholm/brotli v1.2.0
 	github.com/klauspost/compress v1.18.2
 	github.com/miekg/dns v1.1.69
 	github.com/sardanioss/http v1.1.0
 	github.com/sardanioss/net v1.1.0
-	github.com/sardanioss/quic-go v1.2.12
-	github.com/sardanioss/utls v1.9.4
+	github.com/sardanioss/quic-go v1.2.13
+	github.com/sardanioss/utls v1.9.5
 )
 
 require (

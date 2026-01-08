@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	crand "crypto/rand"
 	tls "github.com/sardanioss/utls"
 	"encoding/binary"
 	"fmt"
@@ -91,6 +92,9 @@ type HTTP3Transport struct {
 	// Chrome shuffles TLS extensions once per session, not per connection
 	cachedClientHelloSpec *utls.ClientHelloSpec
 
+	// Shuffle seed for TLS and transport parameter ordering (consistent per session)
+	shuffleSeed int64
+
 	// Track requests for timing
 	requestCount int64
 	dialCount    int64 // Number of times dialQUIC was called (new connections)
@@ -103,10 +107,16 @@ type HTTP3Transport struct {
 
 // NewHTTP3Transport creates a new HTTP/3 transport
 func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP3Transport {
+	// Generate shuffle seed for session-consistent ordering
+	var seedBytes [8]byte
+	crand.Read(seedBytes[:])
+	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
+
 	t := &HTTP3Transport{
 		preset:       preset,
 		dnsCache:     dnsCache,
 		sessionCache: tls.NewLRUClientSessionCache(64), // Cache for 0-RTT resumption
+		shuffleSeed:  shuffleSeed,
 	}
 
 	// Create TLS config for QUIC with session cache for 0-RTT
@@ -130,8 +140,9 @@ func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP3Tr
 
 	// Cache the ClientHelloSpec for consistent TLS fingerprint across connections
 	// Chrome shuffles TLS extensions once per session, not per connection
+	// Use the shuffle seed for deterministic ordering
 	if clientHelloID != nil {
-		spec, err := utls.UTLSIdToSpec(*clientHelloID)
+		spec, err := utls.UTLSIdToSpecWithSeed(*clientHelloID, shuffleSeed)
 		if err == nil {
 			t.cachedClientHelloSpec = &spec
 		}
@@ -149,9 +160,10 @@ func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP3Tr
 		DisablePathMTUDiscovery:      false, // Still allow PMTUD for optimal performance
 		DisableClientHelloScrambling: true,  // Chrome doesn't scramble SNI, sends fewer packets
 		ChromeStyleInitialPackets:    true,  // Chrome-like frame patterns in Initial packets
-		ClientHelloID:                clientHelloID,           // Fallback if cached spec fails
-		CachedClientHelloSpec:        t.cachedClientHelloSpec, // Cached spec for consistent fingerprint
-		TransportParameterOrder:      quic.TransportParameterOrderChrome, // Chrome transport param ordering with large GREASE IDs
+		ClientHelloID:                 clientHelloID,           // Fallback if cached spec fails
+		CachedClientHelloSpec:         t.cachedClientHelloSpec, // Cached spec for consistent fingerprint
+		TransportParameterOrder:       quic.TransportParameterOrderChrome, // Chrome transport param ordering with large GREASE IDs
+		TransportParameterShuffleSeed: shuffleSeed, // Consistent transport param shuffle per session
 	}
 
 	// Generate GREASE setting ID (must be of form 0x1f * N + 0x21)
@@ -338,13 +350,14 @@ func (t *HTTP3Transport) Connect(ctx context.Context, host, port string) error {
 
 	// QUIC config with Chrome-like settings and ECH
 	quicCfg := &quic.Config{
-		MaxIdleTimeout:                 30 * time.Second,
-		InitialStreamReceiveWindow:    512 * 1024,
-		MaxStreamReceiveWindow:        6 * 1024 * 1024,
+		MaxIdleTimeout:                  30 * time.Second,
+		InitialStreamReceiveWindow:     512 * 1024,
+		MaxStreamReceiveWindow:         6 * 1024 * 1024,
 		InitialConnectionReceiveWindow: 15 * 1024 * 1024 / 2,
-		MaxConnectionReceiveWindow:    15 * 1024 * 1024,
-		ECHConfigList:                 echConfigList,
-		TransportParameterOrder:       quic.TransportParameterOrderChrome, // Chrome transport param ordering
+		MaxConnectionReceiveWindow:     15 * 1024 * 1024,
+		ECHConfigList:                  echConfigList,
+		TransportParameterOrder:        quic.TransportParameterOrderChrome, // Chrome transport param ordering
+		TransportParameterShuffleSeed:  t.shuffleSeed, // Consistent transport param shuffle per session
 	}
 
 	// Try to establish QUIC connection

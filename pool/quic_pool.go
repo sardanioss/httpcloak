@@ -198,6 +198,9 @@ type QUICHostPool struct {
 	// Chrome shuffles TLS extensions once per session, not per connection
 	cachedClientHelloSpec *utls.ClientHelloSpec
 
+	// Shuffle seed for transport parameter ordering (consistent per session)
+	shuffleSeed int64
+
 	// Configuration
 	maxConns       int
 	maxIdleTime    time.Duration
@@ -207,19 +210,23 @@ type QUICHostPool struct {
 
 // NewQUICHostPool creates a new QUIC pool for a specific host
 func NewQUICHostPool(host, port string, preset *fingerprint.Preset, dnsCache *dns.Cache) *QUICHostPool {
-	// Generate spec for standalone usage (backward compatibility)
+	// Generate spec and seed for standalone usage (backward compatibility)
 	var cachedSpec *utls.ClientHelloSpec
+	var seedBytes [8]byte
+	crand.Read(seedBytes[:])
+	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
+
 	if preset != nil && preset.QUICClientHelloID.Client != "" {
-		if spec, err := utls.UTLSIdToSpec(preset.QUICClientHelloID); err == nil {
+		if spec, err := utls.UTLSIdToSpecWithSeed(preset.QUICClientHelloID, shuffleSeed); err == nil {
 			cachedSpec = &spec
 		}
 	}
-	return NewQUICHostPoolWithCachedSpec(host, port, preset, dnsCache, cachedSpec)
+	return NewQUICHostPoolWithCachedSpec(host, port, preset, dnsCache, cachedSpec, shuffleSeed)
 }
 
-// NewQUICHostPoolWithCachedSpec creates a QUIC pool with a pre-cached ClientHelloSpec
-// This ensures consistent TLS extension order across all hosts in a session
-func NewQUICHostPoolWithCachedSpec(host, port string, preset *fingerprint.Preset, dnsCache *dns.Cache, cachedSpec *utls.ClientHelloSpec) *QUICHostPool {
+// NewQUICHostPoolWithCachedSpec creates a QUIC pool with a pre-cached ClientHelloSpec and shuffle seed
+// This ensures consistent TLS extension order and transport parameter order across all hosts in a session
+func NewQUICHostPoolWithCachedSpec(host, port string, preset *fingerprint.Preset, dnsCache *dns.Cache, cachedSpec *utls.ClientHelloSpec, shuffleSeed int64) *QUICHostPool {
 	pool := &QUICHostPool{
 		host:                  host,
 		port:                  port,
@@ -230,7 +237,8 @@ func NewQUICHostPoolWithCachedSpec(host, port string, preset *fingerprint.Preset
 		maxIdleTime:           90 * time.Second,
 		maxConnAge:            5 * time.Minute,
 		connectTimeout:        30 * time.Second,
-		cachedClientHelloSpec: cachedSpec, // Use manager's cached spec for consistent shuffle
+		cachedClientHelloSpec: cachedSpec,     // Use manager's cached spec for consistent TLS shuffle
+		shuffleSeed:           shuffleSeed,    // Use manager's seed for consistent transport param shuffle
 	}
 
 	return pool
@@ -326,10 +334,11 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		InitialPacketSize:            1250,  // Chrome uses ~1250
 		DisableClientHelloScrambling: true,  // Chrome doesn't scramble SNI, sends fewer packets
 		ChromeStyleInitialPackets:    true,  // Chrome-like frame patterns in Initial packets
-		ClientHelloID:                clientHelloID,            // Fallback if cached spec fails
-		CachedClientHelloSpec:        p.cachedClientHelloSpec,  // Cached spec for consistent fingerprint
-		ECHConfigList:                echConfigList,            // ECH from DNS HTTPS records
-		TransportParameterOrder:      quic.TransportParameterOrderChrome, // Chrome transport param ordering
+		ClientHelloID:                 clientHelloID,            // Fallback if cached spec fails
+		CachedClientHelloSpec:         p.cachedClientHelloSpec,  // Cached spec for consistent fingerprint
+		ECHConfigList:                 echConfigList,            // ECH from DNS HTTPS records
+		TransportParameterOrder:       quic.TransportParameterOrderChrome, // Chrome transport param ordering
+		TransportParameterShuffleSeed: p.shuffleSeed, // Consistent transport param shuffle per session
 	}
 
 	// Get IPv6 and IPv4 addresses separately
@@ -570,7 +579,7 @@ func (m *QUICManager) GetPool(host, port string) (*QUICHostPool, error) {
 		return pool, nil
 	}
 
-	pool = NewQUICHostPoolWithCachedSpec(host, port, m.preset, m.dnsCache, m.cachedSpec)
+	pool = NewQUICHostPoolWithCachedSpec(host, port, m.preset, m.dnsCache, m.cachedSpec, m.shuffleSeed)
 	if m.maxConnsPerHost > 0 {
 		pool.SetMaxConns(m.maxConnsPerHost)
 	}
