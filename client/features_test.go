@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	customhttp "github.com/sardanioss/http"
 )
 
 // TestURLBuilder tests URL building and params encoding
@@ -148,7 +150,7 @@ func TestMultipartFormData(t *testing.T) {
 // TestBasicAuth tests Basic authentication
 func TestBasicAuth(t *testing.T) {
 	auth := NewBasicAuth("user", "pass")
-	req, _ := http.NewRequest("GET", "https://example.com", nil)
+	req, _ := customhttp.NewRequest("GET", "https://example.com", nil)
 
 	err := auth.Apply(req)
 	if err != nil {
@@ -169,7 +171,7 @@ func TestBasicAuth(t *testing.T) {
 // TestBearerAuth tests Bearer authentication
 func TestBearerAuth(t *testing.T) {
 	auth := NewBearerAuth("my-token-123")
-	req, _ := http.NewRequest("GET", "https://example.com", nil)
+	req, _ := customhttp.NewRequest("GET", "https://example.com", nil)
 
 	err := auth.Apply(req)
 	if err != nil {
@@ -187,14 +189,13 @@ func TestDigestAuthParsing(t *testing.T) {
 	auth := NewDigestAuth("user", "pass")
 
 	// Simulate a 401 response with WWW-Authenticate header
-	// Use Header.Set() to ensure proper canonical header key
-	resp := &http.Response{
+	resp := &customhttp.Response{
 		StatusCode: 401,
-		Header:     make(http.Header),
+		Header:     make(customhttp.Header),
 	}
 	resp.Header.Set("WWW-Authenticate", `Digest realm="test@example.com", nonce="abc123", qop="auth", opaque="xyz"`)
 
-	req, _ := http.NewRequest("GET", "https://example.com/protected", nil)
+	req, _ := customhttp.NewRequest("GET", "https://example.com/protected", nil)
 	shouldRetry, err := auth.HandleChallenge(resp, req)
 	if err != nil {
 		t.Fatalf("HandleChallenge failed: %v", err)
@@ -615,7 +616,7 @@ func BenchmarkMultipartEncode(b *testing.B) {
 
 func BenchmarkBasicAuth(b *testing.B) {
 	auth := NewBasicAuth("username", "password")
-	req, _ := http.NewRequest("GET", "https://example.com", nil)
+	req, _ := customhttp.NewRequest("GET", "https://example.com", nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		auth.Apply(req)

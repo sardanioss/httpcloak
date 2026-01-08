@@ -322,28 +322,28 @@ class Response:
         else:
             body_bytes = body
 
-        # Parse cookies from response
+        # Parse cookies from response (use `or []` to handle null values)
         cookies = []
-        for cookie_data in data.get("cookies", []):
+        for cookie_data in data.get("cookies") or []:
             if isinstance(cookie_data, dict):
                 cookies.append(Cookie(
                     name=cookie_data.get("name", ""),
                     value=cookie_data.get("value", ""),
                 ))
 
-        # Parse redirect history
+        # Parse redirect history (use `or []` to handle null values)
         history = []
-        for redirect_data in data.get("history", []):
+        for redirect_data in data.get("history") or []:
             if isinstance(redirect_data, dict):
                 history.append(RedirectInfo(
                     status_code=redirect_data.get("status_code", 0),
                     url=redirect_data.get("url", ""),
-                    headers=redirect_data.get("headers", {}),
+                    headers=redirect_data.get("headers") or {},
                 ))
 
         return cls(
             status_code=data.get("status_code", 0),
-            headers=data.get("headers", {}),
+            headers=data.get("headers") or {},
             body=body_bytes,
             text=body if isinstance(body, str) else body.decode("utf-8", errors="replace"),
             final_url=data.get("final_url", ""),
