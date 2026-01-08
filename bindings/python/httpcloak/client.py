@@ -491,11 +491,31 @@ class Session:
             merged.update(headers)
         return merged if merged else None
 
+    def _apply_cookies(
+        self, headers: Optional[Dict[str, str]], cookies: Optional[Dict[str, str]]
+    ) -> Optional[Dict[str, str]]:
+        """Apply cookies to headers."""
+        if not cookies:
+            return headers
+
+        # Build cookie string
+        cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+        headers = headers.copy() if headers else {}
+        # Merge with existing Cookie header if present
+        existing = headers.get("Cookie", "")
+        if existing:
+            headers["Cookie"] = f"{existing}; {cookie_str}"
+        else:
+            headers["Cookie"] = cookie_str
+        return headers
+
     def get(
         self,
         url: str,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
@@ -506,12 +526,14 @@ class Session:
             url: Request URL
             params: URL query parameters
             headers: Request headers
+            cookies: Cookies to send with this request
             auth: Basic auth tuple (username, password)
             timeout: Request timeout in seconds
         """
         url = _add_params_to_url(url, params)
         merged_headers = self._merge_headers(headers)
         merged_headers = _apply_auth(merged_headers, auth)
+        merged_headers = self._apply_cookies(merged_headers, cookies)
 
         if timeout:
             return self.request("GET", url, headers=merged_headers, timeout=timeout)
@@ -532,6 +554,7 @@ class Session:
         files: Optional[FilesType] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
@@ -550,6 +573,7 @@ class Session:
                    - (filename, content, content_type): With explicit MIME type
             params: URL query parameters
             headers: Request headers
+            cookies: Cookies to send with this request
             auth: Basic auth tuple (username, password)
             timeout: Request timeout in seconds
 
@@ -591,6 +615,7 @@ class Session:
                 body = data
 
         merged_headers = _apply_auth(merged_headers, auth)
+        merged_headers = self._apply_cookies(merged_headers, cookies)
 
         if timeout:
             return self.request("POST", url, headers=merged_headers, data=body, timeout=timeout)
@@ -613,6 +638,7 @@ class Session:
         json: Optional[Dict] = None,
         files: Optional[FilesType] = None,
         headers: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
@@ -627,6 +653,7 @@ class Session:
             json: JSON body (will be serialized)
             files: Files to upload as multipart/form-data
             headers: Request headers
+            cookies: Cookies to send with this request
             auth: Basic auth tuple (username, password)
             timeout: Request timeout in seconds
         """
@@ -658,6 +685,7 @@ class Session:
                 body = data
 
         merged_headers = _apply_auth(merged_headers, auth)
+        merged_headers = self._apply_cookies(merged_headers, cookies)
 
         request_config = {
             "method": method.upper(),
@@ -684,22 +712,24 @@ class Session:
         files: Optional[FilesType] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
         """Perform a PUT request."""
-        return self.request("PUT", url, params=params, data=data, json=json, files=files, headers=headers, auth=auth, timeout=timeout)
+        return self.request("PUT", url, params=params, data=data, json=json, files=files, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
 
     def delete(
         self,
         url: str,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
         """Perform a DELETE request."""
-        return self.request("DELETE", url, params=params, headers=headers, auth=auth, timeout=timeout)
+        return self.request("DELETE", url, params=params, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
 
     def patch(
         self,
@@ -709,33 +739,36 @@ class Session:
         files: Optional[FilesType] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
         """Perform a PATCH request."""
-        return self.request("PATCH", url, params=params, data=data, json=json, files=files, headers=headers, auth=auth, timeout=timeout)
+        return self.request("PATCH", url, params=params, data=data, json=json, files=files, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
 
     def head(
         self,
         url: str,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
         """Perform a HEAD request."""
-        return self.request("HEAD", url, params=params, headers=headers, auth=auth, timeout=timeout)
+        return self.request("HEAD", url, params=params, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
 
     def options(
         self,
         url: str,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
         """Perform an OPTIONS request."""
-        return self.request("OPTIONS", url, params=params, headers=headers, auth=auth, timeout=timeout)
+        return self.request("OPTIONS", url, params=params, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
 
     # =========================================================================
     # Async Methods
@@ -915,20 +948,102 @@ def _get_default_session() -> Session:
     return _default_session
 
 
+def _get_session_for_request(kwargs: dict) -> Tuple[Session, bool]:
+    """
+    Get session for a request, creating a temporary one if needed.
+
+    Modifies kwargs in-place to remove session-level params.
+    Returns (session, is_temporary) - caller must close temporary sessions.
+    """
+    # Check for session-level kwargs that require a temporary session
+    verify = kwargs.pop("verify", None)
+    allow_redirects = kwargs.pop("allow_redirects", None)
+
+    # If no session-level overrides, use default session
+    if verify is None and allow_redirects is None:
+        return _get_default_session(), False
+
+    # Get current defaults
+    preset = _default_config.get("preset", "chrome-143")
+    proxy = _default_config.get("proxy")
+    timeout = _default_config.get("timeout", 30)
+    http_version = _default_config.get("http_version", "auto")
+    max_redirects = _default_config.get("max_redirects", 10)
+    retry = _default_config.get("retry", 0)
+    retry_on_status = _default_config.get("retry_on_status")
+    prefer_ipv4 = _default_config.get("prefer_ipv4", False)
+
+    # Apply overrides
+    if verify is None:
+        verify = _default_config.get("verify", True)
+    if allow_redirects is None:
+        allow_redirects = _default_config.get("allow_redirects", True)
+
+    # Create temporary session with overrides
+    temp_session = Session(
+        preset=preset,
+        proxy=proxy,
+        timeout=timeout,
+        http_version=http_version,
+        verify=verify,
+        allow_redirects=allow_redirects,
+        max_redirects=max_redirects,
+        retry=retry,
+        retry_on_status=retry_on_status,
+        prefer_ipv4=prefer_ipv4,
+    )
+
+    # Copy default headers
+    default_headers = _default_config.get("headers", {})
+    if default_headers:
+        temp_session.headers.update(default_headers)
+
+    return temp_session, True
+
+
 def get(url: str, **kwargs) -> Response:
     """
     Perform a GET request.
 
+    Args:
+        url: Request URL
+        params: URL query parameters
+        headers: Request headers
+        cookies: Cookies to send
+        auth: Basic auth tuple (username, password)
+        timeout: Request timeout in seconds
+        verify: SSL verification (default: True)
+        allow_redirects: Follow redirects (default: True)
+
     Example:
         r = httpcloak.get("https://example.com")
         print(r.text)
+
+        # Disable SSL verification
+        r = httpcloak.get("https://example.com", verify=False)
+
+        # Disable redirects
+        r = httpcloak.get("https://example.com", allow_redirects=False)
     """
-    return _get_default_session().get(url, **kwargs)
+    session, is_temp = _get_session_for_request(kwargs)
+    try:
+        return session.get(url, **kwargs)
+    finally:
+        if is_temp:
+            session.close()
 
 
 def post(url: str, data=None, json=None, files=None, **kwargs) -> Response:
     """
     Perform a POST request.
+
+    Args:
+        url: Request URL
+        data: Request body (string, bytes, or dict for form data)
+        json: JSON body (will be serialized)
+        files: Files to upload
+        verify: SSL verification (default: True)
+        allow_redirects: Follow redirects (default: True)
 
     Example:
         r = httpcloak.post("https://api.example.com", json={"key": "value"})
@@ -937,34 +1052,69 @@ def post(url: str, data=None, json=None, files=None, **kwargs) -> Response:
         # With file upload
         r = httpcloak.post("https://api.example.com/upload", files={"file": open("image.png", "rb")})
     """
-    return _get_default_session().post(url, data=data, json=json, files=files, **kwargs)
+    session, is_temp = _get_session_for_request(kwargs)
+    try:
+        return session.post(url, data=data, json=json, files=files, **kwargs)
+    finally:
+        if is_temp:
+            session.close()
 
 
 def put(url: str, data=None, json=None, files=None, **kwargs) -> Response:
     """Perform a PUT request."""
-    return _get_default_session().put(url, data=data, json=json, files=files, **kwargs)
+    session, is_temp = _get_session_for_request(kwargs)
+    try:
+        return session.put(url, data=data, json=json, files=files, **kwargs)
+    finally:
+        if is_temp:
+            session.close()
 
 
 def delete(url: str, **kwargs) -> Response:
     """Perform a DELETE request."""
-    return _get_default_session().delete(url, **kwargs)
+    session, is_temp = _get_session_for_request(kwargs)
+    try:
+        return session.delete(url, **kwargs)
+    finally:
+        if is_temp:
+            session.close()
 
 
 def patch(url: str, data=None, json=None, files=None, **kwargs) -> Response:
     """Perform a PATCH request."""
-    return _get_default_session().patch(url, data=data, json=json, files=files, **kwargs)
+    session, is_temp = _get_session_for_request(kwargs)
+    try:
+        return session.patch(url, data=data, json=json, files=files, **kwargs)
+    finally:
+        if is_temp:
+            session.close()
 
 
 def head(url: str, **kwargs) -> Response:
     """Perform a HEAD request."""
-    return _get_default_session().head(url, **kwargs)
+    session, is_temp = _get_session_for_request(kwargs)
+    try:
+        return session.head(url, **kwargs)
+    finally:
+        if is_temp:
+            session.close()
 
 
 def options(url: str, **kwargs) -> Response:
     """Perform an OPTIONS request."""
-    return _get_default_session().options(url, **kwargs)
+    session, is_temp = _get_session_for_request(kwargs)
+    try:
+        return session.options(url, **kwargs)
+    finally:
+        if is_temp:
+            session.close()
 
 
 def request(method: str, url: str, **kwargs) -> Response:
     """Perform a custom HTTP request."""
-    return _get_default_session().request(method, url, **kwargs)
+    session, is_temp = _get_session_for_request(kwargs)
+    try:
+        return session.request(method, url, **kwargs)
+    finally:
+        if is_temp:
+            session.close()

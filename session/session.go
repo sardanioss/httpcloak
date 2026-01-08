@@ -106,6 +106,11 @@ func NewSession(id string, config *protocol.SessionConfig) *Session {
 
 // Request executes an HTTP request within this session
 func (s *Session) Request(ctx context.Context, req *transport.Request) (*transport.Response, error) {
+	return s.requestWithRedirects(ctx, req, 0)
+}
+
+// requestWithRedirects handles the actual request with redirect following
+func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Request, redirectCount int) (*transport.Response, error) {
 	s.mu.Lock()
 	if !s.active {
 		s.mu.Unlock()
@@ -156,18 +161,24 @@ func (s *Session) Request(ctx context.Context, req *transport.Request) (*transpo
 	}
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Add cookies to request headers BEFORE each attempt
-		// This ensures cookies from previous responses (including 429s) are used
+		// Add session cookies to request headers BEFORE each attempt
+		// Merge with any existing Cookie header (from per-request cookies)
 		s.mu.RLock()
 		if len(s.cookies) > 0 {
-			cookieHeader := ""
+			sessionCookies := ""
 			for name, value := range s.cookies {
-				if cookieHeader != "" {
-					cookieHeader += "; "
+				if sessionCookies != "" {
+					sessionCookies += "; "
 				}
-				cookieHeader += name + "=" + value
+				sessionCookies += name + "=" + value
 			}
-			req.Headers["Cookie"] = cookieHeader
+			// Merge with existing cookies (per-request cookies take precedence for same name)
+			existing := req.Headers["Cookie"]
+			if existing != "" {
+				req.Headers["Cookie"] = existing + "; " + sessionCookies
+			} else {
+				req.Headers["Cookie"] = sessionCookies
+			}
 		}
 		s.mu.RUnlock()
 
@@ -230,6 +241,71 @@ func (s *Session) Request(ctx context.Context, req *transport.Request) (*transpo
 
 	// Store cache validation headers from response for future requests
 	s.storeCacheHeaders(req.URL, resp.Headers)
+
+	// Handle redirects
+	if isRedirectStatus(resp.StatusCode) {
+		// Check if we should follow redirects
+		followRedirects := true
+		maxRedirects := 10
+		if s.Config != nil {
+			followRedirects = s.Config.FollowRedirects
+			if s.Config.MaxRedirects > 0 {
+				maxRedirects = s.Config.MaxRedirects
+			}
+		}
+
+		if followRedirects {
+			if redirectCount >= maxRedirects {
+				return nil, errors.New("too many redirects")
+			}
+
+			// Get Location header
+			location := resp.Headers["Location"]
+			if location == "" {
+				location = resp.Headers["location"]
+			}
+			if location == "" {
+				return resp, nil // No Location header, return as-is
+			}
+
+			// Resolve relative URL
+			redirectURL := resolveURL(req.URL, location)
+
+			// Determine new method
+			newMethod := req.Method
+			if resp.StatusCode == 303 || ((resp.StatusCode == 301 || resp.StatusCode == 302) && req.Method == "POST") {
+				newMethod = "GET"
+			}
+
+			// Create redirect request
+			newReq := &transport.Request{
+				Method:  newMethod,
+				URL:     redirectURL,
+				Headers: make(map[string]string),
+			}
+
+			// Copy safe headers
+			for k, v := range req.Headers {
+				// Don't copy Content-* headers on method change
+				if newMethod != req.Method && (k == "Content-Type" || k == "Content-Length" || k == "content-type" || k == "content-length") {
+					continue
+				}
+				// Don't copy Cookie header (will be re-added from session)
+				if k == "Cookie" || k == "cookie" {
+					continue
+				}
+				newReq.Headers[k] = v
+			}
+
+			// 307/308 preserve body
+			if resp.StatusCode == 307 || resp.StatusCode == 308 {
+				newReq.Body = req.Body
+			}
+
+			// Follow redirect
+			return s.requestWithRedirects(ctx, newReq, redirectCount+1)
+		}
+	}
 
 	return resp, nil
 }
@@ -523,4 +599,61 @@ func splitCookies(s string) []string {
 
 func isDigit(c byte) bool {
 	return c >= '0' && c <= '9'
+}
+
+// isRedirectStatus returns true for 3xx redirect status codes
+func isRedirectStatus(code int) bool {
+	return code == 301 || code == 302 || code == 303 || code == 307 || code == 308
+}
+
+// resolveURL resolves a possibly relative URL against a base URL
+func resolveURL(base, ref string) string {
+	// If ref is absolute, return it
+	if len(ref) > 7 && (ref[:7] == "http://" || ref[:8] == "https://") {
+		return ref
+	}
+
+	// Parse base URL to get scheme and host
+	schemeEnd := indexOf(base, "://")
+	if schemeEnd == -1 {
+		return ref
+	}
+	scheme := base[:schemeEnd]
+
+	rest := base[schemeEnd+3:]
+	pathStart := indexOf(rest, "/")
+
+	var host, basePath string
+	if pathStart == -1 {
+		host = rest
+		basePath = "/"
+	} else {
+		host = rest[:pathStart]
+		basePath = rest[pathStart:]
+	}
+
+	// Handle different reference types
+	if len(ref) > 0 && ref[0] == '/' {
+		// Absolute path
+		if len(ref) > 1 && ref[1] == '/' {
+			// Protocol-relative URL (//example.com/path)
+			return scheme + ":" + ref
+		}
+		return scheme + "://" + host + ref
+	}
+
+	// Relative path - resolve against base path
+	lastSlash := -1
+	for i := len(basePath) - 1; i >= 0; i-- {
+		if basePath[i] == '/' {
+			lastSlash = i
+			break
+		}
+	}
+
+	if lastSlash >= 0 {
+		return scheme + "://" + host + basePath[:lastSlash+1] + ref
+	}
+
+	return scheme + "://" + host + "/" + ref
 }

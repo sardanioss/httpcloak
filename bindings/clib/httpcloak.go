@@ -144,8 +144,13 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 	// Handle redirects
 	if config.AllowRedirects != nil && !*config.AllowRedirects {
 		opts = append(opts, httpcloak.WithoutRedirects())
-	} else if config.MaxRedirects > 0 {
-		opts = append(opts, httpcloak.WithRedirects(true, config.MaxRedirects))
+	} else {
+		// Always set redirects explicitly - default maxRedirects=0 would block all redirects
+		maxRedirects := config.MaxRedirects
+		if maxRedirects <= 0 {
+			maxRedirects = 10 // default
+		}
+		opts = append(opts, httpcloak.WithRedirects(true, maxRedirects))
 	}
 
 	// Handle IPv4 preference
