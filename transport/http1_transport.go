@@ -304,12 +304,24 @@ func (t *HTTP1Transport) dialThroughProxy(ctx context.Context, targetHost, targe
 		}
 	}
 
+	// Pre-resolve proxy hostname using CGO-compatible resolver
+	// Required for shared library usage where Go's pure-Go resolver doesn't work
+	resolver := &net.Resolver{PreferGo: false}
+	proxyIPs, err := resolver.LookupHost(ctx, proxyHost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve proxy host %s: %w", proxyHost, err)
+	}
+	if len(proxyIPs) == 0 {
+		return nil, fmt.Errorf("no IP addresses found for proxy host %s", proxyHost)
+	}
+
 	dialer := &net.Dialer{
 		Timeout:   t.connectTimeout,
 		KeepAlive: 30 * time.Second,
 	}
 
-	proxyAddr := net.JoinHostPort(proxyHost, proxyPort)
+	// Dial using resolved IP to avoid DNS lookup in net.Dialer
+	proxyAddr := net.JoinHostPort(proxyIPs[0], proxyPort)
 	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to proxy: %w", err)

@@ -202,8 +202,19 @@ func containsHelper(s, substr string) bool {
 
 // tryEstablish attempts a single UDP ASSOCIATE handshake
 func (c *SOCKS5UDPConn) tryEstablish(ctx context.Context) error {
-	// Step 1: Connect to SOCKS5 proxy via TCP
-	proxyAddr := net.JoinHostPort(c.proxyHost, c.proxyPort)
+	// Step 1: Pre-resolve proxy hostname using CGO-compatible resolver
+	// Required for shared library usage where Go's pure-Go resolver doesn't work
+	resolver := &net.Resolver{PreferGo: false}
+	proxyIPs, err := resolver.LookupHost(ctx, c.proxyHost)
+	if err != nil {
+		return fmt.Errorf("failed to resolve proxy host %s: %w", c.proxyHost, err)
+	}
+	if len(proxyIPs) == 0 {
+		return fmt.Errorf("no IP addresses found for proxy host %s", c.proxyHost)
+	}
+
+	// Connect to SOCKS5 proxy via TCP using resolved IP
+	proxyAddr := net.JoinHostPort(proxyIPs[0], c.proxyPort)
 	dialer := &net.Dialer{}
 	tcpConn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {

@@ -582,8 +582,20 @@ func lastIndexOf(s, substr string) int {
 
 // dialHTTPProxy establishes a connection through an HTTP CONNECT proxy
 func (p *HostPool) dialHTTPProxy(ctx context.Context, proxy *proxyConfig) (net.Conn, error) {
+	// Pre-resolve proxy hostname using CGO-compatible resolver
+	// Required for shared library usage where Go's pure-Go resolver doesn't work
+	resolver := &net.Resolver{PreferGo: false}
+	proxyIPs, err := resolver.LookupHost(ctx, proxy.Host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve proxy host %s: %w", proxy.Host, err)
+	}
+	if len(proxyIPs) == 0 {
+		return nil, fmt.Errorf("no IP addresses found for proxy host %s", proxy.Host)
+	}
+
 	dialer := &net.Dialer{Timeout: p.connectTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp", proxy.Addr())
+	proxyAddr := net.JoinHostPort(proxyIPs[0], proxy.Port)
+	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to proxy: %w", err)
 	}
@@ -625,8 +637,20 @@ func (p *HostPool) dialHTTPProxy(ctx context.Context, proxy *proxyConfig) (net.C
 
 // dialSOCKS5Proxy establishes a connection through a SOCKS5 proxy
 func (p *HostPool) dialSOCKS5Proxy(ctx context.Context, proxy *proxyConfig) (net.Conn, error) {
+	// Pre-resolve proxy hostname using CGO-compatible resolver
+	// Required for shared library usage where Go's pure-Go resolver doesn't work
+	resolver := &net.Resolver{PreferGo: false}
+	proxyIPs, err := resolver.LookupHost(ctx, proxy.Host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve proxy host %s: %w", proxy.Host, err)
+	}
+	if len(proxyIPs) == 0 {
+		return nil, fmt.Errorf("no IP addresses found for proxy host %s", proxy.Host)
+	}
+
 	dialer := &net.Dialer{Timeout: p.connectTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp", proxy.Addr())
+	proxyAddr := net.JoinHostPort(proxyIPs[0], proxy.Port)
+	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to SOCKS5 proxy: %w", err)
 	}
