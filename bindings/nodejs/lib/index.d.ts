@@ -27,7 +27,7 @@ export class Response {
 export interface SessionOptions {
   /** Browser preset to use (default: "chrome-143") */
   preset?: string;
-  /** Proxy URL (e.g., "http://user:pass@host:port") */
+  /** Proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port") */
   proxy?: string;
   /** Request timeout in seconds (default: 30) */
   timeout?: number;
@@ -43,6 +43,14 @@ export interface SessionOptions {
   retry?: number;
   /** Status codes to retry on (default: [429, 500, 502, 503, 504]) */
   retryOnStatus?: number[];
+  /** Prefer IPv4 addresses over IPv6 (default: false) */
+  preferIpv4?: boolean;
+  /** Default basic auth [username, password] */
+  auth?: [string, string];
+  /** Domain fronting map {requestHost: connectHost} - DNS resolves connectHost but SNI/Host uses requestHost */
+  connectTo?: Record<string, string>;
+  /** Domain to fetch ECH config from (e.g., "cloudflare-ech.com" for any Cloudflare domain) */
+  echConfigDomain?: string;
 }
 
 export interface RequestOptions {

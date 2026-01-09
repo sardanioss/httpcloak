@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
+
 	http "github.com/sardanioss/http"
 	"net/url"
 )
@@ -214,6 +216,7 @@ func (p *PreparedRequest) Send(ctx context.Context) (*Response, error) {
 		URL:             p.URL,
 		Headers:         p.Headers,
 		Body:            p.Body,
+		Timeout:         time.Duration(p.Timeout) * time.Millisecond, // Convert ms back to Duration
 		ForceProtocol:   p.ForceProtocol,
 		FetchMode:       p.FetchMode,
 		FetchSite:       p.FetchSite,

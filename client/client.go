@@ -70,11 +70,12 @@ import (
 // Client is an HTTP client with connection pooling and fingerprint spoofing
 // By default, it tries HTTP/3 first, then HTTP/2, then HTTP/1.1 as fallback
 type Client struct {
-	poolManager *pool.Manager
-	quicManager *pool.QUICManager
-	h1Transport *transport.HTTP1Transport
-	preset      *fingerprint.Preset
-	config      *ClientConfig
+	poolManager     *pool.Manager
+	quicManager     *pool.QUICManager
+	masqueTransport *transport.HTTP3Transport // MASQUE proxy transport (if using MASQUE)
+	h1Transport     *transport.HTTP1Transport
+	preset          *fingerprint.Preset
+	config          *ClientConfig
 
 	// Authentication
 	auth Auth
@@ -120,11 +121,24 @@ func NewClient(presetName string, opts ...Option) *Client {
 		h2Manager.GetDNSCache().SetPreferIPv4(true)
 	}
 
-	// Only create QUIC manager if H3 is not disabled AND no proxy is configured
-	// QUIC uses UDP and cannot be tunneled through HTTP proxies
+	// Only create QUIC manager if H3 is not disabled
+	// HTTP/3 works through SOCKS5 (UDP relay) or MASQUE (CONNECT-UDP) proxies
 	var quicManager *pool.QUICManager
-	if !config.DisableH3 && config.Proxy == "" {
-		quicManager = pool.NewQUICManager(preset, h2Manager.GetDNSCache())
+	var masqueTransport *transport.HTTP3Transport
+	if !config.DisableH3 {
+		if config.Proxy != "" && transport.IsMASQUEProxy(config.Proxy) {
+			// Use dedicated MASQUE transport for MASQUE proxies
+			proxyConfig := &transport.ProxyConfig{URL: config.Proxy}
+			var err error
+			masqueTransport, err = transport.NewHTTP3TransportWithMASQUE(preset, h2Manager.GetDNSCache(), proxyConfig, nil)
+			if err != nil {
+				// Fall back to non-H3 if MASQUE transport creation fails
+				masqueTransport = nil
+			}
+		} else if config.Proxy == "" || transport.SupportsQUIC(config.Proxy) {
+			// Use QUICManager for direct connections or SOCKS5 proxies
+			quicManager = pool.NewQUICManager(preset, h2Manager.GetDNSCache())
+		}
 	}
 
 	// Create HTTP/1.1 transport for fallback or when explicitly requested
@@ -135,14 +149,38 @@ func NewClient(presetName string, opts ...Option) *Client {
 	h1Transport := transport.NewHTTP1TransportWithProxy(preset, h2Manager.GetDNSCache(), proxyConfig)
 	h1Transport.SetInsecureSkipVerify(config.InsecureSkipVerify)
 
+	// Propagate ConnectTo mappings (domain fronting)
+	for requestHost, connectHost := range config.ConnectTo {
+		h2Manager.SetConnectTo(requestHost, connectHost)
+		if quicManager != nil {
+			quicManager.SetConnectTo(requestHost, connectHost)
+		}
+		h1Transport.SetConnectTo(requestHost, connectHost)
+	}
+
+	// Propagate ECH configuration
+	if len(config.ECHConfig) > 0 {
+		h2Manager.SetECHConfig(config.ECHConfig)
+		if quicManager != nil {
+			quicManager.SetECHConfig(config.ECHConfig)
+		}
+	}
+	if config.ECHConfigDomain != "" {
+		h2Manager.SetECHConfigDomain(config.ECHConfigDomain)
+		if quicManager != nil {
+			quicManager.SetECHConfigDomain(config.ECHConfigDomain)
+		}
+	}
+
 	client := &Client{
-		poolManager: h2Manager,
-		quicManager: quicManager,
-		h1Transport: h1Transport,
-		preset:      preset,
-		config:      config,
-		h3Failures:  make(map[string]time.Time),
-		h2Failures:  make(map[string]time.Time),
+		poolManager:     h2Manager,
+		quicManager:     quicManager,
+		masqueTransport: masqueTransport,
+		h1Transport:     h1Transport,
+		preset:          preset,
+		config:          config,
+		h3Failures:      make(map[string]time.Time),
+		h2Failures:      make(map[string]time.Time),
 	}
 
 	// Auto-enable cookies when retry is enabled
@@ -409,7 +447,7 @@ func (c *Client) doWithRetry(ctx context.Context, req *Request) (*Response, erro
 		reqCopy := *req
 
 		// After cookie challenge, switch to H3 for retry (Akamai pattern)
-		if cookieChallengeRetried && req.ForceProtocol == ProtocolAuto && c.quicManager != nil {
+		if cookieChallengeRetried && req.ForceProtocol == ProtocolAuto && (c.quicManager != nil || c.masqueTransport != nil) {
 			reqCopy.ForceProtocol = ProtocolHTTP3
 		}
 
@@ -573,8 +611,14 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	var usedProtocol string
 	timing := &protocol.Timing{}
 
+	// Determine effective protocol: request-level takes precedence over client-level
+	effectiveProtocol := req.ForceProtocol
+	if effectiveProtocol == ProtocolAuto && c.config.ForceProtocol != ProtocolAuto {
+		effectiveProtocol = c.config.ForceProtocol
+	}
+
 	// Determine protocol based on ForceProtocol option
-	switch req.ForceProtocol {
+	switch effectiveProtocol {
 	case ProtocolHTTP1:
 		// Force HTTP/1.1 only
 		resp, usedProtocol, err = c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
@@ -582,12 +626,12 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 			return nil, err
 		}
 	case ProtocolHTTP3:
-		// Force HTTP/3 only - but not possible with proxy
-		if c.config.Proxy != "" {
-			return nil, fmt.Errorf("HTTP/3 cannot be used with proxy: QUIC uses UDP which cannot tunnel through HTTP proxies")
+		// Force HTTP/3 only - requires SOCKS5 or MASQUE proxy for proxy support
+		if c.config.Proxy != "" && !transport.SupportsQUIC(c.config.Proxy) {
+			return nil, fmt.Errorf("HTTP/3 requires SOCKS5 or MASQUE proxy: HTTP proxies cannot tunnel UDP")
 		}
-		if c.quicManager == nil {
-			return nil, fmt.Errorf("HTTP/3 is disabled (no QUIC manager available)")
+		if c.quicManager == nil && c.masqueTransport == nil {
+			return nil, fmt.Errorf("HTTP/3 is disabled (no QUIC manager or MASQUE transport available)")
 		}
 		resp, usedProtocol, err = c.doHTTP3(ctx, host, port, httpReq, timing, startTime)
 		if err != nil {
@@ -602,13 +646,34 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	default:
 		// Auto: Try HTTP/2 -> HTTP/3 -> HTTP/1.1 with smart fallback
 		// H2 first for bot protection (Akamai pattern: H2 gets cookies, H3 succeeds with cookies)
+		// Exception: SOCKS5/MASQUE proxies prefer H3 for best fingerprinting
 		useH1 := c.shouldUseH1(hostKey)
 
-		if useH1 {
+		// When using SOCKS5/MASQUE proxy, prefer HTTP/3 for best fingerprinting
+		usesQUICProxy := c.config.Proxy != "" && transport.SupportsQUIC(c.config.Proxy)
+
+		if useH1 && !usesQUICProxy {
 			// Known to need HTTP/1.1
 			resp, usedProtocol, err = c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
 			if err != nil {
 				return nil, err
+			}
+		} else if usesQUICProxy && useH3 {
+			// SOCKS5/MASQUE proxy - try HTTP/3 first for best fingerprinting
+			resp, usedProtocol, err = c.doHTTP3(ctx, host, port, httpReq, timing, startTime)
+			if err != nil {
+				c.markH3Failed(hostKey)
+				// HTTP/3 failed, try HTTP/2
+				resetRequestBody(httpReq, req.Body)
+				resp, usedProtocol, err = c.doHTTP2(ctx, host, port, httpReq, timing, startTime)
+				if err != nil {
+					// Both failed, try HTTP/1.1
+					resetRequestBody(httpReq, req.Body)
+					resp, usedProtocol, err = c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
+					if err != nil {
+						return nil, err
+					}
+				}
 			}
 		} else {
 			// Try HTTP/2 first (for bot protection cookie flow)
@@ -797,8 +862,8 @@ func isRedirect(statusCode int) bool {
 
 // shouldTryHTTP3 checks if we should try HTTP/3 for this host
 func (c *Client) shouldTryHTTP3(hostKey string) bool {
-	// If QUIC manager is nil (H3 disabled or proxy configured), don't try HTTP/3
-	if c.quicManager == nil {
+	// If neither QUIC manager nor MASQUE transport is available, don't try HTTP/3
+	if c.quicManager == nil && c.masqueTransport == nil {
 		return false
 	}
 
@@ -825,6 +890,18 @@ func (c *Client) markH3Failed(hostKey string) {
 func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.Request, timing *protocol.Timing, startTime time.Time) (*http.Response, string, error) {
 	connStart := time.Now()
 
+	// Use MASQUE transport if available (for MASQUE proxies)
+	if c.masqueTransport != nil {
+		firstByteTime := time.Now()
+		resp, err := c.masqueTransport.RoundTrip(httpReq)
+		if err != nil {
+			return nil, "", err
+		}
+		timing.FirstByte = float64(time.Since(firstByteTime).Milliseconds())
+		return resp, "h3", nil
+	}
+
+	// Use QUICManager for direct connections or SOCKS5 proxies
 	conn, err := c.quicManager.GetConn(ctx, host, port)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get QUIC connection: %w", err)
@@ -940,6 +1017,9 @@ func (c *Client) Close() {
 	c.poolManager.Close()
 	if c.quicManager != nil {
 		c.quicManager.Close()
+	}
+	if c.masqueTransport != nil {
+		c.masqueTransport.Close()
 	}
 	if c.h1Transport != nil {
 		c.h1Transport.Close()

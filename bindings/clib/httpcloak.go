@@ -74,18 +74,20 @@ type ResponseData struct {
 
 // Session configuration
 type SessionConfig struct {
-	Preset          string `json:"preset"`
-	Proxy           string `json:"proxy,omitempty"`
-	Timeout         int    `json:"timeout,omitempty"`           // seconds
-	HTTPVersion     string `json:"http_version,omitempty"`      // "auto", "h1", "h2", "h3"
-	Verify          *bool  `json:"verify,omitempty"`            // SSL verification (default: true)
-	AllowRedirects  *bool  `json:"allow_redirects,omitempty"`   // Follow redirects (default: true)
-	MaxRedirects    int    `json:"max_redirects,omitempty"`     // Max redirects (default: 10)
-	Retry           int    `json:"retry,omitempty"`             // Retry count (default: 0)
-	RetryWaitMin    int    `json:"retry_wait_min,omitempty"`    // Min wait between retries in ms
-	RetryWaitMax    int    `json:"retry_wait_max,omitempty"`    // Max wait between retries in ms
-	RetryOnStatus   []int  `json:"retry_on_status,omitempty"`   // Status codes to retry on
-	PreferIPv4      bool   `json:"prefer_ipv4,omitempty"`       // Prefer IPv4 over IPv6
+	Preset          string            `json:"preset"`
+	Proxy           string            `json:"proxy,omitempty"`
+	Timeout         int               `json:"timeout,omitempty"`           // seconds
+	HTTPVersion     string            `json:"http_version,omitempty"`      // "auto", "h1", "h2", "h3"
+	Verify          *bool             `json:"verify,omitempty"`            // SSL verification (default: true)
+	AllowRedirects  *bool             `json:"allow_redirects,omitempty"`   // Follow redirects (default: true)
+	MaxRedirects    int               `json:"max_redirects,omitempty"`     // Max redirects (default: 10)
+	Retry           int               `json:"retry,omitempty"`             // Retry count (default: 0)
+	RetryWaitMin    int               `json:"retry_wait_min,omitempty"`    // Min wait between retries in ms
+	RetryWaitMax    int               `json:"retry_wait_max,omitempty"`    // Max wait between retries in ms
+	RetryOnStatus   []int             `json:"retry_on_status,omitempty"`   // Status codes to retry on
+	PreferIPv4      bool              `json:"prefer_ipv4,omitempty"`       // Prefer IPv4 over IPv6
+	ConnectTo       map[string]string `json:"connect_to,omitempty"`        // Domain fronting: request_host -> connect_host
+	ECHConfigDomain string            `json:"ech_config_domain,omitempty"` // Domain to fetch ECH config from
 }
 
 // Error response
@@ -290,6 +292,16 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 	} else if config.Retry == 0 {
 		// Explicitly disable retry when retry=0 is passed
 		opts = append(opts, httpcloak.WithoutRetry())
+	}
+
+	// Handle ConnectTo (domain fronting)
+	for requestHost, connectHost := range config.ConnectTo {
+		opts = append(opts, httpcloak.WithConnectTo(requestHost, connectHost))
+	}
+
+	// Handle ECH config domain
+	if config.ECHConfigDomain != "" {
+		opts = append(opts, httpcloak.WithECHFrom(config.ECHConfigDomain))
 	}
 
 	session := httpcloak.NewSession(config.Preset, opts...)

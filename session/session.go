@@ -66,16 +66,24 @@ func NewSession(id string, config *protocol.SessionConfig) *Session {
 		}
 	}
 
-	// Create transport with optional proxy
+	// Create transport config with ConnectTo and ECH settings
+	var transportConfig *transport.TransportConfig
+	if len(config.ConnectTo) > 0 || config.ECHConfigDomain != "" {
+		transportConfig = &transport.TransportConfig{
+			ConnectTo:       config.ConnectTo,
+			ECHConfigDomain: config.ECHConfigDomain,
+		}
+	}
+
+	// Create transport with optional proxy and config
 	var t *transport.Transport
+	var proxy *transport.ProxyConfig
 	if config.Proxy != "" {
-		proxy := &transport.ProxyConfig{
+		proxy = &transport.ProxyConfig{
 			URL: config.Proxy,
 		}
-		t = transport.NewTransportWithProxy(presetName, proxy)
-	} else {
-		t = transport.NewTransport(presetName)
 	}
+	t = transport.NewTransportWithConfig(presetName, proxy, transportConfig)
 
 	// Set protocol preference
 	if config.ForceHTTP3 {

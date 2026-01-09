@@ -167,8 +167,14 @@ func (c *Client) DoStream(ctx context.Context, req *Request) (*StreamResponse, e
 	var usedProtocol string
 	timing := &protocol.Timing{}
 
+	// Determine effective protocol: request-level takes precedence over client-level
+	effectiveProtocol := req.ForceProtocol
+	if effectiveProtocol == ProtocolAuto && c.config.ForceProtocol != ProtocolAuto {
+		effectiveProtocol = c.config.ForceProtocol
+	}
+
 	// Determine protocol based on ForceProtocol option
-	switch req.ForceProtocol {
+	switch effectiveProtocol {
 	case ProtocolHTTP3:
 		// Force HTTP/3 only - but not possible with proxy
 		if c.config.Proxy != "" {

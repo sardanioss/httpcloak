@@ -90,6 +90,33 @@ type ClientConfig struct {
 	// Useful on networks with poor IPv6 connectivity.
 	// Default: false (prefers IPv6 like modern browsers).
 	PreferIPv4 bool
+
+	// ConnectTo maps request hosts to connection hosts.
+	// Key: request host (e.g., "claude.ai")
+	// Value: connection host (e.g., "www.cloudflare.com")
+	// The TLS SNI and Host header use the request host, but DNS resolution
+	// and TCP/QUIC connection use the connection host.
+	// Similar to curl's --connect-to option.
+	ConnectTo map[string]string
+
+	// ECHConfig is a custom ECH (Encrypted Client Hello) configuration.
+	// When set, this overrides automatic ECH fetching from DNS.
+	// Use this to force ECH with a known config (e.g., from cloudflare-ech.com).
+	ECHConfig []byte
+
+	// ECHConfigDomain specifies a domain to fetch ECH config from.
+	// When set, ECH config is fetched from this domain's DNS HTTPS records
+	// instead of the target domain. Useful for Cloudflare domains where
+	// you can use cloudflare-ech.com's ECH config for any CF-proxied domain.
+	ECHConfigDomain string
+
+	// ForceProtocol forces a specific HTTP protocol for all requests.
+	// ProtocolAuto (default): Auto-detect with fallback (H3 -> H2 -> H1)
+	// ProtocolHTTP1: Force HTTP/1.1 only
+	// ProtocolHTTP2: Force HTTP/2 only
+	// ProtocolHTTP3: Force HTTP/3 only
+	// Per-request ForceProtocol in Request struct takes precedence.
+	ForceProtocol Protocol
 }
 
 // DefaultConfig returns default client configuration
@@ -127,7 +154,17 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithProxy sets the proxy URL
+// WithProxy sets the proxy URL.
+// Supported proxy types:
+//   - HTTP/HTTPS proxy: "http://host:port" or "https://host:port"
+//   - SOCKS5 proxy: "socks5://host:port" (supports HTTP/3 via UDP relay)
+//   - MASQUE proxy: "masque://host:port" or "https://brd.superproxy.io:port" (HTTP/3 via CONNECT-UDP)
+//
+// For HTTP/3 through a proxy, use either:
+//   - SOCKS5 proxy with UDP relay support
+//   - MASQUE proxy (known providers like Bright Data are auto-detected with https:// scheme)
+//
+// Authentication can be included in the URL: "http://user:pass@host:port"
 func WithProxy(proxyURL string) Option {
 	return func(c *ClientConfig) {
 		c.Proxy = proxyURL
@@ -200,18 +237,21 @@ func WithDisableKeepAlives() Option {
 	}
 }
 
-// WithDisableHTTP3 disables HTTP/3 and forces HTTP/2
+// WithDisableHTTP3 disables HTTP/3, allowing HTTP/2 with HTTP/1.1 fallback.
+// Use WithForceHTTP2() if you want HTTP/2 only without fallback.
 func WithDisableHTTP3() Option {
 	return func(c *ClientConfig) {
 		c.DisableH3 = true
 	}
 }
 
-// WithForceHTTP2 forces HTTP/2 for all requests (disables HTTP/3, still allows HTTP/1.1 fallback)
-// This is useful when you want to ensure HTTP/2 is used without attempting HTTP/3
+// WithForceHTTP2 forces HTTP/2 for all requests.
+// The client will only use HTTP/2, no HTTP/3 or HTTP/1.1 fallback.
+// Use WithDisableHTTP3() if you want H2 with H1 fallback.
 func WithForceHTTP2() Option {
 	return func(c *ClientConfig) {
-		c.DisableH3 = true
+		c.ForceProtocol = ProtocolHTTP2
+		c.DisableH3 = true // Also disable H3 for consistency
 	}
 }
 
@@ -241,11 +281,21 @@ func (p Protocol) String() string {
 	}
 }
 
-// WithForceHTTP1 forces HTTP/1.1 for all requests
+// WithForceHTTP1 forces HTTP/1.1 for all requests.
+// The client will only use HTTP/1.1, no HTTP/2 or HTTP/3.
 func WithForceHTTP1() Option {
 	return func(c *ClientConfig) {
-		c.DisableH3 = true
-		// Note: Client will check for ForceHTTP1 flag
+		c.ForceProtocol = ProtocolHTTP1
+		c.DisableH3 = true // Also disable H3 for consistency
+	}
+}
+
+// WithForceHTTP3 forces HTTP/3 (QUIC) for all requests.
+// The client will only use HTTP/3, no HTTP/2 or HTTP/1.1 fallback.
+// Requires a SOCKS5 or MASQUE proxy if using a proxy.
+func WithForceHTTP3() Option {
+	return func(c *ClientConfig) {
+		c.ForceProtocol = ProtocolHTTP3
 	}
 }
 
@@ -257,10 +307,56 @@ func WithPreferIPv4() Option {
 	}
 }
 
-// WithDisableH3 disables HTTP/3 (alias for WithDisableHTTP3)
-func WithDisableH3() Option {
+// WithDisableH3 is an alias for WithDisableHTTP3.
+// Disables HTTP/3, allowing HTTP/2 with HTTP/1.1 fallback.
+var WithDisableH3 = WithDisableHTTP3
+
+// WithConnectTo sets a host mapping for domain fronting.
+// Requests to requestHost will connect to connectHost instead.
+// The TLS SNI and Host header will still use requestHost.
+// Similar to curl's --connect-to option.
+//
+// Example:
+//
+//	// Connect to cloudflare.com but request claude.ai
+//	client.WithConnectTo("claude.ai", "www.cloudflare.com")
+func WithConnectTo(requestHost, connectHost string) Option {
 	return func(c *ClientConfig) {
-		c.DisableH3 = true
+		if c.ConnectTo == nil {
+			c.ConnectTo = make(map[string]string)
+		}
+		c.ConnectTo[requestHost] = connectHost
+	}
+}
+
+// WithECHConfig sets a custom ECH configuration.
+// This overrides automatic ECH fetching from DNS.
+// The config should be the raw ECHConfigList bytes.
+//
+// Example:
+//
+//	// Use ECH config fetched from cloudflare-ech.com
+//	echConfig, _ := dns.FetchECHConfigs(ctx, "cloudflare-ech.com")
+//	client.WithECHConfig(echConfig)
+func WithECHConfig(echConfig []byte) Option {
+	return func(c *ClientConfig) {
+		c.ECHConfig = echConfig
+	}
+}
+
+// WithECHFrom sets a domain to fetch ECH config from.
+// Instead of fetching ECH from the target domain's DNS,
+// the config will be fetched from this domain.
+// Useful for Cloudflare domains - use "cloudflare-ech.com" to get
+// ECH config that works for any Cloudflare-proxied domain.
+//
+// Example:
+//
+//	// Use Cloudflare's shared ECH config for any CF domain
+//	client.WithECHFrom("cloudflare-ech.com")
+func WithECHFrom(domain string) Option {
+	return func(c *ClientConfig) {
+		c.ECHConfigDomain = domain
 	}
 }
 

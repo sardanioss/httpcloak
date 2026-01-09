@@ -848,9 +848,12 @@ type Manager struct {
 	closed   bool
 
 	// Configuration
-	maxConnsPerHost    int    // 0 = unlimited
-	proxyURL           string // Proxy URL (optional)
-	insecureSkipVerify bool   // Skip TLS verification
+	maxConnsPerHost    int               // 0 = unlimited
+	proxyURL           string            // Proxy URL (optional)
+	insecureSkipVerify bool              // Skip TLS verification
+	connectTo          map[string]string // Domain fronting: request host -> connect host
+	echConfig          []byte            // Custom ECH configuration
+	echConfigDomain    string            // Domain to fetch ECH config from
 
 	// Cached TLS specs - shared across all HostPools for consistent fingerprint
 	// Chrome shuffles extension order once per session, not per connection
@@ -1009,6 +1012,30 @@ func (m *Manager) SetPreset(preset *fingerprint.Preset) {
 // GetDNSCache returns the DNS cache
 func (m *Manager) GetDNSCache() *dns.Cache {
 	return m.dnsCache
+}
+
+// SetConnectTo sets a host mapping for domain fronting
+func (m *Manager) SetConnectTo(requestHost, connectHost string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.connectTo == nil {
+		m.connectTo = make(map[string]string)
+	}
+	m.connectTo[requestHost] = connectHost
+}
+
+// SetECHConfig sets a custom ECH configuration
+func (m *Manager) SetECHConfig(echConfig []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.echConfig = echConfig
+}
+
+// SetECHConfigDomain sets a domain to fetch ECH config from
+func (m *Manager) SetECHConfigDomain(domain string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.echConfigDomain = domain
 }
 
 // cleanupLoop periodically cleans up idle connections

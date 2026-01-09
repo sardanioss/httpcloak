@@ -25,6 +25,7 @@ type HTTP2Transport struct {
 	preset   *fingerprint.Preset
 	dnsCache *dns.Cache
 	proxy    *ProxyConfig
+	config   *TransportConfig
 
 	// Connection tracking
 	conns   map[string]*persistentConn
@@ -69,10 +70,16 @@ func NewHTTP2Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP2Tr
 
 // NewHTTP2TransportWithProxy creates a new HTTP/2 transport with optional proxy support
 func NewHTTP2TransportWithProxy(preset *fingerprint.Preset, dnsCache *dns.Cache, proxy *ProxyConfig) *HTTP2Transport {
+	return NewHTTP2TransportWithConfig(preset, dnsCache, proxy, nil)
+}
+
+// NewHTTP2TransportWithConfig creates a new HTTP/2 transport with proxy and advanced config
+func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache, proxy *ProxyConfig, config *TransportConfig) *HTTP2Transport {
 	t := &HTTP2Transport{
 		preset:         preset,
 		dnsCache:       dnsCache,
 		proxy:          proxy,
+		config:         config,
 		conns:          make(map[string]*persistentConn),
 		sessionCache:   utls.NewLRUClientSessionCache(64), // Cache up to 64 sessions for resumption
 		maxIdleTime:    90 * time.Second,
@@ -207,17 +214,21 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 	var rawConn net.Conn
 	var err error
 
+	// Get the connection host (may be different for domain fronting)
+	connectHost := t.getConnectHost(host)
+
 	targetAddr := net.JoinHostPort(host, port)
 
 	if t.proxy != nil && t.proxy.URL != "" {
-		// Connect through proxy
-		rawConn, err = t.dialThroughProxy(ctx, host, port)
+		// Connect through proxy - use connectHost for proxy CONNECT
+		rawConn, err = t.dialThroughProxy(ctx, connectHost, port)
 		if err != nil {
 			return nil, fmt.Errorf("proxy connection failed: %w", err)
 		}
 	} else {
 		// Direct connection with DNS resolution and IPv4/IPv6 fallback
-		ips, err := t.dnsCache.ResolveAllSorted(ctx, host)
+		// Resolve the connection host, not request host
+		ips, err := t.dnsCache.ResolveAllSorted(ctx, connectHost)
 		if err != nil {
 			return nil, fmt.Errorf("DNS resolution failed: %w", err)
 		}
@@ -618,6 +629,31 @@ type ConnStats struct {
 // GetDNSCache returns the DNS cache
 func (t *HTTP2Transport) GetDNSCache() *dns.Cache {
 	return t.dnsCache
+}
+
+// SetConnectTo sets a host mapping for domain fronting
+func (t *HTTP2Transport) SetConnectTo(requestHost, connectHost string) {
+	t.connsMu.Lock()
+	defer t.connsMu.Unlock()
+
+	if t.config == nil {
+		t.config = &TransportConfig{}
+	}
+	if t.config.ConnectTo == nil {
+		t.config.ConnectTo = make(map[string]string)
+	}
+	t.config.ConnectTo[requestHost] = connectHost
+}
+
+// getConnectHost returns the connection host for DNS resolution
+func (t *HTTP2Transport) getConnectHost(requestHost string) string {
+	if t.config == nil || t.config.ConnectTo == nil {
+		return requestHost
+	}
+	if connectHost, ok := t.config.ConnectTo[requestHost]; ok {
+		return connectHost
+	}
+	return requestHost
 }
 
 // Connect establishes a connection to the host without making a request.

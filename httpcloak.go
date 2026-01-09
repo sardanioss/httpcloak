@@ -82,8 +82,14 @@ func New(preset string, opts ...Option) *Client {
 		opt(cfg)
 	}
 
+	// Build client options
+	var clientOpts []client.Option
+	if cfg.proxy != "" {
+		clientOpts = append(clientOpts, client.WithProxy(cfg.proxy))
+	}
+
 	return &Client{
-		inner:   client.NewClient(preset),
+		inner:   client.NewClient(preset, clientOpts...),
 		timeout: cfg.timeout,
 	}
 }
@@ -212,6 +218,8 @@ type sessionConfig struct {
 	retryWaitMax       time.Duration
 	retryOnStatus      []int
 	preferIPv4         bool
+	connectTo          map[string]string // Domain fronting: request_host -> connect_host
+	echConfigDomain    string            // Domain to fetch ECH config from
 }
 
 // WithSessionProxy sets a proxy for the session
@@ -303,6 +311,29 @@ func WithSessionPreferIPv4() SessionOption {
 	}
 }
 
+// WithConnectTo sets a host mapping for domain fronting.
+// Requests to requestHost will connect to connectHost instead.
+// The TLS SNI and Host header will still use requestHost.
+func WithConnectTo(requestHost, connectHost string) SessionOption {
+	return func(c *sessionConfig) {
+		if c.connectTo == nil {
+			c.connectTo = make(map[string]string)
+		}
+		c.connectTo[requestHost] = connectHost
+	}
+}
+
+// WithECHFrom sets a domain to fetch ECH config from.
+// Instead of fetching ECH from the target domain's DNS,
+// the config will be fetched from this domain.
+// Useful for Cloudflare domains - use "cloudflare-ech.com" to get
+// ECH config that works for any Cloudflare-proxied domain.
+func WithECHFrom(domain string) SessionOption {
+	return func(c *sessionConfig) {
+		c.echConfigDomain = domain
+	}
+}
+
 // NewSession creates a new persistent session with cookie management
 func NewSession(preset string, opts ...SessionOption) *Session {
 	cfg := &sessionConfig{
@@ -321,6 +352,8 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 		FollowRedirects:    !cfg.disableRedirects,
 		MaxRedirects:       cfg.maxRedirects,
 		PreferIPv4:         cfg.preferIPv4,
+		ConnectTo:          cfg.connectTo,
+		ECHConfigDomain:    cfg.echConfigDomain,
 	}
 
 	// Retry configuration

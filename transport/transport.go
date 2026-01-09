@@ -56,6 +56,19 @@ type ProxyConfig struct {
 	Password string // Proxy password (optional, can also be in URL)
 }
 
+// TransportConfig contains advanced transport configuration
+type TransportConfig struct {
+	// ConnectTo maps request hosts to connection hosts (domain fronting).
+	// Key: request host, Value: connection host for DNS resolution
+	ConnectTo map[string]string
+
+	// ECHConfig is a custom ECH configuration (overrides DNS fetch)
+	ECHConfig []byte
+
+	// ECHConfigDomain is a domain to fetch ECH config from instead of target
+	ECHConfigDomain string
+}
+
 // Request represents an HTTP request
 type Request struct {
 	Method  string
@@ -93,6 +106,7 @@ type Transport struct {
 	timeout     time.Duration
 	protocol    Protocol
 	proxy       *ProxyConfig
+	config      *TransportConfig
 
 	// Track protocol support per host
 	protocolSupport   map[string]Protocol // Best known protocol per host
@@ -104,11 +118,16 @@ type Transport struct {
 
 // NewTransport creates a new unified transport
 func NewTransport(presetName string) *Transport {
-	return NewTransportWithProxy(presetName, nil)
+	return NewTransportWithConfig(presetName, nil, nil)
 }
 
 // NewTransportWithProxy creates a new unified transport with optional proxy
 func NewTransportWithProxy(presetName string, proxy *ProxyConfig) *Transport {
+	return NewTransportWithConfig(presetName, proxy, nil)
+}
+
+// NewTransportWithConfig creates a new unified transport with proxy and config
+func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *TransportConfig) *Transport {
 	preset := fingerprint.Get(presetName)
 	dnsCache := dns.NewCache()
 
@@ -119,26 +138,41 @@ func NewTransportWithProxy(presetName string, proxy *ProxyConfig) *Transport {
 		protocol:        ProtocolAuto,
 		protocolSupport: make(map[string]Protocol),
 		proxy:           proxy,
+		config:          config,
 	}
 
-	// Create HTTP/1.1 and HTTP/2 transports
-	t.h1Transport = NewHTTP1TransportWithProxy(preset, dnsCache, proxy)
-	t.h2Transport = NewHTTP2TransportWithProxy(preset, dnsCache, proxy)
+	// Create HTTP/1.1 and HTTP/2 transports with config
+	t.h1Transport = NewHTTP1TransportWithConfig(preset, dnsCache, proxy, config)
+	t.h2Transport = NewHTTP2TransportWithConfig(preset, dnsCache, proxy, config)
 
-	// Create HTTP/3 transport - with SOCKS5 proxy support if applicable
-	if proxy != nil && proxy.URL != "" && isSOCKS5Proxy(proxy.URL) {
-		// SOCKS5 supports UDP relay for HTTP/3
-		h3Transport, err := NewHTTP3TransportWithProxy(preset, dnsCache, proxy)
-		if err != nil {
-			// Log error but continue without HTTP/3 proxy support
-			// HTTP/3 will work for direct connections, just not through proxy
-			t.h3Transport = NewHTTP3Transport(preset, dnsCache)
+	// Create HTTP/3 transport - with proxy support if applicable
+	if proxy != nil && proxy.URL != "" {
+		if isSOCKS5Proxy(proxy.URL) {
+			// SOCKS5 supports UDP relay for HTTP/3
+			h3Transport, err := NewHTTP3TransportWithConfig(preset, dnsCache, proxy, config)
+			if err != nil {
+				// Log error but continue without HTTP/3 proxy support
+				// HTTP/3 will work for direct connections, just not through proxy
+				t.h3Transport = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+			} else {
+				t.h3Transport = h3Transport
+			}
+		} else if isMASQUEProxy(proxy.URL) {
+			// MASQUE supports HTTP/3 through HTTP/3 proxy
+			h3Transport, err := NewHTTP3TransportWithMASQUE(preset, dnsCache, proxy, config)
+			if err != nil {
+				// Fall back to non-proxied HTTP/3
+				t.h3Transport = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+			} else {
+				t.h3Transport = h3Transport
+			}
 		} else {
-			t.h3Transport = h3Transport
+			// HTTP proxy - HTTP/3 only works without proxy
+			t.h3Transport = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
 		}
 	} else {
-		// No proxy or HTTP proxy - HTTP/3 only works without proxy
-		t.h3Transport = NewHTTP3Transport(preset, dnsCache)
+		// No proxy - HTTP/3 works directly
+		t.h3Transport = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
 	}
 
 	return t
@@ -169,14 +203,25 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 	t.h1Transport = NewHTTP1TransportWithProxy(t.preset, t.dnsCache, proxy)
 	t.h2Transport = NewHTTP2TransportWithProxy(t.preset, t.dnsCache, proxy)
 
-	// Recreate HTTP/3 - with SOCKS5 proxy support if applicable
-	if proxy != nil && proxy.URL != "" && isSOCKS5Proxy(proxy.URL) {
-		h3Transport, err := NewHTTP3TransportWithProxy(t.preset, t.dnsCache, proxy)
-		if err != nil {
-			// Fall back to non-proxied HTTP/3
-			t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+	// Recreate HTTP/3 - with proxy support if applicable
+	if proxy != nil && proxy.URL != "" {
+		if isSOCKS5Proxy(proxy.URL) {
+			h3Transport, err := NewHTTP3TransportWithProxy(t.preset, t.dnsCache, proxy)
+			if err != nil {
+				// Fall back to non-proxied HTTP/3
+				t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+			} else {
+				t.h3Transport = h3Transport
+			}
+		} else if isMASQUEProxy(proxy.URL) {
+			h3Transport, err := NewHTTP3TransportWithMASQUE(t.preset, t.dnsCache, proxy, nil)
+			if err != nil {
+				t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+			} else {
+				t.h3Transport = h3Transport
+			}
 		} else {
-			t.h3Transport = h3Transport
+			t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
 		}
 	} else {
 		t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
@@ -196,13 +241,24 @@ func (t *Transport) SetPreset(presetName string) {
 	t.h1Transport = NewHTTP1TransportWithProxy(t.preset, t.dnsCache, t.proxy)
 	t.h2Transport = NewHTTP2TransportWithProxy(t.preset, t.dnsCache, t.proxy)
 
-	// Recreate HTTP/3 - with SOCKS5 proxy support if applicable
-	if t.proxy != nil && t.proxy.URL != "" && isSOCKS5Proxy(t.proxy.URL) {
-		h3Transport, err := NewHTTP3TransportWithProxy(t.preset, t.dnsCache, t.proxy)
-		if err != nil {
-			t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+	// Recreate HTTP/3 - with proxy support if applicable
+	if t.proxy != nil && t.proxy.URL != "" {
+		if isSOCKS5Proxy(t.proxy.URL) {
+			h3Transport, err := NewHTTP3TransportWithProxy(t.preset, t.dnsCache, t.proxy)
+			if err != nil {
+				t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+			} else {
+				t.h3Transport = h3Transport
+			}
+		} else if isMASQUEProxy(t.proxy.URL) {
+			h3Transport, err := NewHTTP3TransportWithMASQUE(t.preset, t.dnsCache, t.proxy, nil)
+			if err != nil {
+				t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+			} else {
+				t.h3Transport = h3Transport
+			}
 		} else {
-			t.h3Transport = h3Transport
+			t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
 		}
 	} else {
 		t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
@@ -211,6 +267,11 @@ func (t *Transport) SetPreset(presetName string) {
 
 // isSOCKS5Proxy checks if the proxy URL is a SOCKS5 proxy
 func isSOCKS5Proxy(proxyURL string) bool {
+	return IsSOCKS5Proxy(proxyURL)
+}
+
+// IsSOCKS5Proxy checks if the proxy URL is a SOCKS5 proxy (exported version)
+func IsSOCKS5Proxy(proxyURL string) bool {
 	parsed, err := url.Parse(proxyURL)
 	if err != nil {
 		return false
@@ -218,9 +279,140 @@ func isSOCKS5Proxy(proxyURL string) bool {
 	return parsed.Scheme == "socks5" || parsed.Scheme == "socks5h"
 }
 
+// isMASQUEProxy checks if the proxy URL should use MASQUE protocol.
+// Returns true for masque:// scheme or known MASQUE providers with https://
+func isMASQUEProxy(proxyURL string) bool {
+	return IsMASQUEProxy(proxyURL)
+}
+
+// IsMASQUEProxy checks if the proxy URL should use MASQUE protocol (exported version).
+// Returns true for masque:// scheme or known MASQUE providers with https://
+func IsMASQUEProxy(proxyURL string) bool {
+	parsed, err := url.Parse(proxyURL)
+	if err != nil {
+		return false
+	}
+
+	// Explicit masque:// scheme
+	if parsed.Scheme == "masque" {
+		return true
+	}
+
+	// Auto-detect known MASQUE providers with https:// scheme
+	if parsed.Scheme == "https" {
+		// Check against known MASQUE proxy providers
+		host := parsed.Hostname()
+		knownProviders := []string{
+			"brd.superproxy.io",
+			"zproxy.lum-superproxy.io",
+			"lum-superproxy.io",
+			"pr.oxylabs.io",
+		}
+		for _, provider := range knownProviders {
+			if strings.Contains(host, provider) || strings.HasSuffix(host, provider) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// SupportsQUIC checks if the proxy URL supports QUIC/HTTP3 tunneling.
+// Returns true for SOCKS5 (UDP relay) or MASQUE (CONNECT-UDP) proxies.
+func SupportsQUIC(proxyURL string) bool {
+	return IsSOCKS5Proxy(proxyURL) || IsMASQUEProxy(proxyURL)
+}
+
 // SetTimeout sets the request timeout
 func (t *Transport) SetTimeout(timeout time.Duration) {
 	t.timeout = timeout
+}
+
+// SetConnectTo sets a host mapping for domain fronting
+func (t *Transport) SetConnectTo(requestHost, connectHost string) {
+	if t.config == nil {
+		t.config = &TransportConfig{}
+	}
+	if t.config.ConnectTo == nil {
+		t.config.ConnectTo = make(map[string]string)
+	}
+	t.config.ConnectTo[requestHost] = connectHost
+
+	// Update all transports
+	if t.h1Transport != nil {
+		t.h1Transport.SetConnectTo(requestHost, connectHost)
+	}
+	if t.h2Transport != nil {
+		t.h2Transport.SetConnectTo(requestHost, connectHost)
+	}
+	if t.h3Transport != nil {
+		t.h3Transport.SetConnectTo(requestHost, connectHost)
+	}
+}
+
+// SetECHConfig sets a custom ECH configuration
+func (t *Transport) SetECHConfig(echConfig []byte) {
+	if t.config == nil {
+		t.config = &TransportConfig{}
+	}
+	t.config.ECHConfig = echConfig
+
+	// Update HTTP/3 transport (ECH is only used for QUIC/TLS 1.3)
+	if t.h3Transport != nil {
+		t.h3Transport.SetECHConfig(echConfig)
+	}
+}
+
+// SetECHConfigDomain sets a domain to fetch ECH config from
+func (t *Transport) SetECHConfigDomain(domain string) {
+	if t.config == nil {
+		t.config = &TransportConfig{}
+	}
+	t.config.ECHConfigDomain = domain
+
+	// Update HTTP/3 transport
+	if t.h3Transport != nil {
+		t.h3Transport.SetECHConfigDomain(domain)
+	}
+}
+
+// GetConnectHost returns the connection host for a request host.
+// If there's a ConnectTo mapping, returns the mapped host.
+// Otherwise returns the original host.
+func (c *TransportConfig) GetConnectHost(requestHost string) string {
+	if c == nil || c.ConnectTo == nil {
+		return requestHost
+	}
+	if connectHost, ok := c.ConnectTo[requestHost]; ok {
+		return connectHost
+	}
+	return requestHost
+}
+
+// GetECHConfig returns the ECH config to use for a host.
+// Returns custom config if set, otherwise fetches from ECHConfigDomain or target host.
+func (c *TransportConfig) GetECHConfig(ctx context.Context, targetHost string) []byte {
+	if c == nil {
+		// No config - fetch from target host
+		echConfig, _ := dns.FetchECHConfigs(ctx, targetHost)
+		return echConfig
+	}
+
+	// Custom ECH config takes priority
+	if len(c.ECHConfig) > 0 {
+		return c.ECHConfig
+	}
+
+	// ECH from different domain
+	if c.ECHConfigDomain != "" {
+		echConfig, _ := dns.FetchECHConfigs(ctx, c.ECHConfigDomain)
+		return echConfig
+	}
+
+	// Default: fetch from target host
+	echConfig, _ := dns.FetchECHConfigs(ctx, targetHost)
+	return echConfig
 }
 
 // Do executes an HTTP request
@@ -236,8 +428,22 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 		return t.doHTTP1(ctx, req)
 	}
 
-	// When proxy is configured, prefer HTTP/2 (proxies don't support QUIC well)
+	// When proxy is configured, select protocol based on proxy capabilities
 	if t.proxy != nil && t.proxy.URL != "" {
+		if SupportsQUIC(t.proxy.URL) {
+			// SOCKS5 or MASQUE proxy - prefer HTTP/3 for best fingerprinting
+			resp, err := t.doHTTP3(ctx, req)
+			if err == nil {
+				return resp, nil
+			}
+			// Fallback to HTTP/2 if HTTP/3 fails
+			resp, err = t.doHTTP2(ctx, req)
+			if err == nil {
+				return resp, nil
+			}
+			return t.doHTTP1(ctx, req)
+		}
+		// HTTP proxy - only supports H2/H1
 		resp, err := t.doHTTP2(ctx, req)
 		if err == nil {
 			return resp, nil

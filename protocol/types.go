@@ -164,6 +164,12 @@ type SessionConfig struct {
 	// Network options
 	PreferIPv4 bool `json:"preferIpv4,omitempty"` // Prefer IPv4 addresses over IPv6
 
+	// Domain fronting: request_host -> connect_host mapping
+	ConnectTo map[string]string `json:"connectTo,omitempty"`
+
+	// Domain to fetch ECH config from (e.g., "cloudflare-ech.com")
+	ECHConfigDomain string `json:"echConfigDomain,omitempty"`
+
 	// Default authentication (can be overridden per-request)
 	Auth *AuthConfig `json:"auth,omitempty"`
 }

@@ -629,7 +629,7 @@ class Session:
 
     Args:
         preset: Browser preset (default: "chrome-143")
-        proxy: Proxy URL (e.g., "http://user:pass@host:port")
+        proxy: Proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port")
         timeout: Default request timeout in seconds (default: 30)
         http_version: Force HTTP version - "auto", "h1", "h2", "h3" (default: "auto")
         verify: SSL certificate verification (default: True)
@@ -638,6 +638,8 @@ class Session:
         retry: Number of retries on failure (default: 3, set to 0 to disable)
         retry_on_status: List of status codes to retry on (default: [429, 500, 502, 503, 504])
         prefer_ipv4: Prefer IPv4 addresses over IPv6 (default: False)
+        connect_to: Domain fronting map {request_host: connect_host} - DNS resolves connect_host but SNI/Host uses request_host
+        ech_config_domain: Domain to fetch ECH config from (e.g., "cloudflare-ech.com" for any CF domain)
 
     Example:
         with httpcloak.Session(preset="chrome-143") as session:
@@ -651,6 +653,11 @@ class Session:
         # Force IPv4 on networks with poor IPv6 connectivity
         with httpcloak.Session(preset="chrome-143", prefer_ipv4=True) as session:
             r = session.get("https://example.com")
+
+        # With ECH enabled (encrypted SNI) for Cloudflare domains
+        with httpcloak.Session(preset="chrome-143", ech_config_domain="cloudflare-ech.com") as session:
+            r = session.get("https://www.cloudflare.com/cdn-cgi/trace")
+            # Should show sni=encrypted in response
     """
 
     def __init__(
@@ -666,6 +673,8 @@ class Session:
         retry_on_status: Optional[List[int]] = None,
         prefer_ipv4: bool = False,
         auth: Optional[Tuple[str, str]] = None,
+        connect_to: Optional[Dict[str, str]] = None,
+        ech_config_domain: Optional[str] = None,
     ):
         self._lib = _get_lib()
         self._default_timeout = timeout
@@ -687,6 +696,10 @@ class Session:
             config["retry_on_status"] = retry_on_status
         if prefer_ipv4:
             config["prefer_ipv4"] = True
+        if connect_to:
+            config["connect_to"] = connect_to
+        if ech_config_domain:
+            config["ech_config_domain"] = ech_config_domain
 
         config_json = json.dumps(config).encode("utf-8")
         self._handle = self._lib.httpcloak_session_new(config_json)

@@ -120,7 +120,7 @@ public sealed class Session : IDisposable
     /// Create a new session with the specified options.
     /// </summary>
     /// <param name="preset">Browser preset (default: "chrome-143")</param>
-    /// <param name="proxy">Proxy URL (e.g., "http://user:pass@host:port")</param>
+    /// <param name="proxy">Proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port")</param>
     /// <param name="timeout">Request timeout in seconds (default: 30)</param>
     /// <param name="httpVersion">HTTP version: "auto", "h1", "h2", "h3" (default: "auto")</param>
     /// <param name="verify">SSL certificate verification (default: true)</param>
@@ -129,6 +129,8 @@ public sealed class Session : IDisposable
     /// <param name="retry">Number of retries on failure (default: 0)</param>
     /// <param name="preferIpv4">Prefer IPv4 addresses over IPv6 (default: false)</param>
     /// <param name="auth">Default auth (username, password) for all requests</param>
+    /// <param name="connectTo">Domain fronting map (requestHost -> connectHost)</param>
+    /// <param name="echConfigDomain">Domain to fetch ECH config from (e.g., "cloudflare-ech.com")</param>
     public Session(
         string preset = "chrome-143",
         string? proxy = null,
@@ -139,7 +141,9 @@ public sealed class Session : IDisposable
         int maxRedirects = 10,
         int retry = 0,
         bool preferIpv4 = false,
-        (string Username, string Password)? auth = null)
+        (string Username, string Password)? auth = null,
+        Dictionary<string, string>? connectTo = null,
+        string? echConfigDomain = null)
     {
         Auth = auth;
 
@@ -153,7 +157,9 @@ public sealed class Session : IDisposable
             AllowRedirects = allowRedirects,
             MaxRedirects = maxRedirects,
             Retry = retry,
-            PreferIpv4 = preferIpv4
+            PreferIpv4 = preferIpv4,
+            ConnectTo = connectTo,
+            EchConfigDomain = echConfigDomain
         };
 
         string configJson = JsonSerializer.Serialize(config, JsonContext.Default.SessionConfig);
@@ -761,6 +767,14 @@ internal class SessionConfig
     [JsonPropertyName("prefer_ipv4")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool PreferIpv4 { get; set; }
+
+    [JsonPropertyName("connect_to")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? ConnectTo { get; set; }
+
+    [JsonPropertyName("ech_config_domain")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EchConfigDomain { get; set; }
 }
 
 internal class RequestConfig

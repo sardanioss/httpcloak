@@ -25,6 +25,7 @@ type HTTP1Transport struct {
 	preset   *fingerprint.Preset
 	dnsCache *dns.Cache
 	proxy    *ProxyConfig
+	config   *TransportConfig
 
 	// Connection pool
 	idleConns   map[string][]*http1Conn
@@ -63,15 +64,21 @@ type http1Conn struct {
 
 // NewHTTP1Transport creates a new HTTP/1.1 transport with uTLS
 func NewHTTP1Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP1Transport {
-	return NewHTTP1TransportWithProxy(preset, dnsCache, nil)
+	return NewHTTP1TransportWithConfig(preset, dnsCache, nil, nil)
 }
 
 // NewHTTP1TransportWithProxy creates a new HTTP/1.1 transport with optional proxy
 func NewHTTP1TransportWithProxy(preset *fingerprint.Preset, dnsCache *dns.Cache, proxy *ProxyConfig) *HTTP1Transport {
+	return NewHTTP1TransportWithConfig(preset, dnsCache, proxy, nil)
+}
+
+// NewHTTP1TransportWithConfig creates a new HTTP/1.1 transport with proxy and config
+func NewHTTP1TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache, proxy *ProxyConfig, config *TransportConfig) *HTTP1Transport {
 	t := &HTTP1Transport{
 		preset:              preset,
 		dnsCache:            dnsCache,
 		proxy:               proxy,
+		config:              config,
 		idleConns:           make(map[string][]*http1Conn),
 		sessionCache:        utls.NewLRUClientSessionCache(64),
 		maxIdleConnsPerHost: 6, // Browser-like limit
@@ -84,6 +91,17 @@ func NewHTTP1TransportWithProxy(preset *fingerprint.Preset, dnsCache *dns.Cache,
 	go t.cleanupLoop()
 
 	return t
+}
+
+// SetConnectTo sets a host mapping for domain fronting (stub for HTTP/1.1)
+func (t *HTTP1Transport) SetConnectTo(requestHost, connectHost string) {
+	if t.config == nil {
+		t.config = &TransportConfig{}
+	}
+	if t.config.ConnectTo == nil {
+		t.config.ConnectTo = make(map[string]string)
+	}
+	t.config.ConnectTo[requestHost] = connectHost
 }
 
 // SetInsecureSkipVerify sets whether to skip TLS verification

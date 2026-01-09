@@ -19,7 +19,13 @@ require (
 )
 
 require (
+	github.com/dunglas/httpsfv v1.0.2 // indirect
+	github.com/quic-go/masque-go v0.3.0 // indirect
+	github.com/quic-go/qpack v0.5.1 // indirect
+	github.com/quic-go/quic-go v0.53.0 // indirect
 	github.com/sardanioss/qpack v0.6.2 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	go.uber.org/mock v0.5.2 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/net v0.48.0 // indirect

@@ -95,6 +95,9 @@ type HTTP3Transport struct {
 	// Chrome shuffles TLS extensions once per session, not per connection
 	cachedClientHelloSpec *utls.ClientHelloSpec
 
+	// Separate cached spec for inner MASQUE connections (not shared with outer)
+	cachedClientHelloSpecInner *utls.ClientHelloSpec
+
 	// Shuffle seed for TLS and transport parameter ordering (consistent per session)
 	shuffleSeed int64
 
@@ -108,13 +111,24 @@ type HTTP3Transport struct {
 	tlsConfig  *tls.Config
 
 	// Proxy support for SOCKS5 UDP relay
-	proxyConfig  *ProxyConfig
-	socks5Conn   *proxy.SOCKS5UDPConn
+	proxyConfig   *ProxyConfig
+	socks5Conn    *proxy.SOCKS5UDPConn
 	quicTransport *quic.Transport
+
+	// MASQUE proxy support
+	masqueConn *proxy.MASQUEConn
+
+	// Advanced configuration (ConnectTo, ECH override)
+	config *TransportConfig
 }
 
 // NewHTTP3Transport creates a new HTTP/3 transport
 func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP3Transport {
+	return NewHTTP3TransportWithTransportConfig(preset, dnsCache, nil)
+}
+
+// NewHTTP3TransportWithTransportConfig creates a new HTTP/3 transport with advanced config
+func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *dns.Cache, config *TransportConfig) *HTTP3Transport {
 	// Generate shuffle seed for session-consistent ordering
 	var seedBytes [8]byte
 	crand.Read(seedBytes[:])
@@ -125,6 +139,7 @@ func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP3Tr
 		dnsCache:     dnsCache,
 		sessionCache: tls.NewLRUClientSessionCache(64), // Cache for 0-RTT resumption
 		shuffleSeed:  shuffleSeed,
+		config:       config,
 	}
 
 	// Create TLS config for QUIC with session cache for 0-RTT
@@ -206,6 +221,11 @@ func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP3Tr
 // NewHTTP3TransportWithProxy creates a new HTTP/3 transport with SOCKS5 proxy support
 // Only SOCKS5 proxies support UDP relay needed for QUIC/HTTP3
 func NewHTTP3TransportWithProxy(preset *fingerprint.Preset, dnsCache *dns.Cache, proxyConfig *ProxyConfig) (*HTTP3Transport, error) {
+	return NewHTTP3TransportWithConfig(preset, dnsCache, proxyConfig, nil)
+}
+
+// NewHTTP3TransportWithConfig creates a new HTTP/3 transport with SOCKS5 proxy and advanced config
+func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache, proxyConfig *ProxyConfig, config *TransportConfig) (*HTTP3Transport, error) {
 	// Validate proxy scheme - only SOCKS5 works for UDP/QUIC
 	if proxyConfig != nil && proxyConfig.URL != "" {
 		proxyURL, err := url.Parse(proxyConfig.URL)
@@ -228,6 +248,7 @@ func NewHTTP3TransportWithProxy(preset *fingerprint.Preset, dnsCache *dns.Cache,
 		sessionCache: tls.NewLRUClientSessionCache(64),
 		shuffleSeed:  shuffleSeed,
 		proxyConfig:  proxyConfig,
+		config:       config,
 	}
 
 	// Create TLS config for QUIC
@@ -334,6 +355,199 @@ func NewHTTP3TransportWithProxy(preset *fingerprint.Preset, dnsCache *dns.Cache,
 	return t, nil
 }
 
+// NewHTTP3TransportWithMASQUE creates a new HTTP/3 transport with MASQUE proxy support.
+// MASQUE allows HTTP/3 (QUIC) traffic to be tunneled through an HTTP/3 proxy using
+// the CONNECT-UDP method defined in RFC 9298.
+func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache, proxyConfig *ProxyConfig, config *TransportConfig) (*HTTP3Transport, error) {
+	// Generate shuffle seed for session-consistent ordering
+	var seedBytes [8]byte
+	crand.Read(seedBytes[:])
+	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
+
+	t := &HTTP3Transport{
+		preset:       preset,
+		dnsCache:     dnsCache,
+		sessionCache: tls.NewLRUClientSessionCache(64),
+		shuffleSeed:  shuffleSeed,
+		proxyConfig:  proxyConfig,
+		config:       config,
+	}
+
+	// Create TLS config for QUIC
+	t.tlsConfig = &tls.Config{
+		NextProtos:         []string{http3.NextProtoH3},
+		MinVersion:         tls.VersionTLS13,
+		InsecureSkipVerify: false,
+		ClientSessionCache: t.sessionCache,
+	}
+
+	// Get ClientHelloID for TLS fingerprinting
+	var clientHelloID *utls.ClientHelloID
+	if preset.QUICClientHelloID.Client != "" {
+		clientHelloID = &preset.QUICClientHelloID
+	} else if preset.ClientHelloID.Client != "" {
+		clientHelloID = &preset.ClientHelloID
+	}
+
+	// Cache ClientHelloSpec for consistent fingerprint (outer connection to proxy)
+	if clientHelloID != nil {
+		spec, err := utls.UTLSIdToSpecWithSeed(*clientHelloID, shuffleSeed)
+		if err == nil {
+			t.cachedClientHelloSpec = &spec
+		}
+		// Create separate cached spec for inner connections (not shared with outer)
+		// This ensures JA4 hash is consistent across inner requests
+		innerSpec, err := utls.UTLSIdToSpecWithSeed(*clientHelloID, shuffleSeed)
+		if err == nil {
+			t.cachedClientHelloSpecInner = &innerSpec
+		}
+	}
+
+	// Create QUIC config with MASQUE-specific settings
+	t.quicConfig = &quic.Config{
+		MaxIdleTimeout:                30 * time.Second,
+		KeepAlivePeriod:               30 * time.Second,
+		MaxIncomingStreams:            100,
+		MaxIncomingUniStreams:         103,
+		Allow0RTT:                     true,
+		EnableDatagrams:               true, // Required for MASQUE
+		InitialPacketSize:             1250,
+		DisablePathMTUDiscovery:       false,
+		DisableClientHelloScrambling:  true,
+		ChromeStyleInitialPackets:     true,
+		ClientHelloID:                 clientHelloID,
+		CachedClientHelloSpec:         t.cachedClientHelloSpec,
+		TransportParameterOrder:       quic.TransportParameterOrderChrome,
+		TransportParameterShuffleSeed: shuffleSeed,
+	}
+
+	// Create MASQUE connection
+	masqueConn, err := proxy.NewMASQUEConn(proxyConfig.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MASQUE connection: %w", err)
+	}
+	t.masqueConn = masqueConn
+
+	// Generate GREASE settings
+	greaseSettingID := generateGREASESettingID()
+	greaseSettingValue := uint64(1 + rand.Uint32()%(1<<32-1))
+
+	additionalSettings := map[uint64]uint64{
+		settingQPACKMaxTableCapacity: 65536,
+		settingQPACKBlockedStreams:   100,
+		greaseSettingID:              greaseSettingValue,
+	}
+
+	// Create HTTP/3 transport with MASQUE dial function
+	t.transport = &http3.Transport{
+		TLSClientConfig:        t.tlsConfig,
+		QUICConfig:             t.quicConfig,
+		Dial:                   t.dialQUICWithMASQUE,
+		EnableDatagrams:        true,
+		AdditionalSettings:     additionalSettings,
+		MaxResponseHeaderBytes: 262144,
+		SendGreaseFrames:       true,
+	}
+
+	return t, nil
+}
+
+// dialQUICWithMASQUE dials a QUIC connection through a MASQUE proxy.
+// The connection is tunneled through the proxy using HTTP/3 CONNECT-UDP.
+func (t *HTTP3Transport) dialQUICWithMASQUE(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+	t.mu.Lock()
+	t.dialCount++
+	t.mu.Unlock()
+
+	// Parse host:port
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %w", err)
+	}
+
+	// Get the connection host (may be different for domain fronting)
+	connectHost := t.getConnectHost(host)
+
+	// Convert port to int
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port: %w", err)
+	}
+
+	// Establish MASQUE tunnel with Chrome fingerprinting
+	// Use the preset's TLS/QUIC config for the proxy connection too
+	err = t.masqueConn.EstablishWithQUICConfig(ctx, connectHost, portInt, t.tlsConfig, t.quicConfig)
+	if err != nil {
+		return nil, fmt.Errorf("MASQUE tunnel establishment failed: %w", err)
+	}
+
+	// Create quic.Transport with MASQUE PacketConn
+	if t.quicTransport == nil {
+		t.quicTransport = &quic.Transport{
+			Conn: t.masqueConn,
+		}
+	}
+
+	// Resolve target DNS
+	ip, err := t.dnsCache.ResolveOne(ctx, connectHost)
+	if err != nil {
+		return nil, fmt.Errorf("DNS resolution failed for %s: %w", connectHost, err)
+	}
+
+	targetAddr := &net.UDPAddr{IP: ip, Port: portInt}
+
+	// Set resolved target so ReadFrom returns the correct source address
+	t.masqueConn.SetResolvedTarget(targetAddr)
+
+	// Set ServerName in TLS config - use request host (SNI), not connection host
+	tlsCfgCopy := tlsCfg.Clone()
+	tlsCfgCopy.ServerName = host
+
+	// Fetch ECH config for inner connection
+	echConfigList := t.getECHConfig(ctx, host)
+
+	// Get ClientHelloID for inner connection - required for ECH to work
+	// ECH is only applied when using uTLS (ClientHelloID or CachedClientHelloSpec)
+	var clientHelloID *utls.ClientHelloID
+	if t.preset.QUICClientHelloID.Client != "" {
+		clientHelloID = &t.preset.QUICClientHelloID
+	} else if t.preset.ClientHelloID.Client != "" {
+		clientHelloID = &t.preset.ClientHelloID
+	}
+
+	// For inner connection through MASQUE tunnel, use Chrome fingerprinting + ECH.
+	// MASQUE FINGERPRINT LIMITATIONS (see docs/MASQUE_FINGERPRINT_LIMITATIONS.md):
+	// - CachedClientHelloSpec: Uses SEPARATE spec (not shared with outer) for consistent JA4
+	// - ChromeStyleInitialPackets: FAILS - multi-packet patterns break through tunnel
+	// - DisableClientHelloScrambling: WORKS - simplifies handshake
+	// - ClientHelloID: WORKS - uTLS generates Chrome-like ClientHello
+	// - TransportParameterOrder: WORKS - Chrome transport param ordering
+	cfgCopy := &quic.Config{
+		MaxIdleTimeout:                  30 * time.Second,
+		KeepAlivePeriod:                 30 * time.Second,
+		MaxIncomingStreams:              100,
+		MaxIncomingUniStreams:           103,
+		Allow0RTT:                       true,
+		EnableDatagrams:                 true,
+		InitialPacketSize:               1200,
+		DisablePathMTUDiscovery:         true, // Disable PMTUD through tunnel
+		DisableClientHelloScrambling:    true, // Chrome doesn't scramble, simplifies tunnel handshake
+		InitialStreamReceiveWindow:      512 * 1024,
+		MaxStreamReceiveWindow:          6 * 1024 * 1024,
+		InitialConnectionReceiveWindow:  15 * 1024 * 1024 / 2,
+		MaxConnectionReceiveWindow:      15 * 1024 * 1024,
+		TransportParameterOrder:         quic.TransportParameterOrderChrome,
+		TransportParameterShuffleSeed:   t.shuffleSeed,
+		ClientHelloID:                   clientHelloID,
+		CachedClientHelloSpec:           t.cachedClientHelloSpecInner, // Separate spec for consistent JA4
+		ECHConfigList:                   echConfigList,
+	}
+
+	// Dial QUIC over the MASQUE tunnel using quic.Dial directly
+	// This properly supports ECH, unlike quic.Transport.Dial
+	return quic.Dial(ctx, t.masqueConn, targetAddr, tlsCfgCopy, cfgCopy)
+}
+
 // dialQUICWithProxy dials a QUIC connection through SOCKS5 proxy
 // Uses Happy Eyeballs-style racing between IPv4 and IPv6 addresses
 func (t *HTTP3Transport) dialQUICWithProxy(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
@@ -347,13 +561,16 @@ func (t *HTTP3Transport) dialQUICWithProxy(ctx context.Context, addr string, tls
 		return nil, fmt.Errorf("invalid address: %w", err)
 	}
 
-	// Resolve DNS to get all addresses
-	ips, err := t.dnsCache.Resolve(ctx, host)
+	// Get the connection host (may be different for domain fronting)
+	connectHost := t.getConnectHost(host)
+
+	// Resolve DNS to get all addresses - resolve connection host, not request host
+	ips, err := t.dnsCache.Resolve(ctx, connectHost)
 	if err != nil {
-		return nil, fmt.Errorf("DNS resolution failed: %w", err)
+		return nil, fmt.Errorf("DNS resolution failed for %s: %w", connectHost, err)
 	}
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("no IP addresses found for %s", host)
+		return nil, fmt.Errorf("no IP addresses found for %s", connectHost)
 	}
 
 	// Convert port to int
@@ -372,18 +589,16 @@ func (t *HTTP3Transport) dialQUICWithProxy(ctx context.Context, addr string, tls
 		}
 	}
 
-	// Set ServerName in TLS config
+	// Set ServerName in TLS config - use request host (SNI), not connection host
 	tlsCfgCopy := tlsCfg.Clone()
 	tlsCfgCopy.ServerName = host
 
 	// Clone QUIC config
 	cfgCopy := cfg.Clone()
 
-	// Fetch ECH configs after racing succeeds to avoid state issues
-	// ECH config is applied per-address-family to prevent cross-contamination
-
 	// Race IPv6 and IPv4 connections (Happy Eyeballs style)
 	// Try IPv6 first, then IPv4 after short timeout
+	// Pass request host for ECH config fetching
 	return t.raceQUICDial(ctx, host, ipv6Addrs, ipv4Addrs, tlsCfgCopy, cfgCopy)
 }
 
@@ -395,8 +610,8 @@ func (t *HTTP3Transport) raceQUICDial(ctx context.Context, host string, ipv6Addr
 		return nil, fmt.Errorf("no addresses to dial")
 	}
 
-	// Fetch ECH configs (used for both attempts)
-	echConfigList, _ := dns.FetchECHConfigs(ctx, host)
+	// Fetch ECH config - use custom config if set, otherwise from target host
+	echConfigList := t.getECHConfig(ctx, host)
 
 	// Helper to create fresh config with ECH
 	// Important: CachedClientHelloSpec may have state that corrupts after failed dials,
@@ -476,22 +691,24 @@ func (t *HTTP3Transport) dialQUIC(ctx context.Context, addr string, tlsCfg *tls.
 		return nil, fmt.Errorf("invalid address: %w", err)
 	}
 
-	// Use DNS cache for resolution
-	ip, err := t.dnsCache.ResolveOne(ctx, host)
+	// Get the connection host (may be different for domain fronting)
+	connectHost := t.getConnectHost(host)
+
+	// Use DNS cache for resolution - resolve the connection host, not request host
+	ip, err := t.dnsCache.ResolveOne(ctx, connectHost)
 	if err != nil {
-		return nil, fmt.Errorf("DNS resolution failed: %w", err)
+		return nil, fmt.Errorf("DNS resolution failed for %s: %w", connectHost, err)
 	}
 
 	// Create new address with resolved IP
 	resolvedAddr := net.JoinHostPort(ip.String(), port)
 
-	// Set ServerName in TLS config
+	// Set ServerName in TLS config - use the request host (SNI), not connection host
 	tlsCfgCopy := tlsCfg.Clone()
 	tlsCfgCopy.ServerName = host
 
-	// Fetch ECH configs from DNS HTTPS records
-	// This is non-blocking - if it fails, we proceed without ECH
-	echConfigList, _ := dns.FetchECHConfigs(ctx, host)
+	// Fetch ECH config - use custom config if set, otherwise from target host
+	echConfigList := t.getECHConfig(ctx, host)
 
 	// Clone the QUIC config and add ECH
 	cfgCopy := cfg.Clone()
@@ -599,6 +816,13 @@ func (t *HTTP3Transport) Close() error {
 		}
 	}
 
+	// Close MASQUE connection if using MASQUE proxy
+	if t.masqueConn != nil {
+		if err := t.masqueConn.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	if len(errs) > 0 {
 		return errs[0]
 	}
@@ -684,4 +908,60 @@ type HTTP3Stats struct {
 // GetDNSCache returns the DNS cache
 func (t *HTTP3Transport) GetDNSCache() *dns.Cache {
 	return t.dnsCache
+}
+
+// SetConnectTo sets a host mapping for domain fronting
+func (t *HTTP3Transport) SetConnectTo(requestHost, connectHost string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.config == nil {
+		t.config = &TransportConfig{}
+	}
+	if t.config.ConnectTo == nil {
+		t.config.ConnectTo = make(map[string]string)
+	}
+	t.config.ConnectTo[requestHost] = connectHost
+}
+
+// SetECHConfig sets a custom ECH configuration
+func (t *HTTP3Transport) SetECHConfig(echConfig []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.config == nil {
+		t.config = &TransportConfig{}
+	}
+	t.config.ECHConfig = echConfig
+}
+
+// SetECHConfigDomain sets a domain to fetch ECH config from
+func (t *HTTP3Transport) SetECHConfigDomain(domain string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.config == nil {
+		t.config = &TransportConfig{}
+	}
+	t.config.ECHConfigDomain = domain
+}
+
+// getConnectHost returns the connection host for DNS resolution
+func (t *HTTP3Transport) getConnectHost(requestHost string) string {
+	if t.config == nil || t.config.ConnectTo == nil {
+		return requestHost
+	}
+	if connectHost, ok := t.config.ConnectTo[requestHost]; ok {
+		return connectHost
+	}
+	return requestHost
+}
+
+// getECHConfig returns the ECH config for a host
+func (t *HTTP3Transport) getECHConfig(ctx context.Context, targetHost string) []byte {
+	if t.config == nil {
+		echConfig, _ := dns.FetchECHConfigs(ctx, targetHost)
+		return echConfig
+	}
+	return t.config.GetECHConfig(ctx, targetHost)
 }

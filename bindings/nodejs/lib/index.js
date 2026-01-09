@@ -674,7 +674,7 @@ class Session {
    * Create a new session
    * @param {Object} options - Session options
    * @param {string} [options.preset="chrome-143"] - Browser preset to use
-   * @param {string} [options.proxy] - Proxy URL (e.g., "http://user:pass@host:port")
+   * @param {string} [options.proxy] - Proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port")
    * @param {number} [options.timeout=30] - Request timeout in seconds
    * @param {string} [options.httpVersion="auto"] - HTTP version: "auto", "h1", "h2", "h3"
    * @param {boolean} [options.verify=true] - SSL certificate verification
@@ -683,6 +683,8 @@ class Session {
    * @param {number} [options.retry=3] - Number of retries on failure (set to 0 to disable)
    * @param {number[]} [options.retryOnStatus] - Status codes to retry on
    * @param {Array} [options.auth] - Default auth [username, password] for all requests
+   * @param {Object} [options.connectTo] - Domain fronting map {requestHost: connectHost}
+   * @param {string} [options.echConfigDomain] - Domain to fetch ECH config from (e.g., "cloudflare-ech.com")
    */
   constructor(options = {}) {
     const {
@@ -697,6 +699,8 @@ class Session {
       retryOnStatus = null,
       preferIpv4 = false,
       auth = null,
+      connectTo = null,
+      echConfigDomain = null,
     } = options;
 
     this._lib = getLib();
@@ -726,6 +730,12 @@ class Session {
     }
     if (preferIpv4) {
       config.prefer_ipv4 = true;
+    }
+    if (connectTo) {
+      config.connect_to = connectTo;
+    }
+    if (echConfigDomain) {
+      config.ech_config_domain = echConfigDomain;
     }
 
     this._handle = this._lib.httpcloak_session_new(JSON.stringify(config));

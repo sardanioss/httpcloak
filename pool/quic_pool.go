@@ -488,7 +488,10 @@ type QUICManager struct {
 	closed   bool
 
 	// Configuration
-	maxConnsPerHost int // 0 = unlimited
+	maxConnsPerHost int               // 0 = unlimited
+	connectTo       map[string]string // Domain fronting: request host -> connect host
+	echConfig       []byte            // Custom ECH configuration
+	echConfigDomain string            // Domain to fetch ECH config from
 
 	// Cached TLS specs - shared across all QUICHostPools for consistent fingerprint
 	// Chrome shuffles extension order once per session, not per connection
@@ -545,6 +548,30 @@ func (m *QUICManager) SetMaxConnsPerHost(max int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.maxConnsPerHost = max
+}
+
+// SetConnectTo sets a host mapping for domain fronting
+func (m *QUICManager) SetConnectTo(requestHost, connectHost string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.connectTo == nil {
+		m.connectTo = make(map[string]string)
+	}
+	m.connectTo[requestHost] = connectHost
+}
+
+// SetECHConfig sets a custom ECH configuration
+func (m *QUICManager) SetECHConfig(echConfig []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.echConfig = echConfig
+}
+
+// SetECHConfigDomain sets a domain to fetch ECH config from
+func (m *QUICManager) SetECHConfigDomain(domain string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.echConfigDomain = domain
 }
 
 // GetPool returns a pool for the given host, creating one if needed
