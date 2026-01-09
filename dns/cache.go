@@ -34,9 +34,15 @@ type Cache struct {
 
 // NewCache creates a new DNS cache
 func NewCache() *Cache {
+	// Use CGO resolver (PreferGo: false) for compatibility with shared library usage.
+	// The pure-Go resolver doesn't work when Go runtime is loaded as a plugin/shared library
+	// because the netpoller isn't properly initialized in that context.
+	resolver := &net.Resolver{
+		PreferGo: false, // Force CGO resolver for shared library compatibility
+	}
 	return &Cache{
 		entries:    make(map[string]*Entry),
-		resolver:   net.DefaultResolver,
+		resolver:   resolver,
 		defaultTTL: 5 * time.Minute,  // Default TTL if not specified
 		minTTL:     30 * time.Second, // Minimum TTL to prevent hammering
 		preferIPv4: false,

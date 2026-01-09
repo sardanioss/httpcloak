@@ -133,7 +133,32 @@ func (c *MASQUEConn) EstablishWithQUICConfig(ctx context.Context, targetHost str
 	c.targetPort = targetPort
 
 	// Step 1: Dial QUIC connection to proxy
-	proxyAddr := net.JoinHostPort(c.proxyHost, c.proxyPort)
+	// Pre-resolve proxy hostname using CGO-compatible resolver
+	// (required for shared library usage where Go's pure-Go resolver doesn't work)
+	resolver := &net.Resolver{PreferGo: false}
+	proxyIPs, err := resolver.LookupHost(ctx, c.proxyHost)
+	if err != nil {
+		return fmt.Errorf("failed to resolve proxy host %s: %w", c.proxyHost, err)
+	}
+	if len(proxyIPs) == 0 {
+		return fmt.Errorf("no IP addresses found for proxy host %s", c.proxyHost)
+	}
+
+	// Parse port
+	port, err := strconv.Atoi(c.proxyPort)
+	if err != nil {
+		return fmt.Errorf("invalid proxy port %s: %w", c.proxyPort, err)
+	}
+
+	// Create UDP address from resolved IP
+	proxyIP := net.ParseIP(proxyIPs[0])
+	proxyUDPAddr := &net.UDPAddr{IP: proxyIP, Port: port}
+
+	// Create local UDP socket
+	udpConn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create UDP socket: %w", err)
+	}
 
 	// Create TLS config for proxy connection
 	proxyTLSConfig := tlsConfig.Clone()
@@ -147,7 +172,8 @@ func (c *MASQUEConn) EstablishWithQUICConfig(ctx context.Context, targetHost str
 		proxyCfg.InitialPacketSize = defaultInitialPacketSize
 	}
 
-	quicConn, err := quic.DialAddr(ctx, proxyAddr, proxyTLSConfig, proxyCfg)
+	// Use quic.Dial with pre-resolved address to avoid DNS lookup in quic-go
+	quicConn, err := quic.Dial(ctx, udpConn, proxyUDPAddr, proxyTLSConfig, proxyCfg)
 	if err != nil {
 		return fmt.Errorf("failed to dial QUIC to proxy: %w", err)
 	}
