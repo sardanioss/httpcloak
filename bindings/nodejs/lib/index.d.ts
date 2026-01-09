@@ -6,6 +6,22 @@ export class HTTPCloakError extends Error {
   name: "HTTPCloakError";
 }
 
+export class Cookie {
+  /** Cookie name */
+  name: string;
+  /** Cookie value */
+  value: string;
+}
+
+export class RedirectInfo {
+  /** HTTP status code */
+  statusCode: number;
+  /** Request URL */
+  url: string;
+  /** Response headers */
+  headers: Record<string, string>;
+}
+
 export class Response {
   /** HTTP status code */
   statusCode: number;
@@ -13,15 +29,34 @@ export class Response {
   headers: Record<string, string>;
   /** Raw response body as Buffer */
   body: Buffer;
+  /** Response body as Buffer (alias for body) */
+  content: Buffer;
   /** Response body as string */
   text: string;
   /** Final URL after redirects */
   finalUrl: string;
+  /** Final URL after redirects (alias for finalUrl) */
+  url: string;
   /** Protocol used (http/1.1, h2, h3) */
   protocol: string;
+  /** Elapsed time in milliseconds */
+  elapsed: number;
+  /** Cookies set by this response */
+  cookies: Cookie[];
+  /** Redirect history */
+  history: RedirectInfo[];
+  /** True if status code < 400 */
+  ok: boolean;
+  /** HTTP status reason phrase (e.g., 'OK', 'Not Found') */
+  reason: string;
+  /** Response encoding from Content-Type header */
+  encoding: string | null;
 
   /** Parse response body as JSON */
   json<T = any>(): T;
+
+  /** Raise error if status >= 400 */
+  raiseForStatus(): void;
 }
 
 export interface SessionOptions {
@@ -54,14 +89,22 @@ export interface SessionOptions {
 }
 
 export interface RequestOptions {
-  /** HTTP method */
-  method: string;
-  /** Request URL */
-  url: string;
   /** Optional custom headers */
   headers?: Record<string, string>;
-  /** Optional request body */
+  /** Optional request body (for POST, PUT, PATCH) */
   body?: string | Buffer | Record<string, any>;
+  /** JSON body (will be serialized) */
+  json?: Record<string, any>;
+  /** Form data (will be URL encoded) */
+  data?: Record<string, any>;
+  /** Files to upload as multipart/form-data */
+  files?: Record<string, Buffer | { filename: string; content: Buffer; contentType?: string }>;
+  /** Query parameters */
+  params?: Record<string, string | number | boolean>;
+  /** Cookies to send with this request */
+  cookies?: Record<string, string>;
+  /** Basic auth [username, password] */
+  auth?: [string, string];
   /** Optional request timeout in seconds */
   timeout?: number;
 }
@@ -69,66 +112,65 @@ export interface RequestOptions {
 export class Session {
   constructor(options?: SessionOptions);
 
+  /** Default headers for all requests */
+  headers: Record<string, string>;
+
+  /** Default auth for all requests [username, password] */
+  auth: [string, string] | null;
+
   /** Close the session and release resources */
   close(): void;
 
   // Synchronous methods
   /** Perform a synchronous GET request */
-  getSync(url: string, headers?: Record<string, string>): Response;
+  getSync(url: string, options?: RequestOptions): Response;
 
   /** Perform a synchronous POST request */
-  postSync(
-    url: string,
-    body?: string | Buffer | Record<string, any>,
-    headers?: Record<string, string>
-  ): Response;
+  postSync(url: string, options?: RequestOptions): Response;
 
   /** Perform a synchronous custom HTTP request */
-  requestSync(options: RequestOptions): Response;
+  requestSync(method: string, url: string, options?: RequestOptions): Response;
 
   // Promise-based methods
   /** Perform an async GET request */
-  get(url: string, headers?: Record<string, string>): Promise<Response>;
+  get(url: string, options?: RequestOptions): Promise<Response>;
 
   /** Perform an async POST request */
-  post(
-    url: string,
-    body?: string | Buffer | Record<string, any>,
-    headers?: Record<string, string>
-  ): Promise<Response>;
+  post(url: string, options?: RequestOptions): Promise<Response>;
 
   /** Perform an async custom HTTP request */
-  request(options: RequestOptions): Promise<Response>;
+  request(method: string, url: string, options?: RequestOptions): Promise<Response>;
 
   /** Perform an async PUT request */
-  put(
-    url: string,
-    body?: string | Buffer | Record<string, any>,
-    headers?: Record<string, string>
-  ): Promise<Response>;
+  put(url: string, options?: RequestOptions): Promise<Response>;
 
   /** Perform an async DELETE request */
-  delete(url: string, headers?: Record<string, string>): Promise<Response>;
+  delete(url: string, options?: RequestOptions): Promise<Response>;
 
   /** Perform an async PATCH request */
-  patch(
-    url: string,
-    body?: string | Buffer | Record<string, any>,
-    headers?: Record<string, string>
-  ): Promise<Response>;
+  patch(url: string, options?: RequestOptions): Promise<Response>;
 
   /** Perform an async HEAD request */
-  head(url: string, headers?: Record<string, string>): Promise<Response>;
+  head(url: string, options?: RequestOptions): Promise<Response>;
 
   /** Perform an async OPTIONS request */
-  options(url: string, headers?: Record<string, string>): Promise<Response>;
+  options(url: string, options?: RequestOptions): Promise<Response>;
 
   // Cookie management
   /** Get all cookies from the session */
   getCookies(): Record<string, string>;
 
+  /** Get a specific cookie by name */
+  getCookie(name: string): string | null;
+
   /** Set a cookie in the session */
   setCookie(name: string, value: string): void;
+
+  /** Delete a specific cookie by name */
+  deleteCookie(name: string): void;
+
+  /** Clear all cookies from the session */
+  clearCookies(): void;
 
   /** Get cookies as a property */
   readonly cookies: Record<string, string>;
@@ -170,7 +212,8 @@ export function patch(url: string, options?: RequestOptions): Promise<Response>;
 export function head(url: string, options?: RequestOptions): Promise<Response>;
 
 /** Perform an OPTIONS request */
-export function options(url: string, options?: RequestOptions): Promise<Response>;
+declare function opts(url: string, options?: RequestOptions): Promise<Response>;
+export { opts as options };
 
 /** Perform a custom HTTP request */
 export function request(method: string, url: string, options?: RequestOptions): Promise<Response>;
