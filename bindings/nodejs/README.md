@@ -48,6 +48,19 @@ async function main() {
 main();
 ```
 
+### ES Modules
+
+```javascript
+import { Session } from "httpcloak";
+
+const session = new Session({ preset: "chrome-143" });
+
+const response = await session.get("https://example.com");
+console.log(response.text);
+
+session.close();
+```
+
 ### Synchronous Usage
 
 ```javascript
@@ -97,6 +110,78 @@ session.postCb(
     console.log(response.statusCode);
   }
 );
+```
+
+### Streaming Downloads
+
+For large downloads, use streaming to avoid loading entire response into memory:
+
+```javascript
+const { Session } = require("httpcloak");
+const fs = require("fs");
+
+async function downloadFile() {
+  const session = new Session({ preset: "chrome-143" });
+
+  try {
+    // Start streaming request
+    const stream = session.getStream("https://example.com/large-file.zip");
+
+    console.log(`Status: ${stream.statusCode}`);
+    console.log(`Content-Length: ${stream.contentLength}`);
+    console.log(`Protocol: ${stream.protocol}`);
+
+    // Read in chunks
+    const file = fs.createWriteStream("downloaded-file.zip");
+    let totalBytes = 0;
+    let chunk;
+
+    while ((chunk = stream.readChunk(65536)) !== null) {
+      file.write(chunk);
+      totalBytes += chunk.length;
+      console.log(`Downloaded ${totalBytes} bytes...`);
+    }
+
+    file.end();
+    stream.close();
+    console.log(`Download complete: ${totalBytes} bytes`);
+  } finally {
+    session.close();
+  }
+}
+
+downloadFile();
+```
+
+### Streaming with All Methods
+
+```javascript
+const { Session } = require("httpcloak");
+
+const session = new Session({ preset: "chrome-143" });
+
+// Stream GET
+const getStream = session.getStream("https://example.com/data");
+
+// Stream POST
+const postStream = session.postStream("https://example.com/upload", "data");
+
+// Stream with custom options
+const customStream = session.requestStream({
+  method: "PUT",
+  url: "https://example.com/resource",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ key: "value" }),
+});
+
+// Read response
+let chunk;
+while ((chunk = customStream.readChunk(65536)) !== null) {
+  console.log(`Received ${chunk.length} bytes`);
+}
+customStream.close();
+
+session.close();
 ```
 
 ## Proxy Support
@@ -165,6 +250,20 @@ const response = await session.get("https://www.cloudflare.com/cdn-cgi/trace");
 console.log(response.protocol); // h3
 ```
 
+### Split Proxy Configuration
+
+Use different proxies for TCP (HTTP/1.1, HTTP/2) and UDP (HTTP/3) traffic:
+
+```javascript
+const { Session } = require("httpcloak");
+
+const session = new Session({
+  preset: "chrome-143",
+  tcpProxy: "http://tcp-proxy:port",      // For HTTP/1.1, HTTP/2
+  udpProxy: "https://masque-proxy:port",  // For HTTP/3
+});
+```
+
 ## Advanced Features
 
 ### Encrypted Client Hello (ECH)
@@ -225,17 +324,45 @@ const { Session } = require("httpcloak");
 
 const session = new Session();
 
+// Set a cookie
+session.setCookie("session_id", "abc123");
+
 // Get all cookies
 const cookies = session.getCookies();
 console.log(cookies);
 
-// Set a cookie
-session.setCookie("session_id", "abc123");
-
 // Access cookies as property
 console.log(session.cookies);
 
+// Clear a cookie
+session.clearCookie("session_id");
+
+// Clear all cookies
+session.clearCookies();
+
 session.close();
+```
+
+## Session Configuration
+
+```javascript
+const { Session } = require("httpcloak");
+
+const session = new Session({
+  preset: "chrome-143",           // Browser fingerprint preset
+  proxy: null,                    // Proxy URL
+  tcpProxy: null,                 // Separate TCP proxy
+  udpProxy: null,                 // Separate UDP proxy (MASQUE)
+  timeout: 30,                    // Request timeout in seconds
+  httpVersion: "auto",            // "auto", "h1", "h2", "h3"
+  verify: true,                   // SSL certificate verification
+  allowRedirects: true,           // Follow redirects
+  maxRedirects: 10,               // Maximum redirect count
+  retry: 3,                       // Retry count on failure
+  preferIpv4: false,              // Prefer IPv4 over IPv6
+  connectTo: null,                // Domain fronting map
+  echConfigDomain: null,          // ECH config domain
+});
 ```
 
 ## Available Presets
@@ -250,28 +377,90 @@ console.log(availablePresets());
 
 ## Response Object
 
+### Standard Response
+
 ```javascript
 const response = await session.get("https://example.com");
 
-response.statusCode; // number: HTTP status code
-response.headers; // object: Response headers
-response.body; // Buffer: Raw response body
-response.text; // string: Response body as text
-response.finalUrl; // string: Final URL after redirects
-response.protocol; // string: Protocol used (http/1.1, h2, h3)
-response.json(); // Parse response body as JSON
+response.statusCode;   // number: HTTP status code
+response.headers;      // object: Response headers (values are arrays)
+response.body;         // Buffer: Raw response body
+response.text;         // string: Response body as text
+response.finalUrl;     // string: Final URL after redirects
+response.protocol;     // string: Protocol used (http/1.1, h2, h3)
+response.ok;           // boolean: True if status < 400
+response.cookies;      // array: Cookies from response
+response.history;      // array: Redirect history
+
+// Get specific header
+const contentType = response.getHeader("Content-Type");
+const allCookies = response.getHeaders("Set-Cookie");
+
+// Parse JSON
+const data = response.json();
 ```
 
-## Custom Requests
+### Streaming Response
 
 ```javascript
-const response = await session.request({
+const stream = session.getStream("https://example.com");
+
+stream.statusCode;      // number: HTTP status code
+stream.headers;         // object: Response headers (values are arrays)
+stream.contentLength;   // number: Content length (-1 if unknown)
+stream.finalUrl;        // string: Final URL after redirects
+stream.protocol;        // string: Protocol used
+
+// Read all bytes
+const data = stream.readAll();
+
+// Read in chunks (memory efficient)
+let chunk;
+while ((chunk = stream.readChunk(65536)) !== null) {
+  process(chunk);
+}
+
+stream.close();
+```
+
+## HTTP Methods
+
+```javascript
+const { Session } = require("httpcloak");
+
+const session = new Session({ preset: "chrome-143" });
+
+// GET
+const response = await session.get("https://example.com");
+
+// POST
+const postResponse = await session.post("https://example.com", { key: "value" });
+
+// PUT
+const putResponse = await session.put("https://example.com", { key: "value" });
+
+// PATCH
+const patchResponse = await session.patch("https://example.com", { key: "value" });
+
+// DELETE
+const deleteResponse = await session.delete("https://example.com");
+
+// HEAD
+const headResponse = await session.head("https://example.com");
+
+// OPTIONS
+const optionsResponse = await session.options("https://example.com");
+
+// Custom request
+const customResponse = await session.request({
   method: "PUT",
   url: "https://api.example.com/resource",
   headers: { "X-Custom": "value" },
   body: { data: "value" },
   timeout: 60,
 });
+
+session.close();
 ```
 
 ## Error Handling
@@ -299,12 +488,21 @@ session.close();
 HTTPCloak includes TypeScript definitions out of the box:
 
 ```typescript
-import { Session, Response, HTTPCloakError } from "httpcloak";
+import { Session, Response, StreamResponse, HTTPCloakError } from "httpcloak";
 
 const session = new Session({ preset: "chrome-143" });
 
 async function fetchData(): Promise<Response> {
   return session.get("https://example.com");
+}
+
+async function downloadLargeFile(): Promise<void> {
+  const stream: StreamResponse = session.getStream("https://example.com/file");
+  let chunk: Buffer | null;
+  while ((chunk = stream.readChunk(65536)) !== null) {
+    // Process chunk
+  }
+  stream.close();
 }
 ```
 
@@ -313,6 +511,7 @@ async function fetchData(): Promise<Response> {
 - Linux (x64, arm64)
 - macOS (x64, arm64)
 - Windows (x64, arm64)
+- Node.js 16+
 
 ## License
 
