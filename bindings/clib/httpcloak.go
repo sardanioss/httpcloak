@@ -738,8 +738,15 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 //export httpcloak_session_free
 func httpcloak_session_free(handle C.int64_t) {
 	sessionMu.Lock()
-	delete(sessions, int64(handle))
+	session, exists := sessions[int64(handle)]
+	if exists {
+		delete(sessions, int64(handle))
+	}
 	sessionMu.Unlock()
+
+	if session != nil {
+		session.Close()
+	}
 }
 
 func getSession(handle C.int64_t) *httpcloak.Session {
