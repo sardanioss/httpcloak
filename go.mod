@@ -15,7 +15,7 @@ require (
 	github.com/sardanioss/http v1.1.0
 	github.com/sardanioss/net v1.1.0
 	github.com/sardanioss/quic-go v1.2.13
-	github.com/sardanioss/utls v1.9.7
+	github.com/sardanioss/utls v1.9.8
 )
 
 require (
