@@ -37,3 +37,14 @@ temp/
 /tests
 # Internal tests (not published)
 internal_tests/
+
+# Local docs/notes (not published)
+PREPARE.md
+debug.md
+features.md
+browser_import_plan.md
+ech_fix.md
+docs/tcp_ip_plan.md
+
+# Temp images
+image copy*.png

@@ -1,6 +1,6 @@
 {
   "name": "httpcloak",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "Browser fingerprint emulation HTTP client with HTTP/1.1, HTTP/2, and HTTP/3 support",
   "main": "lib/index.js",
   "module": "lib/index.mjs",
@@ -49,11 +49,11 @@
     "koffi": "^2.9.0"
   },
   "optionalDependencies": {
-    "@httpcloak/linux-x64": "1.5.4",
-    "@httpcloak/linux-arm64": "1.5.4",
-    "@httpcloak/darwin-x64": "1.5.4",
-    "@httpcloak/darwin-arm64": "1.5.4",
-    "@httpcloak/win32-x64": "1.5.4",
-    "@httpcloak/win32-arm64": "1.5.4"
+    "@httpcloak/linux-x64": "1.5.5",
+    "@httpcloak/linux-arm64": "1.5.5",
+    "@httpcloak/darwin-x64": "1.5.5",
+    "@httpcloak/darwin-arm64": "1.5.5",
+    "@httpcloak/win32-x64": "1.5.5",
+    "@httpcloak/win32-arm64": "1.5.5"
   }
 }

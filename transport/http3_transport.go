@@ -23,8 +23,8 @@ import (
 	utls "github.com/sardanioss/utls"
 )
 
-// Debug logging helper (writes to /tmp/httpcloak_debug.log)
-var logDebugEnabled = true
+// Debug logging helper - disabled by default
+var logDebugEnabled = false
 
 func logDebug(format string, args ...interface{}) {
 	if !logDebugEnabled {
@@ -33,9 +33,7 @@ func logDebug(format string, args ...interface{}) {
 	msg := fmt.Sprintf("[DEBUG] "+format+"\n", args...)
 	f, err := os.OpenFile("/tmp/httpcloak_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		// Fallback: write to stderr
-		fmt.Fprint(os.Stderr, msg)
-		return
+		return // Silently ignore if can't write
 	}
 	f.WriteString(msg)
 	f.Close()
