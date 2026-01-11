@@ -579,7 +579,7 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 		return t.doHTTP1(ctx, req)
 	}
 
-	// When proxy is configured, select protocol based on proxy capabilities
+	// When proxy is configured, respect user's protocol choice
 	// Check for any proxy (URL, TCPProxy, or UDPProxy)
 	if t.proxy != nil && (t.proxy.URL != "" || t.proxy.TCPProxy != "" || t.proxy.UDPProxy != "") {
 		// Get effective proxy URL for protocol detection
@@ -591,37 +591,58 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 			effectiveProxyURL = t.proxy.UDPProxy
 		}
 
-		// If H3 proxy initialization failed, skip H3 entirely
-		// This prevents silent bypass - user gets clear error if they force H3
-		if t.h3ProxyError != nil {
-			// H3 proxy failed during init - use H2/H1 only
+		// Respect user's explicit protocol choice
+		switch t.protocol {
+		case ProtocolHTTP1:
+			return t.doHTTP1(ctx, req)
+
+		case ProtocolHTTP2:
+			return t.doHTTP2(ctx, req)
+
+		case ProtocolHTTP3:
+			// Check if H3 is possible with this proxy
+			if t.h3ProxyError != nil {
+				return nil, t.h3ProxyError
+			}
+			if !SupportsQUIC(effectiveProxyURL) {
+				return nil, fmt.Errorf("HTTP/3 requires a SOCKS5 or MASQUE proxy (current proxy does not support UDP)")
+			}
+			return t.doHTTP3(ctx, req)
+
+		case ProtocolAuto:
+			// Auto-select based on proxy capabilities
+			if t.h3ProxyError != nil {
+				// H3 proxy failed during init - use H2/H1 only
+				resp, err := t.doHTTP2(ctx, req)
+				if err == nil {
+					return resp, nil
+				}
+				return t.doHTTP1(ctx, req)
+			}
+
+			if SupportsQUIC(effectiveProxyURL) {
+				// SOCKS5 or MASQUE proxy - prefer HTTP/3 for best fingerprinting
+				resp, err := t.doHTTP3(ctx, req)
+				if err == nil {
+					return resp, nil
+				}
+				// Fallback to HTTP/2 if HTTP/3 fails
+				resp, err = t.doHTTP2(ctx, req)
+				if err == nil {
+					return resp, nil
+				}
+				return t.doHTTP1(ctx, req)
+			}
+			// HTTP proxy - only supports H2/H1
 			resp, err := t.doHTTP2(ctx, req)
 			if err == nil {
 				return resp, nil
 			}
 			return t.doHTTP1(ctx, req)
-		}
 
-		if SupportsQUIC(effectiveProxyURL) {
-			// SOCKS5 or MASQUE proxy - prefer HTTP/3 for best fingerprinting
-			resp, err := t.doHTTP3(ctx, req)
-			if err == nil {
-				return resp, nil
-			}
-			// Fallback to HTTP/2 if HTTP/3 fails
-			resp, err = t.doHTTP2(ctx, req)
-			if err == nil {
-				return resp, nil
-			}
-			return t.doHTTP1(ctx, req)
+		default:
+			return t.doHTTP2(ctx, req)
 		}
-		// HTTP proxy - only supports H2/H1
-		resp, err := t.doHTTP2(ctx, req)
-		if err == nil {
-			return resp, nil
-		}
-		// Fallback to HTTP/1.1 if HTTP/2 fails through proxy
-		return t.doHTTP1(ctx, req)
 	}
 
 	switch t.protocol {
