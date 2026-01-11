@@ -1,6 +1,6 @@
 # httpcloak
 
-**The a comprehensive browser fingerprint emulation library.** Native Go with bindings for Python, Node.js, and C#.
+**A comprehensive browser fingerprint emulation library.** Native Go with bindings for Python, Node.js, and C#.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/sardanioss/httpcloak.svg)](https://pkg.go.dev/github.com/sardanioss/httpcloak)
 [![PyPI](https://img.shields.io/pypi/v/httpcloak)](https://pypi.org/project/httpcloak/)
