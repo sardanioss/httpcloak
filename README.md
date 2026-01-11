@@ -33,7 +33,7 @@ import httpcloak
 r = httpcloak.get("https://target.com", preset="chrome-143")
 ```
 
-That's it. Full browser fingerprint. Every layer.
+That's it. Full browser transport layer fingerprint.
 
 ---
 
