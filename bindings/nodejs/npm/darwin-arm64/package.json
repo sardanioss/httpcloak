@@ -1,6 +1,6 @@
 {
   "name": "@httpcloak/darwin-arm64",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "HTTPCloak native binary for darwin arm64",
   "os": [
     "darwin"
