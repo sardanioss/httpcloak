@@ -21,7 +21,7 @@
 
 Bot detection doesn't just check your User-Agent anymore.
 
-It fingerprints your **TLS handshake**. Your **HTTP/2 frames**. Your **QUIC parameters**. The order of your headers. Whether your SNI is encrypted.
+It fingerprints your **TLS handshake**. Your **HTTP/2 frames**. Your **QUIC parameters**. The order of your headers. Whether you have a session ticket. Whether your SNI is encrypted.
 
 One mismatch = blocked.
 
@@ -49,6 +49,7 @@ That's it. Full browser transport layer fingerprint.
 - GREASE randomization
 - Post-quantum X25519MLKEM768
 - ECH (Encrypted Client Hello)
+- Session tickets & 0-RTT
 
 </td>
 <td width="33%" valign="top">
@@ -81,6 +82,19 @@ That's it. Full browser transport layer fingerprint.
 ## Results
 
 ```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                                                         │
+│   WITHOUT SESSION TICKET          WITH SESSION TICKET                   │
+│                                                                         │
+│   Bot Score: 43                   Bot Score: 99                         │
+│   ██████░░░░░░░░░░░░░░            ██████████████████████████████████    │
+│   ↑ New TLS handshake             ↑ 0-RTT resumption                    │
+│   ↑ Looks like a bot              ↑ Looks like returning Chrome         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+```
 ┌─────────────────────────────────┐
 │  ECH (Encrypted Client Hello)   │
 ├─────────────────────────────────┤
@@ -111,8 +125,10 @@ That's it. Full browser transport layer fingerprint.
 │                                │                                │
 │  + TLS fingerprint (JA3/JA4)   │  + HTTP/3 fingerprinting       │
 │  + HTTP/2 fingerprint          │  + ECH (encrypted SNI)         │
-│  + Post-quantum TLS            │  + MASQUE proxy                │
-│  + Bot score: 99               │  + Domain fronting             │
+│  + Post-quantum TLS            │  + Session persistence         │
+│  + Bot score: 99               │  + 0-RTT resumption            │
+│                                │  + MASQUE proxy                │
+│                                │  + Domain fronting             │
 │                                │  + Certificate pinning         │
 │                                │  + Go, Python, Node.js, C#     │
 │                                │                                │
@@ -156,6 +172,29 @@ r = httpcloak.get("https://httpbin.org/headers",
 )
 ```
 
+**Session with persistence (Bot Score 99):**
+
+```python
+import httpcloak
+import os
+
+# Create or load session
+if os.path.exists("session.json"):
+    session = httpcloak.Session.load("session.json")
+else:
+    session = httpcloak.Session(preset="chrome-143")
+    session.get("https://cloudflare.com/")  # Warm up for TLS tickets
+    session.save("session.json")
+
+# All subsequent requests use 0-RTT resumption
+r = session.get("https://target.com/")
+print(f"Bot Score: 99, Protocol: {r.protocol}")
+
+# For Redis/database storage
+session_data = session.marshal()  # Get as string
+restored = httpcloak.Session.unmarshal(session_data)
+```
+
 ### Go
 
 ```go
@@ -185,6 +224,30 @@ resp, _ = c.Get(ctx, "https://httpbin.org/headers", map[string][]string{
 })
 ```
 
+**Session with persistence (Bot Score 99):**
+
+```go
+import "github.com/sardanioss/httpcloak"
+
+// Create or load session
+var session *httpcloak.Session
+if _, err := os.Stat("session.json"); err == nil {
+    session, _ = httpcloak.LoadSession("session.json")
+} else {
+    session = httpcloak.NewSession("chrome-143")
+    session.Get(ctx, "https://cloudflare.com/")  // Warm up
+    session.Save("session.json")
+}
+defer session.Close()
+
+// All requests now use 0-RTT
+resp, _ := session.Get(ctx, "https://target.com/")
+
+// For Redis/database storage
+data, _ := session.Marshal()  // Get as []byte
+restored, _ := httpcloak.UnmarshalSession(data)
+```
+
 ### Node.js
 
 ```javascript
@@ -204,6 +267,33 @@ const r = await session.post("https://httpbin.org/post", {
 const r = await session.get("https://httpbin.org/headers", {
     headers: { "X-Custom": "value" }
 });
+
+session.close();
+```
+
+**Session with persistence (Bot Score 99):**
+
+```javascript
+import httpcloak from "httpcloak";
+import fs from "fs";
+
+// Create or load session
+let session;
+if (fs.existsSync("session.json")) {
+    session = httpcloak.Session.load("session.json");
+} else {
+    session = new httpcloak.Session({ preset: "chrome-143" });
+    await session.get("https://cloudflare.com/");  // Warm up
+    session.save("session.json");
+}
+
+// All requests now use 0-RTT
+const r = await session.get("https://target.com/");
+console.log("Bot Score: 99");
+
+// For Redis/database storage
+const data = session.marshal();  // Get as string
+const restored = httpcloak.Session.unmarshal(data);
 
 session.close();
 ```
@@ -229,6 +319,35 @@ var r = session.Get("https://httpbin.org/headers",
 );
 ```
 
+**Session with persistence (Bot Score 99):**
+
+```csharp
+using HttpCloak;
+
+// Create or load session
+Session session;
+if (File.Exists("session.json"))
+{
+    session = Session.Load("session.json");
+}
+else
+{
+    session = new Session(preset: Presets.Chrome143);
+    session.Get("https://cloudflare.com/");  // Warm up
+    session.Save("session.json");
+}
+
+// All requests now use 0-RTT
+var r = session.Get("https://target.com/");
+Console.WriteLine("Bot Score: 99");
+
+// For Redis/database storage
+string data = session.Marshal();  // Get as string
+var restored = Session.Unmarshal(data);
+
+session.Dispose();
+```
+
 ---
 
 ## Features
@@ -245,6 +364,22 @@ session = httpcloak.Session(
 ```
 
 Cloudflare trace shows `sni=encrypted` instead of `sni=plaintext`.
+
+### ⚡ Session Resumption (0-RTT)
+
+TLS session tickets make you look like a returning visitor.
+
+```python
+# Warm up on any Cloudflare site
+session.get("https://cloudflare.com/")
+session.save("session.json")
+
+# Use on your target
+session = httpcloak.Session.load("session.json")
+r = session.get("https://target.com/")  # Bot score: 99
+```
+
+Cross-domain warming works because Cloudflare sites share TLS infrastructure.
 
 ### 🌐 HTTP/3 Through Proxies
 
@@ -425,7 +560,13 @@ session = httpcloak.Session(
 session.get(url, **kwargs)
 session.post(url, data=None, json=None, **kwargs)
 session.get_stream(url)        # Streaming download
+session.save("file.json")      # Save session state
+session.marshal()              # Export as string
 session.close()
+
+# Class methods
+httpcloak.Session.load("file.json")
+httpcloak.Session.unmarshal(data)
 
 # Response object
 response.status_code           # HTTP status
@@ -483,6 +624,14 @@ resp.JSON(&v)       // error
 resp.GetHeader(key) // string
 resp.IsSuccess()    // bool
 resp.IsRedirect()   // bool
+
+// Session (for persistence)
+session := httpcloak.NewSession("chrome-143")
+session.Get(ctx, url)
+session.Save("file.json")
+session.Marshal()   // ([]byte, error)
+httpcloak.LoadSession("file.json")
+httpcloak.UnmarshalSession(data)
 ```
 
 ### Node.js
@@ -507,6 +656,12 @@ await session.delete(url, options)
 // Sync methods
 session.getSync(url, options)
 session.postSync(url, options)
+
+// Session persistence
+session.save("file.json")
+session.marshal()
+httpcloak.Session.load("file.json")
+httpcloak.Session.unmarshal(data)
 session.close()
 
 // Response object
@@ -535,6 +690,12 @@ session.Get(url, headers)
 session.Post(url, json: obj, data: dict, headers: dict)
 session.Put(url, ...)
 session.Delete(url)
+
+// Session persistence
+session.Save("file.json")
+session.Marshal()
+Session.Load("file.json")
+Session.Unmarshal(data)
 session.Dispose()
 
 // Response object
