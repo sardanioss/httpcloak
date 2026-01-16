@@ -135,10 +135,23 @@ copy_to_bindings() {
         echo "Copying to Python bindings..."
         mkdir -p "$SCRIPT_DIR/../python/httpcloak/lib"
         cp "$lib" "$SCRIPT_DIR/../python/httpcloak/lib/"
+        # Also copy to top-level for direct import (search path priority)
+        cp "$lib" "$SCRIPT_DIR/../python/httpcloak/"
 
         echo "Copying to Node.js bindings..."
         mkdir -p "$SCRIPT_DIR/../nodejs/lib"
         cp "$lib" "$SCRIPT_DIR/../nodejs/lib/"
+        # Also copy to npm package location if it exists (takes priority in search)
+        if [ -d "$SCRIPT_DIR/../nodejs/node_modules/@httpcloak/linux-x64" ]; then
+            cp "$lib" "$SCRIPT_DIR/../nodejs/node_modules/@httpcloak/linux-x64/"
+        fi
+
+        echo "Copying to .NET bindings..."
+        mkdir -p "$SCRIPT_DIR/../dotnet/HttpCloak/lib"
+        cp "$lib" "$SCRIPT_DIR/../dotnet/HttpCloak/lib/"
+        cp "$lib" "$SCRIPT_DIR/../dotnet/HttpCloak/"
+        mkdir -p "$SCRIPT_DIR/../dotnet/HttpCloak/runtimes/linux-x64/native"
+        cp "$lib" "$SCRIPT_DIR/../dotnet/HttpCloak/runtimes/linux-x64/native/"
 
         echo "Done!"
     else

@@ -308,12 +308,13 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
 
 	t := &HTTP3Transport{
-		preset:       preset,
-		dnsCache:     dnsCache,
-		sessionCache: NewPersistableSessionCache(),
-		shuffleSeed:  shuffleSeed,
-		proxyConfig:  proxyConfig,
-		config:       config,
+		preset:         preset,
+		dnsCache:       dnsCache,
+		sessionCache:   NewPersistableSessionCache(),
+		shuffleSeed:    shuffleSeed,
+		proxyConfig:    proxyConfig,
+		config:         config,
+		echConfigCache: make(map[string][]byte),
 	}
 
 	// Create TLS config for QUIC
@@ -438,12 +439,13 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
 
 	t := &HTTP3Transport{
-		preset:       preset,
-		dnsCache:     dnsCache,
-		sessionCache: NewPersistableSessionCache(),
-		shuffleSeed:  shuffleSeed,
-		proxyConfig:  proxyConfig,
-		config:       config,
+		preset:         preset,
+		dnsCache:       dnsCache,
+		sessionCache:   NewPersistableSessionCache(),
+		shuffleSeed:    shuffleSeed,
+		proxyConfig:    proxyConfig,
+		config:         config,
+		echConfigCache: make(map[string][]byte),
 	}
 
 	// Create TLS config for QUIC
@@ -491,6 +493,10 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 	}
 
 	// Create QUIC config with MASQUE-specific settings
+	// IMPORTANT: InitialPacketSize must be >= 1350 for MASQUE outer connection.
+	// MASQUE encapsulates inner QUIC packets (up to 1200 bytes) as HTTP/3 datagrams,
+	// which adds overhead. If outer packets are too small, inner packets get fragmented
+	// and the connection hangs.
 	t.quicConfig = &quic.Config{
 		MaxIdleTimeout:                30 * time.Second,
 		KeepAlivePeriod:               30 * time.Second,
@@ -498,7 +504,7 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		MaxIncomingUniStreams:         103,
 		Allow0RTT:                     true,
 		EnableDatagrams:               true, // Required for MASQUE
-		InitialPacketSize:             1250,
+		InitialPacketSize:             1350, // Must be >= 1350 for MASQUE tunneling
 		DisablePathMTUDiscovery:       false,
 		DisableClientHelloScrambling:  true,
 		ChromeStyleInitialPackets:     true,

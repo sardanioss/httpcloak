@@ -22,5 +22,9 @@ require (
 	golang.org/x/tools v0.39.0 // indirect
 )
 
-// Use local httpcloak package
+// Use local packages
 replace github.com/sardanioss/httpcloak => ../..
+
+replace github.com/sardanioss/utls => ../../../utls
+
+replace github.com/sardanioss/quic-go => ../../../quic-go

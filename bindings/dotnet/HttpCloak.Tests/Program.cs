@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.Json;
 using HttpCloak;
 
 Console.WriteLine("=== ECH + PSK Session Resumption Tests (C#) ===");
@@ -54,27 +55,48 @@ catch (Exception e)
     allPass = false;
 }
 
-// Test 3: quic.browserleaks.com (ECH, H3 forced)
-Console.WriteLine("\n=== Testing quic_cs (h3) ===");
+// Test 3: quic.browserleaks.com (ECH + 0-RTT, H3 forced)
+Console.WriteLine("\n=== Testing quic_cs (h3) with ECH + 0-RTT verification ===");
 try
 {
-    using var session3 = new Session(preset: "chrome-143", httpVersion: "h3");
+    var session3 = new Session(preset: "chrome-143", httpVersion: "h3");
     var resp3 = session3.Get("https://quic.browserleaks.com/?minify=1");
-    Console.WriteLine($"Fresh request: Status={resp3.StatusCode}, Protocol={resp3.Protocol}");
+    var data3 = JsonDocument.Parse(resp3.Text);
+    bool echFirst = data3.RootElement.GetProperty("tls").GetProperty("ech").GetProperty("ech_success").GetBoolean();
+    bool zeroRttFirst = data3.RootElement.GetProperty("quic").GetProperty("0-rtt").GetBoolean();
+    Console.WriteLine($"Fresh request: ECH={echFirst}, 0-RTT={zeroRttFirst}");
 
+    // Wait for session ticket
+    System.Threading.Thread.Sleep(1000);
     session3.Save("/tmp/session_quic_cs.json");
+    session3.Dispose();
+
+    // Wait before loading
+    System.Threading.Thread.Sleep(500);
 
     using var loaded3 = Session.Load("/tmp/session_quic_cs.json");
     var resp3b = loaded3.Get("https://quic.browserleaks.com/?minify=1");
-    Console.WriteLine($"Loaded request: Status={resp3b.StatusCode}, Protocol={resp3b.Protocol}");
+    var data3b = JsonDocument.Parse(resp3b.Text);
+    bool echSecond = data3b.RootElement.GetProperty("tls").GetProperty("ech").GetProperty("ech_success").GetBoolean();
+    bool zeroRttSecond = data3b.RootElement.GetProperty("quic").GetProperty("0-rtt").GetBoolean();
+    Console.WriteLine($"Loaded request: ECH={echSecond}, 0-RTT={zeroRttSecond}");
 
     File.Delete("/tmp/session_quic_cs.json");
-    Console.WriteLine("quic_ech_h3: PASS");
+
+    if (echSecond && zeroRttSecond)
+    {
+        Console.WriteLine("quic_ech_h3_0rtt: PASS");
+    }
+    else
+    {
+        Console.WriteLine("quic_ech_h3_0rtt: FAIL (0-RTT not achieved)");
+        allPass = false;
+    }
 }
 catch (Exception e)
 {
     Console.WriteLine($"Error: {e.Message}");
-    Console.WriteLine("quic_ech_h3: FAIL");
+    Console.WriteLine("quic_ech_h3_0rtt: FAIL");
     allPass = false;
 }
 
