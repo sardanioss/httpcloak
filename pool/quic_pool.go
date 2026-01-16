@@ -336,9 +336,6 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	if p.sessionCache != nil {
 		if cs, ok := p.sessionCache.Get(p.host); ok && cs != nil {
 			hasSession = true
-			fmt.Printf("[DEBUG QUIC Pool] Session found for host=%q\n", p.host)
-		} else {
-			fmt.Printf("[DEBUG QUIC Pool] No session for host=%q (ok=%v, cs=%v)\n", p.host, ok, cs)
 		}
 	}
 
@@ -347,9 +344,6 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	selectedSpec := p.cachedClientHelloSpec
 	if hasSession && p.cachedPSKSpec != nil {
 		selectedSpec = p.cachedPSKSpec
-		fmt.Printf("[DEBUG QUIC Pool] Using PSK spec (hasSession=%v, cachedPSKSpec=%v)\n", hasSession, p.cachedPSKSpec != nil)
-	} else {
-		fmt.Printf("[DEBUG QUIC Pool] Using regular spec (hasSession=%v, cachedPSKSpec=%v)\n", hasSession, p.cachedPSKSpec != nil)
 	}
 
 	// Get ClientHelloID from preset for TLS fingerprinting (fallback)
@@ -363,20 +357,12 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	// Get ECH configuration - use custom config if set, otherwise fetch from DNS
 	var echConfigList []byte
 	if len(p.echConfig) > 0 {
-		// Use custom ECH config if set
 		echConfigList = p.echConfig
-		fmt.Printf("[DEBUG QUIC ECH] Using custom ECH config: %d bytes\n", len(echConfigList))
 	} else if p.echConfigDomain != "" {
-		// Fetch ECH from specified domain
 		echConfigList, _ = dns.FetchECHConfigs(ctx, p.echConfigDomain)
-		fmt.Printf("[DEBUG QUIC ECH] Fetched ECH from domain %s: %d bytes\n", p.echConfigDomain, len(echConfigList))
 	} else if clientHelloID != nil {
 		// Fetch ECH configs from DNS HTTPS records for real ECH negotiation
-		// This is non-blocking - if it fails, we proceed without ECH
 		echConfigList, _ = dns.FetchECHConfigs(ctx, p.host)
-		fmt.Printf("[DEBUG QUIC ECH] Fetched ECH from host DNS %s: %d bytes\n", p.host, len(echConfigList))
-	} else {
-		fmt.Printf("[DEBUG QUIC ECH] No ECH config available\n")
 	}
 
 	// QUIC config with Chrome-like settings

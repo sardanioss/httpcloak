@@ -836,13 +836,10 @@ func (s *Session) importTLSSessions(sessions map[string]transport.TLSSessionStat
 	h2Sessions := make(map[string]transport.TLSSessionState)
 	h3Sessions := make(map[string]transport.TLSSessionState)
 
-	// fmt.Fprintf(os.Stderr, "[DEBUG import] Total sessions to import: %d\n", len(sessions))
 	for key, session := range sessions {
-		// fmt.Fprintf(os.Stderr, "[DEBUG import] Processing key: %s (len=%d)\n", key, len(key))
 		if len(key) > 3 && key[2] == ':' {
 			prefix := key[:2]
 			actualKey := key[3:]
-			// fmt.Fprintf(os.Stderr, "[DEBUG import] Parsed prefix=%s, actualKey=%s\n", prefix, actualKey)
 			switch prefix {
 			case "h1":
 				h1Sessions[actualKey] = session
@@ -850,7 +847,6 @@ func (s *Session) importTLSSessions(sessions map[string]transport.TLSSessionStat
 				h2Sessions[actualKey] = session
 			case "h3":
 				h3Sessions[actualKey] = session
-				// fmt.Fprintf(os.Stderr, "[DEBUG import] Added h3 session for key: %s\n", actualKey)
 			}
 		}
 	}
@@ -870,18 +866,9 @@ func (s *Session) importTLSSessions(sessions map[string]transport.TLSSessionStat
 	}
 
 	// Import to HTTP/3 transport
-	// fmt.Fprintf(os.Stderr, "[DEBUG import] h3Sessions count: %d\n", len(h3Sessions))
-	h3 := s.transport.GetHTTP3Transport()
-	// fmt.Fprintf(os.Stderr, "[DEBUG import] h3 transport nil: %v\n", h3 == nil)
-	if h3 != nil && len(h3Sessions) > 0 {
-		cache := h3.GetSessionCache()
-		// fmt.Fprintf(os.Stderr, "[DEBUG import] h3 session cache nil: %v, type: %T\n", cache == nil, cache)
-		if pCache, ok := cache.(*transport.PersistableSessionCache); ok {
-			// fmt.Fprintf(os.Stderr, "[DEBUG import] Type assertion succeeded, importing sessions\n")
-			pCache.Import(h3Sessions)
-			// fmt.Fprintf(os.Stderr, "[DEBUG import] Import complete, cache count: %d\n", pCache.Count())
-		} else {
-			// fmt.Fprintf(os.Stderr, "[DEBUG import] Type assertion FAILED\n")
+	if h3 := s.transport.GetHTTP3Transport(); h3 != nil && len(h3Sessions) > 0 {
+		if cache, ok := h3.GetSessionCache().(*transport.PersistableSessionCache); ok {
+			cache.Import(h3Sessions)
 		}
 	}
 

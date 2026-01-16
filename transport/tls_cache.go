@@ -2,7 +2,6 @@ package transport
 
 import (
 	"encoding/base64"
-	"fmt"
 	"sync"
 	"time"
 
@@ -45,10 +44,8 @@ func (c *PersistableSessionCache) Get(sessionKey string) (*tls.ClientSessionStat
 	defer c.mu.RUnlock()
 
 	if cached, ok := c.sessions[sessionKey]; ok {
-		fmt.Printf("[DEBUG httpcloak] SessionCache.Get(%s): found=true, state=%v\n", sessionKey, cached.state != nil)
 		return cached.state, true
 	}
-	fmt.Printf("[DEBUG httpcloak] SessionCache.Get(%s): found=false\n", sessionKey)
 	return nil, false
 }
 
@@ -57,7 +54,6 @@ func (c *PersistableSessionCache) Put(sessionKey string, cs *tls.ClientSessionSt
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	fmt.Printf("[DEBUG httpcloak] SessionCache.Put(%s): state=%v\n", sessionKey, cs != nil)
 	c.sessions[sessionKey] = &cachedSession{
 		state:     cs,
 		createdAt: time.Now(),

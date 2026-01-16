@@ -34,17 +34,6 @@ func init() {
 	// Initialize library
 }
 
-// logDebug writes debug messages to a file
-func logDebug(format string, args ...interface{}) {
-	msg := fmt.Sprintf("[DEBUG] "+format+"\n", args...)
-	f, err := os.OpenFile("/tmp/httpcloak_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return
-	}
-	f.WriteString(msg)
-	f.Close()
-}
-
 // decodeRequestBody decodes the request body based on encoding type
 func decodeRequestBody(body, encoding string) ([]byte, error) {
 	if body == "" {

@@ -3,41 +3,25 @@ package transport
 import (
 	"context"
 	crand "crypto/rand"
-	tls "github.com/sardanioss/utls"
 	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"net"
-	http "github.com/sardanioss/http"
 	"net/url"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/sardanioss/quic-go"
-	"github.com/sardanioss/quic-go/http3"
+	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/proxy"
+	"github.com/sardanioss/quic-go"
+	"github.com/sardanioss/quic-go/http3"
+	tls "github.com/sardanioss/utls"
 	utls "github.com/sardanioss/utls"
 )
-
-// Debug logging helper - disabled by default
-var logDebugEnabled = false
-
-func logDebug(format string, args ...interface{}) {
-	if !logDebugEnabled {
-		return
-	}
-	msg := fmt.Sprintf("[DEBUG] "+format+"\n", args...)
-	f, err := os.OpenFile("/tmp/httpcloak_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return // Silently ignore if can't write
-	}
-	f.WriteString(msg)
-	f.Close()
-}
 
 // HTTP/3 SETTINGS identifiers
 const (
@@ -57,11 +41,7 @@ func init() {
 	os.Setenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING", "1")
 
 	// Set Chrome-like additional transport parameters
-	// These are sent in addition to the standard QUIC parameters
 	quic.SetAdditionalTransportParameters(buildChromeTransportParams())
-
-	// Test debug logging at init
-	logDebug("http3_transport init called")
 }
 
 // buildChromeTransportParams creates Chrome-like QUIC transport parameters
@@ -113,9 +93,13 @@ type HTTP3Transport struct {
 	// Cached ClientHelloSpec for consistent TLS fingerprint
 	// Chrome shuffles TLS extensions once per session, not per connection
 	cachedClientHelloSpec *utls.ClientHelloSpec
+	// PSK variant of the spec for session resumption (includes pre_shared_key extension)
+	cachedClientHelloSpecPSK *utls.ClientHelloSpec
 
 	// Separate cached spec for inner MASQUE connections (not shared with outer)
 	cachedClientHelloSpecInner *utls.ClientHelloSpec
+	// PSK variant for inner MASQUE connections
+	cachedClientHelloSpecInnerPSK *utls.ClientHelloSpec
 
 	// Shuffle seed for TLS and transport parameter ordering (consistent per session)
 	shuffleSeed int64
@@ -145,6 +129,38 @@ type HTTP3Transport struct {
 	// to create the original session ticket, not a fresh one from DNS
 	echConfigCache   map[string][]byte
 	echConfigCacheMu sync.RWMutex
+}
+
+// hasSessionForHost checks if there's a cached TLS session for the given host
+// This is used to determine whether to use PSK spec (for resumption) or regular spec
+func (t *HTTP3Transport) hasSessionForHost(host string) bool {
+	if t.sessionCache == nil {
+		return false
+	}
+	// Session key format is just the server name in TLS 1.3
+	cache, ok := t.sessionCache.(*PersistableSessionCache)
+	if !ok {
+		return false
+	}
+	_, found := cache.Get(host)
+	return found
+}
+
+// getSpecForHost returns the appropriate ClientHelloSpec based on whether there's a cached session
+// Returns PSK spec if session exists (for 0-RTT resumption), otherwise regular spec
+func (t *HTTP3Transport) getSpecForHost(host string) *utls.ClientHelloSpec {
+	if t.hasSessionForHost(host) && t.cachedClientHelloSpecPSK != nil {
+		return t.cachedClientHelloSpecPSK
+	}
+	return t.cachedClientHelloSpec
+}
+
+// getInnerSpecForHost returns the appropriate inner ClientHelloSpec for MASQUE connections
+func (t *HTTP3Transport) getInnerSpecForHost(host string) *utls.ClientHelloSpec {
+	if t.hasSessionForHost(host) && t.cachedClientHelloSpecInnerPSK != nil {
+		return t.cachedClientHelloSpecInnerPSK
+	}
+	return t.cachedClientHelloSpecInner
 }
 
 // NewHTTP3Transport creates a new HTTP/3 transport
@@ -194,6 +210,15 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		spec, err := utls.UTLSIdToSpecWithSeed(*clientHelloID, shuffleSeed)
 		if err == nil {
 			t.cachedClientHelloSpec = &spec
+		}
+	}
+
+	// Also cache the PSK spec for session resumption (includes pre_shared_key extension)
+	// Chrome uses a different TLS extension set when resuming with PSK
+	if preset.QUICPSKClientHelloID.Client != "" {
+		pskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed)
+		if err == nil {
+			t.cachedClientHelloSpecPSK = &pskSpec
 		}
 	}
 
@@ -312,6 +337,14 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		spec, err := utls.UTLSIdToSpecWithSeed(*clientHelloID, shuffleSeed)
 		if err == nil {
 			t.cachedClientHelloSpec = &spec
+		}
+	}
+
+	// Also cache the PSK spec for session resumption (includes pre_shared_key extension)
+	if preset.QUICPSKClientHelloID.Client != "" {
+		pskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed)
+		if err == nil {
+			t.cachedClientHelloSpecPSK = &pskSpec
 		}
 	}
 
@@ -443,6 +476,20 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		}
 	}
 
+	// Also cache PSK specs for session resumption (includes pre_shared_key extension)
+	if preset.QUICPSKClientHelloID.Client != "" {
+		// Outer PSK spec
+		pskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed)
+		if err == nil {
+			t.cachedClientHelloSpecPSK = &pskSpec
+		}
+		// Inner PSK spec for MASQUE connections
+		innerPskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed)
+		if err == nil {
+			t.cachedClientHelloSpecInnerPSK = &innerPskSpec
+		}
+	}
+
 	// Create QUIC config with MASQUE-specific settings
 	t.quicConfig = &quic.Config{
 		MaxIdleTimeout:                30 * time.Second,
@@ -565,11 +612,10 @@ func (t *HTTP3Transport) dialQUICWithMASQUE(ctx context.Context, addr string, tl
 	// - ClientHelloID: WORKS - uTLS generates Chrome-like ClientHello
 	// - TransportParameterOrder: WORKS - Chrome transport param ordering
 
-	// NOTE: We do NOT switch to a different PSK spec for resumed connections.
-	// Using the same cachedClientHelloSpecInner ensures extension order consistency,
-	// which is required for ECH accept confirmation to work correctly.
-	// utls handles PSK extension addition automatically when there's a cached session.
-	innerSpec := t.cachedClientHelloSpecInner
+	// Switch to PSK ClientHelloSpec for resumed connections
+	// If there's a cached session, use PSK spec (includes early_data + pre_shared_key extensions)
+	// This tells utls to actually load and use the cached session for 0-RTT
+	innerSpec := t.getInnerSpecForHost(host)
 
 	cfgCopy := &quic.Config{
 		MaxIdleTimeout:                  30 * time.Second,
@@ -647,10 +693,9 @@ func (t *HTTP3Transport) dialQUICWithProxy(ctx context.Context, addr string, tls
 	// Clone our QUIC config (with proper fingerprinting settings)
 	cfgCopy := t.quicConfig.Clone()
 
-	// NOTE: We do NOT switch to a different PSK spec for resumed connections.
-	// Using the same cachedClientHelloSpec ensures extension order consistency,
-	// which is required for ECH accept confirmation to work correctly.
-	// utls handles PSK extension addition automatically when there's a cached session.
+	// Switch to PSK ClientHelloSpec for resumed connections
+	// If there's a cached session, use PSK spec (includes early_data + pre_shared_key extensions)
+	cfgCopy.CachedClientHelloSpec = t.getSpecForHost(host)
 
 	// Race IPv6 and IPv4 connections (Happy Eyeballs style)
 	// Try IPv6 first, then IPv4 after short timeout
@@ -719,7 +764,7 @@ func (t *HTTP3Transport) dialFirstSuccessful(ctx context.Context, addrs []*net.U
 		default:
 		}
 
-		conn, err := t.quicTransport.Dial(ctx, addr, tlsCfg, cfg)
+		conn, err := t.quicTransport.DialEarly(ctx, addr, tlsCfg, cfg)
 		if err == nil {
 			return conn, nil
 		}
@@ -740,7 +785,6 @@ func generateGREASESettingID() uint64 {
 // dialQUIC provides DNS resolution and ECH config fetching with Happy Eyeballs
 // http3.Transport handles connection caching
 func (t *HTTP3Transport) dialQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-	logDebug("dialQUIC called for addr: %s", addr)
 	// Track dial calls - each call = new connection
 	t.mu.Lock()
 	t.dialCount++
@@ -791,19 +835,11 @@ func (t *HTTP3Transport) dialQUIC(ctx context.Context, addr string, tlsCfg *tls.
 	cfgCopy := t.quicConfig.Clone()
 
 	// Switch to PSK ClientHelloSpec for resumed connections
-	// If there's a cached session, use PSK spec (includes early_data + pre_shared_key)
+	// If there's a cached session, use PSK spec (includes early_data + pre_shared_key extensions)
 	// This matches real Chrome's behavior for 0-RTT resumption
-	logDebug("dialQUICWithDNS: checking PSK spec and session cache for host: %s", host)
-	logDebug("  sessionCache nil: %v", t.sessionCache == nil)
-	if t.sessionCache != nil {
-		if psc, ok := t.sessionCache.(*PersistableSessionCache); ok {
-			logDebug("  sessionCache is PersistableSessionCache with %d sessions", psc.Count())
-		}
-	}
-	// NOTE: We do NOT switch to a different PSK spec for resumed connections.
-	// Using the same cachedClientHelloSpec ensures extension order consistency,
-	// which is required for ECH accept confirmation to work correctly.
-	// utls handles PSK extension addition automatically when there's a cached session.
+	// Note: The PSK spec (HelloChrome_143_QUIC_PSK) has the pre_shared_key extension which
+	// tells utls to actually load and use the cached session for 0-RTT
+	cfgCopy.CachedClientHelloSpec = t.getSpecForHost(host)
 
 	// Race IPv6 and IPv4 connections (Happy Eyeballs style)
 	// Try IPv6 first, then IPv4 after short timeout
