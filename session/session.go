@@ -866,11 +866,20 @@ func (s *Session) importTLSSessions(sessions map[string]transport.TLSSessionStat
 	}
 
 	// Import to HTTP/3 transport
+	// NOTE: H3/QUIC session resumption import is currently disabled due to a bug
+	// where the restored session state can corrupt QUIC connections.
+	// Sessions will still work, they just won't have 0-RTT on the first request
+	// after loading. The session will establish fresh and subsequent requests
+	// will have 0-RTT within the same process.
+	// TODO: Investigate and fix QUIC session state restoration
+	_ = h3Sessions // Suppress unused variable warning
+	/*
 	if h3 := s.transport.GetHTTP3Transport(); h3 != nil && len(h3Sessions) > 0 {
 		if cache, ok := h3.GetSessionCache().(*transport.PersistableSessionCache); ok {
 			cache.Import(h3Sessions)
 		}
 	}
+	*/
 
 	return nil
 }
