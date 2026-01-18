@@ -518,6 +518,122 @@ func (s *Session) ClearCache() {
 	s.cacheEntries = make(map[string]*cacheEntry)
 }
 
+// SetProxy sets or updates the proxy for all protocols (HTTP/1.1, HTTP/2, HTTP/3)
+// This closes existing connections and recreates transports with the new proxy
+func (s *Session) SetProxy(proxyURL string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.transport != nil {
+		var proxy *transport.ProxyConfig
+		if proxyURL != "" {
+			proxy = &transport.ProxyConfig{URL: proxyURL}
+		}
+		s.transport.SetProxy(proxy)
+	}
+
+	// Update config
+	if s.Config != nil {
+		s.Config.Proxy = proxyURL
+		s.Config.TCPProxy = ""
+		s.Config.UDPProxy = ""
+	}
+}
+
+// SetTCPProxy sets the proxy for TCP protocols (HTTP/1.1, HTTP/2)
+func (s *Session) SetTCPProxy(proxyURL string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.transport != nil {
+		// Get current UDP proxy
+		udpProxy := ""
+		if s.Config != nil {
+			udpProxy = s.Config.UDPProxy
+		}
+
+		proxy := &transport.ProxyConfig{
+			TCPProxy: proxyURL,
+			UDPProxy: udpProxy,
+		}
+		s.transport.SetProxy(proxy)
+	}
+
+	// Update config
+	if s.Config != nil {
+		s.Config.TCPProxy = proxyURL
+		s.Config.Proxy = ""
+	}
+}
+
+// SetUDPProxy sets the proxy for UDP protocols (HTTP/3 via SOCKS5 or MASQUE)
+func (s *Session) SetUDPProxy(proxyURL string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.transport != nil {
+		// Get current TCP proxy
+		tcpProxy := ""
+		if s.Config != nil {
+			tcpProxy = s.Config.TCPProxy
+		}
+
+		proxy := &transport.ProxyConfig{
+			TCPProxy: tcpProxy,
+			UDPProxy: proxyURL,
+		}
+		s.transport.SetProxy(proxy)
+	}
+
+	// Update config
+	if s.Config != nil {
+		s.Config.UDPProxy = proxyURL
+		s.Config.Proxy = ""
+	}
+}
+
+// GetProxy returns the current proxy URL (unified proxy or TCP proxy)
+func (s *Session) GetProxy() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.Config == nil {
+		return ""
+	}
+	if s.Config.Proxy != "" {
+		return s.Config.Proxy
+	}
+	return s.Config.TCPProxy
+}
+
+// GetTCPProxy returns the current TCP proxy URL
+func (s *Session) GetTCPProxy() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.Config == nil {
+		return ""
+	}
+	if s.Config.TCPProxy != "" {
+		return s.Config.TCPProxy
+	}
+	return s.Config.Proxy
+}
+
+// GetUDPProxy returns the current UDP proxy URL
+func (s *Session) GetUDPProxy() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.Config == nil {
+		return ""
+	}
+	if s.Config.UDPProxy != "" {
+		return s.Config.UDPProxy
+	}
+	return s.Config.Proxy
+}
+
 // IdleTime returns how long since the session was last used
 func (s *Session) IdleTime() time.Duration {
 	s.mu.RLock()

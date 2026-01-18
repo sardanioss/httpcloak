@@ -158,20 +158,22 @@ func (t *HTTP3Transport) hasSessionForHost(host string) bool {
 }
 
 // getSpecForHost returns the appropriate ClientHelloSpec for consistent TLS fingerprint
-// Always use PSK spec when available - Chrome always includes the PSK extension structure
-// in ClientHello, it's just empty on first connection and populated on resumption.
-// This avoids TOCTOU race: checking session cache here but session arriving before handshake.
+// Only use PSK spec (which includes early_data extension) when there's an actual session to resume.
+// Chrome does NOT send early_data extension on fresh connections - only on resumption.
 func (t *HTTP3Transport) getSpecForHost(host string) *utls.ClientHelloSpec {
-	if t.cachedClientHelloSpecPSK != nil {
+	// Only use PSK spec when there's a cached session for this host
+	// This matches Chrome's behavior: no early_data on fresh connections
+	if t.cachedClientHelloSpecPSK != nil && t.hasSessionForHost(host) {
 		return t.cachedClientHelloSpecPSK
 	}
 	return t.cachedClientHelloSpec
 }
 
 // getInnerSpecForHost returns the appropriate inner ClientHelloSpec for MASQUE connections
-// Always uses PSK spec when available for the same TOCTOU race prevention reason.
+// Only use PSK spec when there's an actual session to resume.
 func (t *HTTP3Transport) getInnerSpecForHost(host string) *utls.ClientHelloSpec {
-	if t.cachedClientHelloSpecInnerPSK != nil {
+	// Only use PSK spec when there's a cached session for this host
+	if t.cachedClientHelloSpecInnerPSK != nil && t.hasSessionForHost(host) {
 		return t.cachedClientHelloSpecInnerPSK
 	}
 	return t.cachedClientHelloSpecInner

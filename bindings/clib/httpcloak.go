@@ -1313,6 +1313,82 @@ func httpcloak_session_unmarshal(data *C.char) C.int64_t {
 }
 
 // ============================================================================
+// Proxy Management
+// ============================================================================
+
+//export httpcloak_session_set_proxy
+func httpcloak_session_set_proxy(handle C.int64_t, proxyURL *C.char) *C.char {
+	session := getSession(handle)
+	if session == nil {
+		return makeErrorJSON(ErrInvalidSession)
+	}
+
+	var url string
+	if proxyURL != nil {
+		url = C.GoString(proxyURL)
+	}
+	session.SetProxy(url)
+	return C.CString(`{"success":true}`)
+}
+
+//export httpcloak_session_set_tcp_proxy
+func httpcloak_session_set_tcp_proxy(handle C.int64_t, proxyURL *C.char) *C.char {
+	session := getSession(handle)
+	if session == nil {
+		return makeErrorJSON(ErrInvalidSession)
+	}
+
+	var url string
+	if proxyURL != nil {
+		url = C.GoString(proxyURL)
+	}
+	session.SetTCPProxy(url)
+	return C.CString(`{"success":true}`)
+}
+
+//export httpcloak_session_set_udp_proxy
+func httpcloak_session_set_udp_proxy(handle C.int64_t, proxyURL *C.char) *C.char {
+	session := getSession(handle)
+	if session == nil {
+		return makeErrorJSON(ErrInvalidSession)
+	}
+
+	var url string
+	if proxyURL != nil {
+		url = C.GoString(proxyURL)
+	}
+	session.SetUDPProxy(url)
+	return C.CString(`{"success":true}`)
+}
+
+//export httpcloak_session_get_proxy
+func httpcloak_session_get_proxy(handle C.int64_t) *C.char {
+	session := getSession(handle)
+	if session == nil {
+		return C.CString("")
+	}
+	return C.CString(session.GetProxy())
+}
+
+//export httpcloak_session_get_tcp_proxy
+func httpcloak_session_get_tcp_proxy(handle C.int64_t) *C.char {
+	session := getSession(handle)
+	if session == nil {
+		return C.CString("")
+	}
+	return C.CString(session.GetTCPProxy())
+}
+
+//export httpcloak_session_get_udp_proxy
+func httpcloak_session_get_udp_proxy(handle C.int64_t) *C.char {
+	session := getSession(handle)
+	if session == nil {
+		return C.CString("")
+	}
+	return C.CString(session.GetUDPProxy())
+}
+
+// ============================================================================
 // Utility Functions
 // ============================================================================
 

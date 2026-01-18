@@ -70,12 +70,13 @@ import (
 // Client is an HTTP client with connection pooling and fingerprint spoofing
 // By default, it tries HTTP/3 first, then HTTP/2, then HTTP/1.1 as fallback
 type Client struct {
-	poolManager     *pool.Manager
-	quicManager     *pool.QUICManager
-	masqueTransport *transport.HTTP3Transport // MASQUE proxy transport (if using MASQUE)
-	h1Transport     *transport.HTTP1Transport
-	preset          *fingerprint.Preset
-	config          *ClientConfig
+	poolManager      *pool.Manager
+	quicManager      *pool.QUICManager
+	masqueTransport  *transport.HTTP3Transport // MASQUE proxy transport (if using MASQUE)
+	socks5H3Transport *transport.HTTP3Transport // SOCKS5 UDP relay transport for HTTP/3
+	h1Transport      *transport.HTTP1Transport
+	preset           *fingerprint.Preset
+	config           *ClientConfig
 
 	// Authentication
 	auth Auth
@@ -136,6 +137,7 @@ func NewClient(presetName string, opts ...Option) *Client {
 	// HTTP/3 works through SOCKS5 (UDP relay) or MASQUE (CONNECT-UDP) proxies
 	var quicManager *pool.QUICManager
 	var masqueTransport *transport.HTTP3Transport
+	var socks5H3Transport *transport.HTTP3Transport
 	if !config.DisableH3 {
 		if udpProxyURL != "" && transport.IsMASQUEProxy(udpProxyURL) {
 			// Use dedicated MASQUE transport for MASQUE proxies
@@ -146,8 +148,17 @@ func NewClient(presetName string, opts ...Option) *Client {
 				// Fall back to non-H3 if MASQUE transport creation fails
 				masqueTransport = nil
 			}
-		} else if udpProxyURL == "" || transport.SupportsQUIC(udpProxyURL) {
-			// Use QUICManager for direct connections or SOCKS5 proxies
+		} else if udpProxyURL != "" && transport.IsSOCKS5Proxy(udpProxyURL) {
+			// Use SOCKS5 UDP relay transport for HTTP/3
+			proxyConfig := &transport.ProxyConfig{URL: udpProxyURL}
+			var err error
+			socks5H3Transport, err = transport.NewHTTP3TransportWithProxy(preset, h2Manager.GetDNSCache(), proxyConfig)
+			if err != nil {
+				// Fall back to non-H3 if SOCKS5 transport creation fails
+				socks5H3Transport = nil
+			}
+		} else if udpProxyURL == "" {
+			// Use QUICManager for direct connections only
 			quicManager = pool.NewQUICManager(preset, h2Manager.GetDNSCache())
 		}
 	}
@@ -160,12 +171,15 @@ func NewClient(presetName string, opts ...Option) *Client {
 	h1Transport := transport.NewHTTP1TransportWithProxy(preset, h2Manager.GetDNSCache(), tcpProxyConfig)
 	h1Transport.SetInsecureSkipVerify(config.InsecureSkipVerify)
 
-	// Propagate InsecureSkipVerify to QUIC manager and MASQUE transport
+	// Propagate InsecureSkipVerify to QUIC manager and proxy transports
 	if quicManager != nil {
 		quicManager.SetInsecureSkipVerify(config.InsecureSkipVerify)
 	}
 	if masqueTransport != nil {
 		masqueTransport.SetInsecureSkipVerify(config.InsecureSkipVerify)
+	}
+	if socks5H3Transport != nil {
+		socks5H3Transport.SetInsecureSkipVerify(config.InsecureSkipVerify)
 	}
 
 	// Propagate ConnectTo mappings (domain fronting)
@@ -192,14 +206,15 @@ func NewClient(presetName string, opts ...Option) *Client {
 	}
 
 	client := &Client{
-		poolManager:     h2Manager,
-		quicManager:     quicManager,
-		masqueTransport: masqueTransport,
-		h1Transport:     h1Transport,
-		preset:          preset,
-		config:          config,
-		h3Failures:      make(map[string]time.Time),
-		h2Failures:      make(map[string]time.Time),
+		poolManager:       h2Manager,
+		quicManager:       quicManager,
+		masqueTransport:   masqueTransport,
+		socks5H3Transport: socks5H3Transport,
+		h1Transport:       h1Transport,
+		preset:            preset,
+		config:            config,
+		h3Failures:        make(map[string]time.Time),
+		h2Failures:        make(map[string]time.Time),
 	}
 
 	// Auto-enable cookies when retry is enabled
@@ -974,8 +989,8 @@ func isRedirect(statusCode int) bool {
 
 // shouldTryHTTP3 checks if we should try HTTP/3 for this host
 func (c *Client) shouldTryHTTP3(hostKey string) bool {
-	// If neither QUIC manager nor MASQUE transport is available, don't try HTTP/3
-	if c.quicManager == nil && c.masqueTransport == nil {
+	// If no HTTP/3 transport is available, don't try HTTP/3
+	if c.quicManager == nil && c.masqueTransport == nil && c.socks5H3Transport == nil {
 		return false
 	}
 
@@ -1013,7 +1028,18 @@ func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.R
 		return resp, "h3", nil
 	}
 
-	// Use QUICManager for direct connections or SOCKS5 proxies
+	// Use SOCKS5 UDP relay transport if available (for SOCKS5 proxies)
+	if c.socks5H3Transport != nil {
+		firstByteTime := time.Now()
+		resp, err := c.socks5H3Transport.RoundTrip(httpReq)
+		if err != nil {
+			return nil, "", err
+		}
+		timing.FirstByte = float64(time.Since(firstByteTime).Milliseconds())
+		return resp, "h3", nil
+	}
+
+	// Use QUICManager for direct connections
 	conn, err := c.quicManager.GetConn(ctx, host, port)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get QUIC connection: %w", err)
@@ -1133,6 +1159,9 @@ func (c *Client) Close() {
 	if c.masqueTransport != nil {
 		c.masqueTransport.Close()
 	}
+	if c.socks5H3Transport != nil {
+		c.socks5H3Transport.Close()
+	}
 	if c.h1Transport != nil {
 		c.h1Transport.Close()
 	}
@@ -1184,16 +1213,18 @@ func (c *Client) SetTCPProxy(proxyURL string) {
 // Supports SOCKS5 (UDP relay) and MASQUE (CONNECT-UDP) proxies
 // Pass empty string to switch to direct connection (no proxy)
 func (c *Client) SetUDPProxy(proxyURL string) {
-	// Close and nil out existing QUIC manager
+	// Close and nil out all existing HTTP/3 transports
 	if c.quicManager != nil {
 		c.quicManager.Close()
 		c.quicManager = nil
 	}
-
-	// Close and nil out existing MASQUE transport
 	if c.masqueTransport != nil {
 		c.masqueTransport.Close()
 		c.masqueTransport = nil
+	}
+	if c.socks5H3Transport != nil {
+		c.socks5H3Transport.Close()
+		c.socks5H3Transport = nil
 	}
 
 	// Update config
@@ -1213,9 +1244,20 @@ func (c *Client) SetUDPProxy(proxyURL string) {
 				c.masqueTransport.SetInsecureSkipVerify(true)
 			}
 		}
-		// If MASQUE creation fails, both transports are nil and H3 will be unavailable
-	} else if proxyURL == "" || transport.SupportsQUIC(proxyURL) {
-		// Use QUICManager for direct connections or SOCKS5 proxies
+		// If MASQUE creation fails, all transports are nil and H3 will be unavailable
+	} else if proxyURL != "" && transport.IsSOCKS5Proxy(proxyURL) {
+		// Use SOCKS5 UDP relay transport for HTTP/3
+		proxyConfig := &transport.ProxyConfig{URL: proxyURL}
+		socks5Transport, err := transport.NewHTTP3TransportWithProxy(c.preset, c.poolManager.GetDNSCache(), proxyConfig)
+		if err == nil {
+			c.socks5H3Transport = socks5Transport
+			if c.config.InsecureSkipVerify {
+				c.socks5H3Transport.SetInsecureSkipVerify(true)
+			}
+		}
+		// If SOCKS5 creation fails, all transports are nil and H3 will be unavailable
+	} else if proxyURL == "" {
+		// Use QUICManager for direct connections only
 		c.quicManager = pool.NewQUICManager(c.preset, c.poolManager.GetDNSCache())
 		if c.config.InsecureSkipVerify {
 			c.quicManager.SetInsecureSkipVerify(true)

@@ -874,6 +874,20 @@ def _setup_lib(lib):
     lib.httpcloak_session_unmarshal.argtypes = [c_char_p]
     lib.httpcloak_session_unmarshal.restype = c_int64
 
+    # Proxy management functions
+    lib.httpcloak_session_set_proxy.argtypes = [c_int64, c_char_p]
+    lib.httpcloak_session_set_proxy.restype = c_void_p
+    lib.httpcloak_session_set_tcp_proxy.argtypes = [c_int64, c_char_p]
+    lib.httpcloak_session_set_tcp_proxy.restype = c_void_p
+    lib.httpcloak_session_set_udp_proxy.argtypes = [c_int64, c_char_p]
+    lib.httpcloak_session_set_udp_proxy.restype = c_void_p
+    lib.httpcloak_session_get_proxy.argtypes = [c_int64]
+    lib.httpcloak_session_get_proxy.restype = c_void_p
+    lib.httpcloak_session_get_tcp_proxy.argtypes = [c_int64]
+    lib.httpcloak_session_get_tcp_proxy.restype = c_void_p
+    lib.httpcloak_session_get_udp_proxy.argtypes = [c_int64]
+    lib.httpcloak_session_get_udp_proxy.restype = c_void_p
+
     # Optimized raw response functions (body passed separately from JSON)
     lib.httpcloak_get_raw.argtypes = [c_int64, c_char_p, c_char_p]
     lib.httpcloak_get_raw.restype = c_int64
@@ -1946,6 +1960,106 @@ class Session:
         session.auth = None
 
         return session
+
+    # =========================================================================
+    # Proxy Management
+    # =========================================================================
+
+    def set_proxy(self, proxy_url: str) -> None:
+        """
+        Set or update the proxy for all protocols (HTTP/1.1, HTTP/2, HTTP/3).
+
+        This closes existing connections and recreates transports with the new proxy.
+        Pass empty string to switch to direct connection.
+
+        Args:
+            proxy_url: Proxy URL (e.g., "http://proxy:8080", "socks5h://proxy:1080")
+                      Pass empty string "" to disable proxy
+
+        Example:
+            session = httpcloak.Session(preset="chrome-143", proxy="http://proxy1:8080")
+            session.get("https://example.com")  # Uses proxy1
+
+            session.set_proxy("http://proxy2:8080")  # Switch to proxy2
+            session.get("https://example.com")  # Uses proxy2
+
+            session.set_proxy("")  # Switch to direct connection
+            session.get("https://example.com")  # Direct connection
+        """
+        proxy_bytes = proxy_url.encode("utf-8") if proxy_url else b""
+        result_ptr = self._lib.httpcloak_session_set_proxy(self._handle, proxy_bytes)
+        result = _ptr_to_string(result_ptr)
+        if result:
+            data = json.loads(result)
+            if "error" in data:
+                raise HTTPCloakError(data["error"])
+
+    def set_tcp_proxy(self, proxy_url: str) -> None:
+        """
+        Set the proxy for TCP protocols (HTTP/1.1, HTTP/2).
+
+        Args:
+            proxy_url: Proxy URL for TCP connections
+
+        Example:
+            session.set_tcp_proxy("http://tcp-proxy:8080")
+            session.set_udp_proxy("socks5h://udp-proxy:1080")  # Split proxy config
+        """
+        proxy_bytes = proxy_url.encode("utf-8") if proxy_url else b""
+        result_ptr = self._lib.httpcloak_session_set_tcp_proxy(self._handle, proxy_bytes)
+        result = _ptr_to_string(result_ptr)
+        if result:
+            data = json.loads(result)
+            if "error" in data:
+                raise HTTPCloakError(data["error"])
+
+    def set_udp_proxy(self, proxy_url: str) -> None:
+        """
+        Set the proxy for UDP protocols (HTTP/3 via SOCKS5 or MASQUE).
+
+        Args:
+            proxy_url: Proxy URL for UDP connections (SOCKS5 or MASQUE)
+
+        Example:
+            session.set_udp_proxy("socks5h://socks-proxy:1080")  # For HTTP/3
+        """
+        proxy_bytes = proxy_url.encode("utf-8") if proxy_url else b""
+        result_ptr = self._lib.httpcloak_session_set_udp_proxy(self._handle, proxy_bytes)
+        result = _ptr_to_string(result_ptr)
+        if result:
+            data = json.loads(result)
+            if "error" in data:
+                raise HTTPCloakError(data["error"])
+
+    def get_proxy(self) -> str:
+        """
+        Get the current proxy URL (unified proxy or TCP proxy).
+
+        Returns:
+            Current proxy URL or empty string if no proxy
+        """
+        result_ptr = self._lib.httpcloak_session_get_proxy(self._handle)
+        return _ptr_to_string(result_ptr) or ""
+
+    def get_tcp_proxy(self) -> str:
+        """
+        Get the current TCP proxy URL.
+
+        Returns:
+            Current TCP proxy URL or empty string if no proxy
+        """
+        result_ptr = self._lib.httpcloak_session_get_tcp_proxy(self._handle)
+        return _ptr_to_string(result_ptr) or ""
+
+    def get_udp_proxy(self) -> str:
+        """
+        Get the current UDP proxy URL.
+
+        Returns:
+            Current UDP proxy URL or empty string if no proxy
+        """
+        result_ptr = self._lib.httpcloak_session_get_udp_proxy(self._handle)
+        return _ptr_to_string(result_ptr) or ""
 
     # =========================================================================
     # Streaming Methods

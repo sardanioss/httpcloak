@@ -559,6 +559,38 @@ func (s *Session) SetCookie(name, value string) {
 	s.inner.SetCookie(name, value)
 }
 
+// SetProxy sets or updates the proxy for all protocols (HTTP/1.1, HTTP/2, HTTP/3)
+// This closes existing connections and recreates transports with the new proxy
+// Pass empty string to switch to direct connection
+func (s *Session) SetProxy(proxyURL string) {
+	s.inner.SetProxy(proxyURL)
+}
+
+// SetTCPProxy sets the proxy for TCP protocols (HTTP/1.1, HTTP/2)
+func (s *Session) SetTCPProxy(proxyURL string) {
+	s.inner.SetTCPProxy(proxyURL)
+}
+
+// SetUDPProxy sets the proxy for UDP protocols (HTTP/3 via SOCKS5 or MASQUE)
+func (s *Session) SetUDPProxy(proxyURL string) {
+	s.inner.SetUDPProxy(proxyURL)
+}
+
+// GetProxy returns the current proxy URL (unified proxy or TCP proxy)
+func (s *Session) GetProxy() string {
+	return s.inner.GetProxy()
+}
+
+// GetTCPProxy returns the current TCP proxy URL
+func (s *Session) GetTCPProxy() string {
+	return s.inner.GetTCPProxy()
+}
+
+// GetUDPProxy returns the current UDP proxy URL
+func (s *Session) GetUDPProxy() string {
+	return s.inner.GetUDPProxy()
+}
+
 // Close closes the session and releases resources
 func (s *Session) Close() {
 	s.inner.Close()

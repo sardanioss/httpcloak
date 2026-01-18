@@ -9,7 +9,7 @@ require (
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/miekg/dns v1.1.69 // indirect
 	github.com/sardanioss/http v1.1.0 // indirect
-	github.com/sardanioss/net v1.1.0 // indirect
+	github.com/sardanioss/net v1.2.0 // indirect
 	github.com/sardanioss/qpack v0.6.2 // indirect
 	github.com/sardanioss/quic-go v1.2.16 // indirect
 	github.com/sardanioss/utls v1.10.0 // indirect
