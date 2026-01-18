@@ -44,10 +44,13 @@ debug.md
 features.md
 browser_import_plan.md
 ech_fix.md
-docs/tcp_ip_plan.md
+docs/
 
 # Temp images
 image copy*.png
 
 # Plans/notes directory
 plans/
+
+# Test files with credentials
+cmd/test_proxy_switch.go
