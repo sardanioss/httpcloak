@@ -890,6 +890,29 @@ func (t *HTTP1Transport) Close() {
 	t.idleConnsMu.Unlock()
 }
 
+// SetProxy changes the proxy configuration and closes all existing connections
+// HTTP/1.1 connections are short-lived, but we close idle ones for cleanliness
+func (t *HTTP1Transport) SetProxy(proxy *ProxyConfig) {
+	t.idleConnsMu.Lock()
+	defer t.idleConnsMu.Unlock()
+
+	// Close all idle connections - they're using the old proxy
+	for _, conns := range t.idleConns {
+		for _, conn := range conns {
+			go conn.close()
+		}
+	}
+	t.idleConns = make(map[string][]*http1Conn)
+
+	// Update proxy configuration
+	t.proxy = proxy
+}
+
+// GetProxy returns the current proxy configuration
+func (t *HTTP1Transport) GetProxy() *ProxyConfig {
+	return t.proxy
+}
+
 // GetSessionCache returns the TLS session cache
 func (t *HTTP1Transport) GetSessionCache() utls.ClientSessionCache {
 	return t.sessionCache

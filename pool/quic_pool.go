@@ -757,6 +757,18 @@ func (m *QUICManager) CloseAllConnections() {
 	}
 }
 
+// CloseAllPools closes all pools and removes them entirely
+// This is used when switching proxies - old connections/sessions are invalid for new proxy route
+func (m *QUICManager) CloseAllPools() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, pool := range m.pools {
+		pool.Close()
+	}
+	m.pools = make(map[string]*QUICHostPool)
+}
+
 // Stats returns overall manager statistics
 func (m *QUICManager) Stats() map[string]struct {
 	Total    int

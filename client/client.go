@@ -1146,6 +1146,103 @@ func (c *Client) CloseQUICConnections() {
 	}
 }
 
+// SetProxy changes both TCP (HTTP/1.1, HTTP/2) and UDP (HTTP/3) proxies
+// This closes all existing connections - they're invalid for the new proxy route
+// Pass empty string to switch to direct connection (no proxy)
+func (c *Client) SetProxy(proxyURL string) {
+	c.SetTCPProxy(proxyURL)
+	c.SetUDPProxy(proxyURL)
+}
+
+// SetTCPProxy changes the proxy for HTTP/1.1 and HTTP/2 connections
+// This closes all existing TCP-based connections
+// Pass empty string to switch to direct connection (no proxy)
+func (c *Client) SetTCPProxy(proxyURL string) {
+	// Close HTTP/2 pools and update proxy
+	c.poolManager.SetProxy(proxyURL)
+
+	// Update HTTP/1.1 transport
+	var proxyConfig *transport.ProxyConfig
+	if proxyURL != "" {
+		proxyConfig = &transport.ProxyConfig{URL: proxyURL}
+	}
+	c.h1Transport.SetProxy(proxyConfig)
+
+	// Update config for consistency
+	c.config.TCPProxy = proxyURL
+	if c.config.Proxy == c.config.UDPProxy || c.config.UDPProxy == "" {
+		c.config.Proxy = proxyURL
+	}
+
+	// Clear H2 failure cache - new proxy might have different behavior
+	c.h2FailuresMu.Lock()
+	c.h2Failures = make(map[string]time.Time)
+	c.h2FailuresMu.Unlock()
+}
+
+// SetUDPProxy changes the proxy for HTTP/3 (QUIC) connections
+// Supports SOCKS5 (UDP relay) and MASQUE (CONNECT-UDP) proxies
+// Pass empty string to switch to direct connection (no proxy)
+func (c *Client) SetUDPProxy(proxyURL string) {
+	// Close and nil out existing QUIC manager
+	if c.quicManager != nil {
+		c.quicManager.Close()
+		c.quicManager = nil
+	}
+
+	// Close and nil out existing MASQUE transport
+	if c.masqueTransport != nil {
+		c.masqueTransport.Close()
+		c.masqueTransport = nil
+	}
+
+	// Update config
+	c.config.UDPProxy = proxyURL
+	if c.config.Proxy == c.config.TCPProxy || c.config.TCPProxy == "" {
+		c.config.Proxy = proxyURL
+	}
+
+	// Recreate appropriate transport based on new proxy type
+	if proxyURL != "" && transport.IsMASQUEProxy(proxyURL) {
+		// Use MASQUE transport for MASQUE proxies
+		proxyConfig := &transport.ProxyConfig{URL: proxyURL}
+		masqueTransport, err := transport.NewHTTP3TransportWithMASQUE(c.preset, c.poolManager.GetDNSCache(), proxyConfig, nil)
+		if err == nil {
+			c.masqueTransport = masqueTransport
+			if c.config.InsecureSkipVerify {
+				c.masqueTransport.SetInsecureSkipVerify(true)
+			}
+		}
+		// If MASQUE creation fails, both transports are nil and H3 will be unavailable
+	} else if proxyURL == "" || transport.SupportsQUIC(proxyURL) {
+		// Use QUICManager for direct connections or SOCKS5 proxies
+		c.quicManager = pool.NewQUICManager(c.preset, c.poolManager.GetDNSCache())
+		if c.config.InsecureSkipVerify {
+			c.quicManager.SetInsecureSkipVerify(true)
+		}
+	}
+
+	// Clear H3 failure cache - new proxy might have different behavior
+	c.h3FailuresMu.Lock()
+	c.h3Failures = make(map[string]time.Time)
+	c.h3FailuresMu.Unlock()
+}
+
+// GetProxy returns the current proxy URL (TCP proxy if they differ)
+func (c *Client) GetProxy() string {
+	return c.poolManager.GetProxy()
+}
+
+// GetTCPProxy returns the current TCP proxy URL
+func (c *Client) GetTCPProxy() string {
+	return c.poolManager.GetProxy()
+}
+
+// GetUDPProxy returns the current UDP proxy URL
+func (c *Client) GetUDPProxy() string {
+	return c.config.UDPProxy
+}
+
 // Stats returns connection pool statistics
 func (c *Client) Stats() map[string]struct {
 	Total    int

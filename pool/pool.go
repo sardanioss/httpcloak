@@ -1170,6 +1170,34 @@ func (m *Manager) Close() {
 	m.pools = nil
 }
 
+// CloseAllPools closes all connection pools and clears session cache
+// This is used when switching proxies - old connections are invalid for new proxy route
+func (m *Manager) CloseAllPools() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, pool := range m.pools {
+		pool.Close()
+	}
+	m.pools = make(map[string]*HostPool)
+}
+
+// SetProxy changes the proxy URL and closes all existing connections
+// TLS sessions from old proxy route are invalid, so we clear everything
+func (m *Manager) SetProxy(proxyURL string) {
+	m.CloseAllPools()
+	m.mu.Lock()
+	m.proxyURL = proxyURL
+	m.mu.Unlock()
+}
+
+// GetProxy returns the current proxy URL
+func (m *Manager) GetProxy() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.proxyURL
+}
+
 // Stats returns overall manager statistics
 func (m *Manager) Stats() map[string]struct {
 	Total    int
