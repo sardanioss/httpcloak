@@ -240,6 +240,66 @@ export class Session {
   proxy: string;
 }
 
+export interface LocalProxyOptions {
+  /** Port to listen on (default: 0 for auto-assign) */
+  port?: number;
+  /** Browser preset to use (default: "chrome-143") */
+  preset?: string;
+  /** Request timeout in seconds (default: 30) */
+  timeout?: number;
+  /** Maximum concurrent connections (default: 1000) */
+  maxConnections?: number;
+  /** Proxy URL for TCP protocols (HTTP/1.1, HTTP/2) */
+  tcpProxy?: string;
+  /** Proxy URL for UDP protocols (HTTP/3 via MASQUE) */
+  udpProxy?: string;
+  /** TLS-only mode: skip preset HTTP headers, only apply TLS fingerprint (default: false) */
+  tlsOnly?: boolean;
+}
+
+export interface LocalProxyStats {
+  /** Total number of requests processed */
+  totalRequests: number;
+  /** Number of active connections */
+  activeConnections: number;
+  /** Number of failed requests */
+  failedRequests: number;
+  /** Bytes sent */
+  bytesSent: number;
+  /** Bytes received */
+  bytesReceived: number;
+}
+
+export class LocalProxy {
+  /**
+   * Create a new LocalProxy instance.
+   * The proxy starts automatically when constructed.
+   * @param options - LocalProxy configuration options
+   */
+  constructor(options?: LocalProxyOptions);
+
+  /** Get the port the proxy is listening on */
+  readonly port: number;
+
+  /** Check if the proxy is currently running */
+  readonly isRunning: boolean;
+
+  /** Get the proxy URL (e.g., "http://localhost:8888") */
+  readonly proxyUrl: string;
+
+  /**
+   * Get proxy statistics.
+   * @returns Statistics object with request counts, bytes transferred, etc.
+   */
+  getStats(): LocalProxyStats;
+
+  /**
+   * Stop and close the proxy.
+   * After closing, the LocalProxy instance cannot be reused.
+   */
+  close(): void;
+}
+
 /** Get the httpcloak library version */
 export function version(): string;
 

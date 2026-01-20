@@ -748,6 +748,12 @@ function getLib() {
       // Header order customization
       httpcloak_session_set_header_order: nativeLibHandle.func("httpcloak_session_set_header_order", "str", ["int64", "str"]),
       httpcloak_session_get_header_order: nativeLibHandle.func("httpcloak_session_get_header_order", "str", ["int64"]),
+      // Local proxy functions
+      httpcloak_local_proxy_start: nativeLibHandle.func("httpcloak_local_proxy_start", "int64", ["str"]),
+      httpcloak_local_proxy_stop: nativeLibHandle.func("httpcloak_local_proxy_stop", "void", ["int64"]),
+      httpcloak_local_proxy_get_port: nativeLibHandle.func("httpcloak_local_proxy_get_port", "int", ["int64"]),
+      httpcloak_local_proxy_is_running: nativeLibHandle.func("httpcloak_local_proxy_is_running", "int", ["int64"]),
+      httpcloak_local_proxy_get_stats: nativeLibHandle.func("httpcloak_local_proxy_get_stats", "str", ["int64"]),
     };
   }
   return lib;
@@ -2506,9 +2512,116 @@ function request(method, url, options = {}) {
   return _getDefaultSession().request(method, url, options);
 }
 
+/**
+ * Local HTTP proxy server that forwards requests through httpcloak with TLS fingerprinting.
+ * Use this to transparently apply fingerprinting to any HTTP client (e.g., Undici, fetch).
+ *
+ * Supports per-request proxy rotation via X-Upstream-Proxy header.
+ *
+ * @example
+ * const proxy = new LocalProxy({ preset: "chrome-143", tlsOnly: true });
+ * console.log(`Proxy running on ${proxy.proxyUrl}`);
+ *
+ * // Use with any HTTP client pointing to the proxy
+ * // Pass X-Upstream-Proxy header to rotate proxies per-request
+ *
+ * proxy.close();
+ */
+class LocalProxy {
+  /**
+   * Create and start a local HTTP proxy server.
+   * @param {Object} options - Proxy configuration options
+   * @param {number} [options.port=0] - Port to listen on (0 = auto-select)
+   * @param {string} [options.preset="chrome-143"] - Browser fingerprint preset
+   * @param {number} [options.timeout=30] - Request timeout in seconds
+   * @param {number} [options.maxConnections=1000] - Maximum concurrent connections
+   * @param {string} [options.tcpProxy] - Default upstream TCP proxy URL
+   * @param {string} [options.udpProxy] - Default upstream UDP proxy URL
+   * @param {boolean} [options.tlsOnly=false] - TLS-only mode: skip preset HTTP headers, only apply TLS fingerprint
+   */
+  constructor(options = {}) {
+    const {
+      port = 0,
+      preset = "chrome-143",
+      timeout = 30,
+      maxConnections = 1000,
+      tcpProxy = null,
+      udpProxy = null,
+      tlsOnly = false,
+    } = options;
+
+    this._lib = getLib();
+
+    const config = {
+      port,
+      preset,
+      timeout,
+      max_connections: maxConnections,
+    };
+    if (tcpProxy) config.tcp_proxy = tcpProxy;
+    if (udpProxy) config.udp_proxy = udpProxy;
+    if (tlsOnly) config.tls_only = true;
+
+    const configJson = JSON.stringify(config);
+    this._handle = this._lib.httpcloak_local_proxy_start(configJson);
+
+    if (this._handle < 0) {
+      throw new HTTPCloakError("Failed to start local proxy");
+    }
+  }
+
+  /**
+   * Get the port the proxy is listening on.
+   * @returns {number}
+   */
+  get port() {
+    return this._lib.httpcloak_local_proxy_get_port(this._handle);
+  }
+
+  /**
+   * Check if the proxy is currently running.
+   * @returns {boolean}
+   */
+  get isRunning() {
+    return this._lib.httpcloak_local_proxy_is_running(this._handle) !== 0;
+  }
+
+  /**
+   * Get the proxy URL for use with HTTP clients.
+   * @returns {string}
+   */
+  get proxyUrl() {
+    return `http://localhost:${this.port}`;
+  }
+
+  /**
+   * Get proxy statistics.
+   * @returns {Object} Statistics including running status, active connections, total requests
+   */
+  getStats() {
+    const resultPtr = this._lib.httpcloak_local_proxy_get_stats(this._handle);
+    const result = resultToString(resultPtr);
+    if (result) {
+      return JSON.parse(result);
+    }
+    return {};
+  }
+
+  /**
+   * Stop the local proxy server.
+   */
+  close() {
+    if (this._handle >= 0) {
+      this._lib.httpcloak_local_proxy_stop(this._handle);
+      this._handle = -1;
+    }
+  }
+}
+
 module.exports = {
   // Classes
   Session,
+  LocalProxy,
   Response,
   FastResponse,
   StreamResponse,
