@@ -781,6 +781,22 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		}
 	}
 
+	// Copy all headers from httpReq to req.Headers for debugging
+	// This captures all headers that will actually be sent (preset headers, auth, cookies, etc.)
+	if req.Headers == nil {
+		req.Headers = make(map[string][]string)
+	}
+	for key, values := range httpReq.Header {
+		// Skip internal/special headers
+		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey {
+			continue
+		}
+		// Only add if not already set by user (preserve user's original case)
+		if _, exists := getHeaderCaseInsensitive(req.Headers, key); !exists {
+			req.Headers[key] = values
+		}
+	}
+
 	var resp *http.Response
 	var usedProtocol string
 	timing := &protocol.Timing{}
@@ -1014,16 +1030,6 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	}
 
 	timing.Total = float64(time.Since(startTime).Milliseconds())
-
-	// Ensure Host is in req.Headers for net/http compatibility
-	// This allows resp.Request.GetHeader("Host") to work as expected
-	if req.Headers == nil {
-		req.Headers = make(map[string][]string)
-	}
-	// Case-insensitive check to avoid duplicate Host headers
-	if _, hasHost := getHeaderCaseInsensitive(req.Headers, "Host"); !hasHost {
-		req.Headers["Host"] = []string{parsedURL.Hostname()}
-	}
 
 	response := &Response{
 		StatusCode:      resp.StatusCode,

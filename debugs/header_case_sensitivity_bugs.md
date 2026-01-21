@@ -80,6 +80,29 @@ func getHeaderCaseInsensitive(headers map[string][]string, key string) ([]string
 }
 ```
 
+---
+
+### Bug #5: Request.Headers missing auto-added headers (ADDED)
+**File:** `client/client.go`
+
+**Issue:** `req.Headers` only contained user-provided headers, not headers added by the library (User-Agent, Accept, Sec-Fetch-*, etc.)
+
+**Fix:** After all headers are applied to httpReq (including hooks), copy them to req.Headers:
+```go
+for key, values := range httpReq.Header {
+    if key == http.HeaderOrderKey || key == http.PHeaderOrderKey {
+        continue
+    }
+    if _, exists := getHeaderCaseInsensitive(req.Headers, key); !exists {
+        req.Headers[key] = values
+    }
+}
+```
+
+**Benefit:** `resp.Request.Headers` now shows all headers actually sent - useful for debugging.
+
+---
+
 ## Testing
 
 After fixes, test:
