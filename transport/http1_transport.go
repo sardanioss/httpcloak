@@ -650,6 +650,25 @@ func (t *HTTP1Transport) writeChunkedBody(w *bufio.Writer, body io.Reader) error
 	return nil
 }
 
+// canonicalHeaderKey converts a header key to canonical form (e.g., "sec-ch-ua" -> "Sec-Ch-Ua").
+// This matches Go's http.CanonicalHeaderKey / textproto.CanonicalMIMEHeaderKey behavior.
+func canonicalHeaderKey(s string) string {
+	// Convert to lowercase first, then capitalize first letter and letters after hyphens
+	upper := true
+	result := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if upper && 'a' <= c && c <= 'z' {
+			c = c - ('a' - 'A')
+		} else if !upper && 'A' <= c && c <= 'Z' {
+			c = c + ('a' - 'A')
+		}
+		result[i] = c
+		upper = c == '-'
+	}
+	return string(result)
+}
+
 // writeHeadersInOrder writes headers in a browser-like order
 func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request, useChunked bool) {
 	// Check if custom header order is specified (from preset or user)
@@ -685,57 +704,55 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 
 	// Write headers in preferred order
 	for _, key := range headerOrder {
+		// Convert to canonical form for map lookup (Go's http.Header uses canonical keys)
+		canonicalKey := canonicalHeaderKey(key)
+
 		// Special handling for Content-Length
-		if key == "Content-Length" {
+		if strings.EqualFold(key, "Content-Length") {
 			if useChunked {
 				// Skip Content-Length when using chunked encoding
 				continue
 			}
 			// First check if header is set
-			if values, ok := req.Header[key]; ok {
+			if values, ok := req.Header[canonicalKey]; ok {
 				for _, v := range values {
-					fmt.Fprintf(w, "%s: %s\r\n", key, v)
+					fmt.Fprintf(w, "%s: %s\r\n", canonicalKey, v)
 				}
-				written[key] = true
+				written[canonicalKey] = true
 			} else if req.ContentLength > 0 {
 				// Fallback to ContentLength field
 				fmt.Fprintf(w, "Content-Length: %d\r\n", req.ContentLength)
-				written[key] = true
+				written[canonicalKey] = true
 			} else if req.ContentLength == 0 && req.Body != nil && !useChunked {
 				// Empty body but Body is set (POST/PUT/PATCH with empty body)
 				fmt.Fprintf(w, "Content-Length: 0\r\n")
-				written[key] = true
+				written[canonicalKey] = true
 			}
 			continue
 		}
 
 		// Special handling for Transfer-Encoding
-		if key == "Transfer-Encoding" {
+		if strings.EqualFold(key, "Transfer-Encoding") {
 			if useChunked {
 				fmt.Fprintf(w, "Transfer-Encoding: chunked\r\n")
-				written[key] = true
+				written[canonicalKey] = true
 			}
 			continue
 		}
 
-		if values, ok := req.Header[key]; ok {
+		// Look up header using canonical key
+		if values, ok := req.Header[canonicalKey]; ok {
 			for _, v := range values {
-				fmt.Fprintf(w, "%s: %s\r\n", key, v)
+				fmt.Fprintf(w, "%s: %s\r\n", canonicalKey, v)
 			}
-			written[key] = true
-		}
-		// Also check lowercase
-		if values, ok := req.Header[strings.ToLower(key)]; ok && !written[key] {
-			for _, v := range values {
-				fmt.Fprintf(w, "%s: %s\r\n", key, v)
-			}
-			written[strings.ToLower(key)] = true
+			written[canonicalKey] = true
 		}
 	}
 
-	// Write remaining headers
+	// Write remaining headers (not in specified order)
 	for key, values := range req.Header {
-		if written[key] || written[strings.ToLower(key)] {
+		// Key from map iteration is already canonical
+		if written[key] {
 			continue
 		}
 		// Skip Host (already written) and certain headers
