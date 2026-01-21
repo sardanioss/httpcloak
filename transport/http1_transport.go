@@ -652,25 +652,33 @@ func (t *HTTP1Transport) writeChunkedBody(w *bufio.Writer, body io.Reader) error
 
 // writeHeadersInOrder writes headers in a browser-like order
 func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request, useChunked bool) {
-	// Browser-like header order for HTTP/1.1
-	headerOrder := []string{
-		"Connection",
-		"Cache-Control",
-		"Upgrade-Insecure-Requests",
-		"User-Agent",
-		"Accept",
-		"Accept-Encoding",
-		"Accept-Language",
-		"Cookie",
-		"Referer",
-		"Origin",
-		"Sec-Fetch-Dest",
-		"Sec-Fetch-Mode",
-		"Sec-Fetch-Site",
-		"Sec-Fetch-User",
-		"Content-Type",
-		"Content-Length",
-		"Transfer-Encoding",
+	// Check if custom header order is specified (from preset or user)
+	// This allows HTTP/1.1 to respect the same header ordering as H2/H3
+	var headerOrder []string
+	if customOrder, ok := req.Header[http.HeaderOrderKey]; ok && len(customOrder) > 0 {
+		// Use custom/preset header order
+		headerOrder = customOrder
+	} else {
+		// Fallback to browser-like header order for HTTP/1.1
+		headerOrder = []string{
+			"Connection",
+			"Cache-Control",
+			"Upgrade-Insecure-Requests",
+			"User-Agent",
+			"Accept",
+			"Accept-Encoding",
+			"Accept-Language",
+			"Cookie",
+			"Referer",
+			"Origin",
+			"Sec-Fetch-Dest",
+			"Sec-Fetch-Mode",
+			"Sec-Fetch-Site",
+			"Sec-Fetch-User",
+			"Content-Type",
+			"Content-Length",
+			"Transfer-Encoding",
+		}
 	}
 
 	written := make(map[string]bool)
