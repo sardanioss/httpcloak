@@ -214,13 +214,3 @@ func makeRequest(ctx context.Context, c *client.Client, reqNum int, isNewConnect
 	result.Success = true
 	return result
 }
-
-// parseJA4ExtensionCount extracts the extension count from JA4 fingerprint
-// JA4 format: q[version][d/i][cipher_count][ext_count][alpn]_...
-// Example: q13d0311h3 -> version=13, d=TLS1.3, 03=3 ciphers, 11=11 extensions, h3=ALPN
-func parseJA4ExtensionCount(ja4 string) string {
-	if len(ja4) >= 9 {
-		return ja4[6:8]
-	}
-	return ""
-}

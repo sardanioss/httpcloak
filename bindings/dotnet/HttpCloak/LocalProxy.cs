@@ -83,11 +83,12 @@ public sealed class LocalProxy : IDisposable
     /// <summary>
     /// Gets whether the proxy is currently running.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">Thrown if the proxy has been disposed.</exception>
     public bool IsRunning
     {
         get
         {
-            if (_disposed) return false;
+            ThrowIfDisposed();
             return Native.LocalProxyIsRunning(_handle) != 0;
         }
     }

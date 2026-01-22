@@ -1656,7 +1656,7 @@ class Session:
             headers: Request headers
             cookies: Cookies to send with this request
             auth: Basic auth tuple (username, password)
-            timeout: Request timeout in seconds
+            timeout: Request timeout in milliseconds
         """
         import json as json_module
 
@@ -2909,7 +2909,7 @@ class Session:
             headers: Request headers
             cookies: Cookies to send with this request
             auth: Basic auth tuple (username, password)
-            timeout: Request timeout in seconds
+            timeout: Request timeout in milliseconds
 
         Returns:
             StreamResponse for streaming the response body
@@ -3908,7 +3908,7 @@ def get(url: str, **kwargs) -> Response:
         headers: Request headers
         cookies: Cookies to send
         auth: Basic auth tuple (username, password)
-        timeout: Request timeout in seconds
+        timeout: Request timeout in milliseconds
         verify: SSL verification (default: True)
         allow_redirects: Follow redirects (default: True)
 
