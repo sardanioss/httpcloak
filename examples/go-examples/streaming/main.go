@@ -206,18 +206,34 @@ Use streaming when:
 
 	// HTTP/2 streaming
 	sessionH2 := httpcloak.NewSession("chrome-143", httpcloak.WithForceHTTP2())
-	stream, _ = sessionH2.GetStream(ctx, "https://cloudflare.com/cdn-cgi/trace")
-	data, _ := io.ReadAll(stream)
-	fmt.Printf("HTTP/2 stream: %d bytes, protocol: %s\n", len(data), stream.Protocol)
-	stream.Close()
+	stream, err = sessionH2.GetStream(ctx, "https://cloudflare.com/cdn-cgi/trace")
+	if err != nil {
+		fmt.Printf("HTTP/2 stream error: %v\n", err)
+	} else {
+		data, err := io.ReadAll(stream)
+		if err != nil {
+			fmt.Printf("HTTP/2 read error: %v\n", err)
+		} else {
+			fmt.Printf("HTTP/2 stream: %d bytes, protocol: %s\n", len(data), stream.Protocol)
+		}
+		stream.Close()
+	}
 	sessionH2.Close()
 
 	// HTTP/3 streaming
 	sessionH3 := httpcloak.NewSession("chrome-143", httpcloak.WithForceHTTP3())
-	stream, _ = sessionH3.GetStream(ctx, "https://cloudflare.com/cdn-cgi/trace")
-	data, _ = io.ReadAll(stream)
-	fmt.Printf("HTTP/3 stream: %d bytes, protocol: %s\n", len(data), stream.Protocol)
-	stream.Close()
+	stream, err = sessionH3.GetStream(ctx, "https://cloudflare.com/cdn-cgi/trace")
+	if err != nil {
+		fmt.Printf("HTTP/3 stream error: %v\n", err)
+	} else {
+		data, err := io.ReadAll(stream)
+		if err != nil {
+			fmt.Printf("HTTP/3 read error: %v\n", err)
+		} else {
+			fmt.Printf("HTTP/3 stream: %d bytes, protocol: %s\n", len(data), stream.Protocol)
+		}
+		stream.Close()
+	}
 	sessionH3.Close()
 
 	// =========================================================================

@@ -219,8 +219,8 @@ var r = session.Get("https://example.com");
 Console.WriteLine($"{r.StatusCode} {r.Protocol}");
 
 // POST with JSON
-var r = session.Post("https://httpbin.org/post",
-    json: new { key = "value" }
+var r = session.PostJson("https://httpbin.org/post",
+    new { key = "value" }
 );
 
 // Custom headers
@@ -681,8 +681,9 @@ var session = new Session(
 
 // Request methods
 session.Get(url, headers)
-session.Post(url, json: obj, data: dict, headers: dict)
-session.Put(url, ...)
+session.Post(url, body, headers)
+session.PostJson<T>(url, data, headers)
+session.Put(url, body, headers)
 session.Delete(url)
 session.Dispose()
 
