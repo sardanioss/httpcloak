@@ -383,7 +383,7 @@ handler.Session.SetCookie("name", "value");
 ```csharp
 using HttpCloak;
 
-var presets = HttpCloakUtils.AvailablePresets();
+var presets = HttpCloakInfo.AvailablePresets();
 foreach (var preset in presets)
 {
     Console.WriteLine(preset);

@@ -7,7 +7,7 @@ them entirely into memory.
 
 What you'll learn:
 - Using get_stream() for memory-efficient downloads
-- Reading response data in chunks
+- Reading response data in chunks with iter_content()
 - Progress tracking during downloads
 - When to use streaming vs get_fast()
 
@@ -51,9 +51,9 @@ Use streaming when:
 session = httpcloak.Session(preset="chrome-143")
 
 # =============================================================================
-# Example 1: Basic Streaming
+# Example 1: Basic Streaming with iter_content()
 # =============================================================================
-print("\n[1] Basic Streaming")
+print("\n[1] Basic Streaming with iter_content()")
 print("-" * 50)
 
 # Start a streaming request
@@ -63,13 +63,10 @@ print(f"Status Code: {stream.status_code}")
 print(f"Protocol: {stream.protocol}")
 print(f"Content-Length: {stream.content_length}")
 
-# Read data in chunks
+# Read data in chunks using iter_content()
 total_bytes = 0
 chunk_count = 0
-while True:
-    chunk = stream.read(8192)  # Read up to 8KB at a time
-    if not chunk:
-        break
+for chunk in stream.iter_content(chunk_size=8192):
     total_bytes += len(chunk)
     chunk_count += 1
 
@@ -89,10 +86,7 @@ downloaded = 0
 print(f"Downloading {content_length} bytes...")
 start_time = time.perf_counter()
 
-while True:
-    chunk = stream.read(4096)
-    if not chunk:
-        break
+for chunk in stream.iter_content(chunk_size=4096):
     downloaded += len(chunk)
 
     # Calculate progress
@@ -124,10 +118,7 @@ with tempfile.NamedTemporaryFile(delete=False) as f:
     temp_path = f.name
     bytes_written = 0
 
-    while True:
-        chunk = stream.read(16384)
-        if not chunk:
-            break
+    for chunk in stream.iter_content(chunk_size=16384):
         f.write(chunk)
         bytes_written += len(chunk)
 
@@ -139,19 +130,17 @@ print(f"File size on disk: {file_size} bytes")
 os.unlink(temp_path)
 
 # =============================================================================
-# Example 4: Iterator Pattern
+# Example 4: Using Context Manager
 # =============================================================================
-print("\n[4] Iterator Pattern")
+print("\n[4] Using Context Manager")
 print("-" * 50)
 
-stream = session.get_stream("https://httpbin.org/bytes/32768")
-
-# Use the iterator for cleaner code
-chunks = list(stream.iter_content(chunk_size=8192))
-stream.close()
-
-print(f"Received {len(chunks)} chunks")
-print(f"Total bytes: {sum(len(c) for c in chunks)}")
+# StreamResponse supports context manager for automatic cleanup
+with session.get_stream("https://httpbin.org/bytes/32768") as stream:
+    chunks = list(stream.iter_content(chunk_size=8192))
+    print(f"Received {len(chunks)} chunks")
+    print(f"Total bytes: {sum(len(c) for c in chunks)}")
+# Stream is automatically closed here
 
 # =============================================================================
 # Example 5: Streaming with Different Protocols
@@ -161,34 +150,37 @@ print("-" * 50)
 
 # HTTP/2 streaming
 session_h2 = httpcloak.Session(preset="chrome-143", http_version="h2")
-stream = session_h2.get_stream("https://cloudflare.com/cdn-cgi/trace")
-data = b""
-while True:
-    chunk = stream.read(1024)
-    if not chunk:
-        break
-    data += chunk
-stream.close()
-print(f"HTTP/2 stream: {len(data)} bytes, protocol: {stream.protocol}")
+with session_h2.get_stream("https://cloudflare.com/cdn-cgi/trace") as stream:
+    data = b"".join(stream.iter_content(chunk_size=1024))
+    print(f"HTTP/2 stream: {len(data)} bytes, protocol: {stream.protocol}")
 session_h2.close()
 
 # HTTP/3 streaming
 session_h3 = httpcloak.Session(preset="chrome-143", http_version="h3")
-stream = session_h3.get_stream("https://cloudflare.com/cdn-cgi/trace")
-data = b""
-while True:
-    chunk = stream.read(1024)
-    if not chunk:
-        break
-    data += chunk
-stream.close()
-print(f"HTTP/3 stream: {len(data)} bytes, protocol: {stream.protocol}")
+with session_h3.get_stream("https://cloudflare.com/cdn-cgi/trace") as stream:
+    data = b"".join(stream.iter_content(chunk_size=1024))
+    print(f"HTTP/3 stream: {len(data)} bytes, protocol: {stream.protocol}")
 session_h3.close()
 
 # =============================================================================
-# Example 6: When to Use Streaming vs get_fast()
+# Example 6: Streaming Lines (for text responses)
 # =============================================================================
-print("\n[6] Streaming vs get_fast() Comparison")
+print("\n[6] Streaming Lines")
+print("-" * 50)
+
+with session.get_stream("https://httpbin.org/robots.txt") as stream:
+    print("Reading lines from robots.txt:")
+    line_count = 0
+    for line in stream.iter_lines():
+        if line:  # Skip empty lines
+            print(f"  {line}")
+            line_count += 1
+    print(f"Total lines: {line_count}")
+
+# =============================================================================
+# Example 7: When to Use Streaming vs get_fast()
+# =============================================================================
+print("\n[7] Streaming vs get_fast() Comparison")
 print("-" * 50)
 print("""
 STREAMING (get_stream):
@@ -220,14 +212,26 @@ print("SUMMARY")
 print("=" * 70)
 print("""
 Streaming methods:
-- get_stream(url) - Start streaming GET request
-- stream.read(size) - Read up to 'size' bytes
-- stream.iter_content(chunk_size) - Iterate over chunks
+- session.get_stream(url) - Start streaming GET request
+- session.post_stream(url, data) - Start streaming POST request
+- session.put_stream(url, data) - Start streaming PUT request
+- session.delete_stream(url) - Start streaming DELETE request
+- session.patch_stream(url, data) - Start streaming PATCH request
+- session.request_stream(method, url) - Generic streaming request
+
+StreamResponse methods:
+- stream.iter_content(chunk_size) - Iterate over chunks (bytes)
+- stream.iter_lines(chunk_size) - Iterate over lines (strings)
 - stream.close() - Close the stream
 
-Properties:
-- stream.status_code - HTTP status
+StreamResponse properties:
+- stream.status_code - HTTP status code
 - stream.headers - Response headers
-- stream.content_length - Total size (if known)
-- stream.protocol - HTTP protocol used
+- stream.content_length - Total size (if known, -1 otherwise)
+- stream.protocol - HTTP protocol used (h2, h3, etc.)
+- stream.url - Final URL after redirects
+- stream.cookies - Cookies from response
+- stream.ok - True if status < 400
+- stream.reason - HTTP status reason phrase
+- stream.encoding - Content encoding from headers
 """)

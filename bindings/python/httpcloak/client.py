@@ -3352,7 +3352,7 @@ class LocalProxy:
             proxy = LocalProxy(preset="chrome-143")
 
             session1 = Session(preset="chrome-143")
-            session2 = Session(preset="firefox-134")
+            session2 = Session(preset="firefox-133")
 
             proxy.register_session("user-1", session1)
             proxy.register_session("user-2", session2)

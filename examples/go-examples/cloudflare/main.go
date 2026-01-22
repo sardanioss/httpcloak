@@ -19,7 +19,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	http "github.com/sardanioss/http"
+	"net/http"
 	"strings"
 	"time"
 

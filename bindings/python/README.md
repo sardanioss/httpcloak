@@ -108,7 +108,7 @@ with Session(preset="chrome-143") as session:
 
     # Read in chunks
     with open("downloaded-file.zip", "wb") as f:
-        for chunk in stream.read_chunks(65536):  # 64KB chunks
+        for chunk in stream.iter_content(65536):  # 64KB chunks
             f.write(chunk)
 
     stream.close()
@@ -117,7 +117,7 @@ with Session(preset="chrome-143") as session:
 with Session(preset="chrome-143") as session:
     with session.get_stream("https://example.com/large-file.zip") as stream:
         total = 0
-        for chunk in stream.read_chunks(65536):
+        for chunk in stream.iter_content(65536):
             total += len(chunk)
         print(f"Downloaded {total} bytes")
 ```
@@ -344,10 +344,10 @@ stream.url              # str: Final URL after redirects
 stream.protocol         # str: Protocol used
 
 # Read all bytes
-data = stream.read_all()
+data = b"".join(stream.iter_content(65536))
 
 # Read in chunks (memory efficient)
-for chunk in stream.read_chunks(65536):
+for chunk in stream.iter_content(65536):
     process(chunk)
 
 stream.close()

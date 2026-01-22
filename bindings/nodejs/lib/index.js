@@ -2829,7 +2829,7 @@ class LocalProxy {
       this._handle,
       sessionId
     );
-    return result !== 0;
+    return result === 1;
   }
 
   /**

@@ -721,8 +721,8 @@ response.Protocol
 | `chrome-143-macos` | macOS | ✅ | ✅ |
 | `chrome-143-linux` | Linux | ✅ | ✅ |
 | `firefox-133` | Auto | ❌ | ❌ |
-| `chrome-mobile-android` | Android | ✅ | ✅ |
-| `chrome-mobile-ios` | iOS | ✅ | ✅ |
+| `android-chrome-143` | Android | ✅ | ✅ |
+| `ios-chrome-143` | iOS | ✅ | ✅ |
 
 **PQ** = Post-Quantum (X25519MLKEM768) · **H3** = HTTP/3
 

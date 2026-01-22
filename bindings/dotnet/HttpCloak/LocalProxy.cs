@@ -170,7 +170,7 @@ public sealed class LocalProxy : IDisposable
     /// <code>
     /// var proxy = new LocalProxy(preset: "chrome-143");
     /// var session1 = new Session(preset: "chrome-143");
-    /// var session2 = new Session(preset: "firefox-134");
+    /// var session2 = new Session(preset: "firefox-133");
     ///
     /// proxy.RegisterSession("user-1", session1);
     /// proxy.RegisterSession("user-2", session2);
