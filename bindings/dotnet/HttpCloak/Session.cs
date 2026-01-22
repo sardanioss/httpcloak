@@ -2134,7 +2134,12 @@ public static class Presets
     public const string Chrome143Windows = "chrome-143-windows";
     public const string Chrome143Linux = "chrome-143-linux";
     public const string Chrome143MacOS = "chrome-143-macos";
+    public const string Chrome141 = "chrome-141";
+    public const string Chrome133 = "chrome-133";
     public const string Chrome131 = "chrome-131";
+    public const string Chrome131Windows = "chrome-131-windows";
+    public const string Chrome131Linux = "chrome-131-linux";
+    public const string Chrome131MacOS = "chrome-131-macos";
     public const string Firefox133 = "firefox-133";
     public const string Safari18 = "safari-18";
     public const string IosChrome143 = "ios-chrome-143";

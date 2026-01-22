@@ -27,7 +27,7 @@ print(response.text)
 response = session.post("https://api.example.com/data", json={"key": "value"})
 
 # POST request with form data
-response = session.post("https://api.example.com/form", body="field1=value1&field2=value2")
+response = session.post("https://api.example.com/form", data="field1=value1&field2=value2")
 
 # Custom headers
 response = session.get("https://example.com", headers={"X-Custom": "value"})
@@ -64,7 +64,7 @@ async def main():
     print(response.text)
 
     # Async POST
-    response = await session.post_async("https://api.example.com/data", body={"key": "value"})
+    response = await session.post_async("https://api.example.com/data", data={"key": "value"})
 
     # Multiple concurrent requests
     responses = await asyncio.gather(
@@ -363,14 +363,14 @@ with Session(preset="chrome-143") as session:
     response = session.get("https://example.com")
 
     # POST
-    response = session.post("https://example.com", body="data")
+    response = session.post("https://example.com", data="data")
     response = session.post("https://example.com", json={"key": "value"})
 
     # PUT
-    response = session.put("https://example.com", body="data")
+    response = session.put("https://example.com", data="data")
 
     # PATCH
-    response = session.patch("https://example.com", body="data")
+    response = session.patch("https://example.com", data="data")
 
     # DELETE
     response = session.delete("https://example.com")
@@ -418,7 +418,7 @@ response = httpcloak.get(
 )
 
 # POST
-response = httpcloak.post("https://api.example.com", body={"key": "value"})
+response = httpcloak.post("https://api.example.com", data={"key": "value"})
 ```
 
 ## Platform Support
