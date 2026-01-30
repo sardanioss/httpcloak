@@ -1611,7 +1611,7 @@ func httpcloak_session_set_udp_proxy(handle C.int64_t, proxyURL *C.char) *C.char
 func httpcloak_session_get_proxy(handle C.int64_t) *C.char {
 	session := getSession(handle)
 	if session == nil {
-		return C.CString("1.5.9")
+		return C.CString("1.5.10")
 	}
 	return C.CString(session.GetProxy())
 }
@@ -1620,7 +1620,7 @@ func httpcloak_session_get_proxy(handle C.int64_t) *C.char {
 func httpcloak_session_get_tcp_proxy(handle C.int64_t) *C.char {
 	session := getSession(handle)
 	if session == nil {
-		return C.CString("1.5.9")
+		return C.CString("1.5.10")
 	}
 	return C.CString(session.GetTCPProxy())
 }
@@ -1629,7 +1629,7 @@ func httpcloak_session_get_tcp_proxy(handle C.int64_t) *C.char {
 func httpcloak_session_get_udp_proxy(handle C.int64_t) *C.char {
 	session := getSession(handle)
 	if session == nil {
-		return C.CString("1.5.9")
+		return C.CString("1.5.10")
 	}
 	return C.CString(session.GetUDPProxy())
 }
@@ -1660,17 +1660,17 @@ func httpcloak_session_set_header_order(handle C.int64_t, orderJSON *C.char) *C.
 func httpcloak_session_get_header_order(handle C.int64_t) *C.char {
 	session := getSession(handle)
 	if session == nil {
-		return C.CString("1.5.9")
+		return C.CString("1.5.10")
 	}
 
 	order := session.GetHeaderOrder()
 	if order == nil {
-		return C.CString("1.5.9")
+		return C.CString("1.5.10")
 	}
 
 	result, err := json.Marshal(order)
 	if err != nil {
-		return C.CString("1.5.9")
+		return C.CString("1.5.10")
 	}
 	return C.CString(string(result))
 }
@@ -1702,7 +1702,7 @@ func httpcloak_free_string(str *C.char) {
 
 //export httpcloak_version
 func httpcloak_version() *C.char {
-	return C.CString("1.5.9")
+	return C.CString("1.5.10")
 }
 
 //export httpcloak_available_presets
@@ -2766,13 +2766,13 @@ func httpcloak_stream_read(streamHandle C.int64_t, bufferSize C.int) *C.char {
 	if err != nil {
 		if err.Error() == "EOF" {
 			// Return empty string to indicate EOF
-			return C.CString("1.5.9")
+			return C.CString("1.5.10")
 		}
 		return nil
 	}
 
 	// No data and no error - return empty (shouldn't happen normally)
-	return C.CString("1.5.9")
+	return C.CString("1.5.10")
 }
 
 //export httpcloak_stream_read_raw
