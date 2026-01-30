@@ -272,6 +272,8 @@ type SessionConfig struct {
 	ECHConfigDomain string            `json:"ech_config_domain,omitempty"` // Domain to fetch ECH config from
 	TLSOnly         bool              `json:"tls_only,omitempty"`          // TLS-only mode: skip preset headers, set all manually
 	QuicIdleTimeout int               `json:"quic_idle_timeout,omitempty"` // QUIC idle timeout in seconds (default: 30)
+	LocalAddress    string            `json:"local_address,omitempty"`     // Local IP to bind outgoing connections (IPv6 rotation)
+	KeyLogFile      string            `json:"key_log_file,omitempty"`      // Path to write TLS key log for Wireshark decryption
 }
 
 // Error response
@@ -958,6 +960,16 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 	// Handle QUIC idle timeout
 	if config.QuicIdleTimeout > 0 {
 		opts = append(opts, httpcloak.WithQuicIdleTimeout(time.Duration(config.QuicIdleTimeout)*time.Second))
+	}
+
+	// Handle local address binding (for IPv6 rotation)
+	if config.LocalAddress != "" {
+		opts = append(opts, httpcloak.WithLocalAddress(config.LocalAddress))
+	}
+
+	// Handle key log file (for Wireshark decryption)
+	if config.KeyLogFile != "" {
+		opts = append(opts, httpcloak.WithKeyLogFile(config.KeyLogFile))
 	}
 
 	// Handle session cache if configured globally

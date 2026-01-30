@@ -163,7 +163,9 @@ public sealed class Session : IDisposable
         Dictionary<string, string>? connectTo = null,
         string? echConfigDomain = null,
         bool tlsOnly = false,
-        int quicIdleTimeout = 0)
+        int quicIdleTimeout = 0,
+        string? localAddress = null,
+        string? keyLogFile = null)
     {
         Auth = auth;
 
@@ -186,7 +188,9 @@ public sealed class Session : IDisposable
             ConnectTo = connectTo,
             EchConfigDomain = echConfigDomain,
             TlsOnly = tlsOnly,
-            QuicIdleTimeout = quicIdleTimeout
+            QuicIdleTimeout = quicIdleTimeout,
+            LocalAddress = localAddress,
+            KeyLogFile = keyLogFile
         };
 
         string configJson = JsonSerializer.Serialize(config, JsonContext.Default.SessionConfig);
@@ -2313,6 +2317,14 @@ internal class SessionConfig
     [JsonPropertyName("quic_idle_timeout")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int QuicIdleTimeout { get; set; }
+
+    [JsonPropertyName("local_address")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LocalAddress { get; set; }
+
+    [JsonPropertyName("key_log_file")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? KeyLogFile { get; set; }
 }
 
 internal class RequestConfig

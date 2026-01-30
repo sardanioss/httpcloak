@@ -23,6 +23,9 @@ type SOCKS5Dialer struct {
 
 	// Connection timeout
 	timeout time.Duration
+
+	// Local address to bind outgoing connections
+	localAddr string
 }
 
 // NewSOCKS5Dialer creates a new SOCKS5 dialer from a proxy URL
@@ -58,6 +61,11 @@ func NewSOCKS5Dialer(proxyURL string) (*SOCKS5Dialer, error) {
 	return dialer, nil
 }
 
+// SetLocalAddr sets the local IP address for outgoing connections
+func (d *SOCKS5Dialer) SetLocalAddr(addr string) {
+	d.localAddr = addr
+}
+
 // DialContext connects to the target through the SOCKS5 proxy using TCP CONNECT
 func (d *SOCKS5Dialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	// Parse target address
@@ -79,6 +87,9 @@ func (d *SOCKS5Dialer) DialContext(ctx context.Context, network, addr string) (n
 	// Connect to proxy
 	proxyAddr := net.JoinHostPort(proxyIPs[0], d.proxyPort)
 	dialer := &net.Dialer{Timeout: d.timeout}
+	if d.localAddr != "" {
+		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(d.localAddr)}
+	}
 	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to SOCKS5 proxy: %w", err)

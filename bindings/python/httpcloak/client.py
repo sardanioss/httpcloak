@@ -1365,6 +1365,8 @@ class Session:
         ech_config_domain: Domain to fetch ECH config from (e.g., "cloudflare-ech.com" for any CF domain)
         tls_only: TLS-only mode - skip preset HTTP headers, only apply TLS fingerprint (default: False)
         quic_idle_timeout: QUIC connection idle timeout in seconds (default: 30). Set higher for long-lived H3 connections.
+        local_address: Local IP address to bind outgoing connections to (e.g., "192.168.1.100" or "::1")
+        key_log_file: Path to write TLS key log (NSS format) for Wireshark decryption
 
     Example:
         with httpcloak.Session(preset="chrome-143") as session:
@@ -1414,6 +1416,8 @@ class Session:
         ech_config_domain: Optional[str] = None,
         tls_only: bool = False,
         quic_idle_timeout: int = 0,
+        local_address: Optional[str] = None,
+        key_log_file: Optional[str] = None,
     ):
         self._lib = _get_lib()
         self._default_timeout = timeout
@@ -1451,6 +1455,10 @@ class Session:
             config["tls_only"] = True
         if quic_idle_timeout > 0:
             config["quic_idle_timeout"] = quic_idle_timeout
+        if local_address:
+            config["local_address"] = local_address
+        if key_log_file:
+            config["key_log_file"] = key_log_file
 
         config_json = json.dumps(config).encode("utf-8")
         self._handle = self._lib.httpcloak_session_new(config_json)

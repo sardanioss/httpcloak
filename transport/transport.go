@@ -130,6 +130,10 @@ type TransportConfig struct {
 	// QuicIdleTimeout is the idle timeout for QUIC connections (default: 30s)
 	QuicIdleTimeout time.Duration
 
+	// LocalAddr is the local IP address to bind outgoing connections to.
+	// Used for IPv6 rotation with IP_FREEBIND on Linux.
+	LocalAddr string
+
 	// SessionCacheBackend is an optional distributed cache for TLS sessions.
 	// When set, TLS session tickets will be stored/retrieved from this backend,
 	// enabling session sharing across multiple instances.
@@ -138,6 +142,12 @@ type TransportConfig struct {
 	// SessionCacheErrorCallback is called when backend operations fail.
 	// This is optional but recommended for monitoring backend health.
 	SessionCacheErrorCallback ErrorCallback
+
+	// KeyLogWriter is an optional writer for TLS key logging.
+	// When set, TLS master secrets are written in NSS key log format
+	// for traffic decryption in Wireshark.
+	// If nil, falls back to keylog.GetWriter() (SSLKEYLOGFILE env var).
+	KeyLogWriter io.Writer
 }
 
 // Request represents an HTTP request

@@ -1243,6 +1243,8 @@ class Session {
       echConfigDomain = null,
       tlsOnly = false,
       quicIdleTimeout = 0,
+      localAddress = null,
+      keyLogFile = null,
     } = options;
 
     this._lib = getLib();
@@ -1296,6 +1298,12 @@ class Session {
     }
     if (quicIdleTimeout > 0) {
       config.quic_idle_timeout = quicIdleTimeout;
+    }
+    if (localAddress) {
+      config.local_address = localAddress;
+    }
+    if (keyLogFile) {
+      config.key_log_file = keyLogFile;
     }
 
     this._handle = this._lib.httpcloak_session_new(JSON.stringify(config));

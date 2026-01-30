@@ -292,6 +292,8 @@ type sessionConfig struct {
 	echConfigDomain    string            // Domain to fetch ECH config from
 	tlsOnly            bool              // TLS-only mode: skip preset headers, set all manually
 	quicIdleTimeout    time.Duration     // QUIC idle timeout (default: 30s)
+	localAddr          string            // Local IP address to bind outgoing connections
+	keyLogFile         string            // Path to write TLS key log for Wireshark decryption
 
 	// Distributed session cache
 	sessionCacheBackend       transport.SessionCacheBackend
@@ -403,6 +405,24 @@ func WithSessionPreferIPv4() SessionOption {
 	}
 }
 
+// WithLocalAddress binds outgoing connections to a specific local IP address.
+// Useful for IPv6 rotation when you have a large IPv6 prefix and want to
+// rotate source IPs per session. Works with IP_FREEBIND on Linux.
+// Supports both IPv4 and IPv6 addresses (e.g., "192.168.1.100" or "2001:db8::1").
+func WithLocalAddress(addr string) SessionOption {
+	return func(c *sessionConfig) {
+		c.localAddr = addr
+	}
+}
+
+// WithKeyLogFile sets the path to write TLS key log for Wireshark decryption.
+// This overrides the global SSLKEYLOGFILE environment variable for this session.
+func WithKeyLogFile(path string) SessionOption {
+	return func(c *sessionConfig) {
+		c.keyLogFile = path
+	}
+}
+
 // WithConnectTo sets a host mapping for domain fronting.
 // Requests to requestHost will connect to connectHost instead.
 // The TLS SNI and Host header will still use requestHost.
@@ -480,6 +500,8 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 		ECHConfigDomain:    cfg.echConfigDomain,
 		TLSOnly:            cfg.tlsOnly,
 		QuicIdleTimeout:    int(cfg.quicIdleTimeout.Seconds()),
+		LocalAddress:       cfg.localAddr,
+		KeyLogFile:         cfg.keyLogFile,
 	}
 
 	// Retry configuration

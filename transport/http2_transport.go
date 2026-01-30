@@ -12,9 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"io"
+
 	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/keylog"
 	"github.com/sardanioss/httpcloak/proxy"
 	"github.com/sardanioss/net/http2"
 	"github.com/sardanioss/net/http2/hpack"
@@ -51,6 +54,7 @@ type HTTP2Transport struct {
 	maxConnAge         time.Duration
 	connectTimeout     time.Duration
 	insecureSkipVerify bool
+	localAddr          string // Local IP to bind outgoing connections
 
 	// Cleanup
 	stopCleanup chan struct{}
@@ -119,6 +123,11 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		maxConnAge:     5 * time.Minute,
 		connectTimeout: 30 * time.Second,
 		stopCleanup:    make(chan struct{}),
+	}
+
+	// Apply localAddr from config
+	if config != nil && config.LocalAddr != "" {
+		t.localAddr = config.LocalAddr
 	}
 
 	// Start background cleanup
@@ -259,6 +268,28 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 			Timeout:   t.connectTimeout,
 			KeepAlive: 30 * time.Second,
 		}
+		if t.localAddr != "" {
+			localIP := net.ParseIP(t.localAddr)
+			dialer.LocalAddr = &net.TCPAddr{IP: localIP}
+			// Filter IPs to match local address family
+			if localIP != nil {
+				isLocalIPv6 := localIP.To4() == nil
+				var filtered []net.IP
+				for _, ip := range ips {
+					if (ip.To4() == nil) == isLocalIPv6 {
+						filtered = append(filtered, ip)
+					}
+				}
+				ips = filtered
+				if len(ips) == 0 {
+					family := "IPv4"
+					if isLocalIPv6 {
+						family = "IPv6"
+					}
+					return nil, fmt.Errorf("no %s addresses found for host (local address is %s)", family, t.localAddr)
+				}
+			}
+		}
 
 		// Try each IP address in order (preferred first based on PreferIPv4 setting)
 		var lastErr error
@@ -326,6 +357,14 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 		minVersion = tls.VersionTLS13
 	}
 
+	// Determine key log writer - config override or global
+	var keyLogWriter io.Writer
+	if t.config != nil && t.config.KeyLogWriter != nil {
+		keyLogWriter = t.config.KeyLogWriter
+	} else {
+		keyLogWriter = keylog.GetWriter()
+	}
+
 	// Wrap with uTLS for fingerprinting
 	tlsConfig := &utls.Config{
 		ServerName:                         host,
@@ -335,6 +374,7 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 		OmitEmptyPsk:                       true,          // Chrome doesn't send empty PSK on first connection
 		PreferSkipResumptionOnNilExtension: true,          // Skip resumption if spec has no PSK extension instead of panicking
 		EncryptedClientHelloConfigList:     echConfigList, // ECH configuration (if available)
+		KeyLogWriter:                       keyLogWriter,
 	}
 
 	// Only enable session cache if we have PSK spec - prevents panic when session
@@ -481,6 +521,9 @@ func (t *HTTP2Transport) dialThroughSOCKS5(ctx context.Context, targetHost, targ
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SOCKS5 dialer: %w", err)
 	}
+	if t.localAddr != "" {
+		socks5Dialer.SetLocalAddr(t.localAddr)
+	}
 
 	targetAddr := net.JoinHostPort(targetHost, targetPort)
 	conn, err := socks5Dialer.DialContext(ctx, "tcp", targetAddr)
@@ -525,6 +568,9 @@ func (t *HTTP2Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, t
 	dialer := &net.Dialer{
 		Timeout:   t.connectTimeout,
 		KeepAlive: 30 * time.Second,
+	}
+	if t.localAddr != "" {
+		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
 
 	proxyAddr := net.JoinHostPort(proxyIPs[0], proxyPort)
@@ -694,6 +740,11 @@ func (t *HTTP2Transport) SetSessionCache(cache utls.ClientSessionCache) {
 // SetInsecureSkipVerify sets whether to skip TLS certificate verification
 func (t *HTTP2Transport) SetInsecureSkipVerify(skip bool) {
 	t.insecureSkipVerify = skip
+}
+
+// SetLocalAddr sets the local IP address for outgoing connections
+func (t *HTTP2Transport) SetLocalAddr(addr string) {
+	t.localAddr = addr
 }
 
 // Stats returns transport statistics

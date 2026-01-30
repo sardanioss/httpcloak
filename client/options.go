@@ -105,7 +105,7 @@ type ClientConfig struct {
 	PreferIPv4 bool
 
 	// ConnectTo maps request hosts to connection hosts.
-	// Key: request host (e.g., "claude.ai")
+	// Key: request host (e.g., "example.com")
 	// Value: connection host (e.g., "www.cloudflare.com")
 	// The TLS SNI and Host header use the request host, but DNS resolution
 	// and TCP/QUIC connection use the connection host.
@@ -392,8 +392,8 @@ var WithDisableH3 = WithDisableHTTP3
 //
 // Example:
 //
-//	// Connect to cloudflare.com but request claude.ai
-//	client.WithConnectTo("claude.ai", "www.cloudflare.com")
+//	// Connect to cloudflare.com but request example.com
+//	client.WithConnectTo("example.com", "www.cloudflare.com")
 func WithConnectTo(requestHost, connectHost string) Option {
 	return func(c *ClientConfig) {
 		if c.ConnectTo == nil {

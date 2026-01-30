@@ -12,8 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sardanioss/httpcloak/keylog"
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/transport"
+	"io"
 )
 
 // generateID generates a random session ID (16 bytes = 32 hex chars)
@@ -62,6 +64,9 @@ type Session struct {
 	// Key: host (e.g., "example.com"), Value: set of requested hint names
 	clientHints map[string]map[string]bool
 
+	// Key log writer for TLS traffic decryption (Wireshark)
+	keyLogWriter io.WriteCloser
+
 	mu     sync.RWMutex
 	active bool
 }
@@ -89,9 +94,20 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 		}
 	}
 
-	// Create transport config with ConnectTo, ECH, TLS-only, QUIC timeout, and session cache settings
+	// Create key log writer if KeyLogFile is specified
+	var keyLogWriter io.WriteCloser
+	if config.KeyLogFile != "" {
+		var err error
+		keyLogWriter, err = keylog.NewFileWriter(config.KeyLogFile)
+		if err != nil {
+			// Log error but continue - key logging is optional
+			keyLogWriter = nil
+		}
+	}
+
+	// Create transport config with ConnectTo, ECH, TLS-only, QUIC timeout, localAddr, and session cache settings
 	var transportConfig *transport.TransportConfig
-	needsConfig := len(config.ConnectTo) > 0 || config.ECHConfigDomain != "" || config.TLSOnly || config.QuicIdleTimeout > 0
+	needsConfig := len(config.ConnectTo) > 0 || config.ECHConfigDomain != "" || config.TLSOnly || config.QuicIdleTimeout > 0 || config.LocalAddress != "" || keyLogWriter != nil
 	if opts != nil && opts.SessionCacheBackend != nil {
 		needsConfig = true
 	}
@@ -102,6 +118,8 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 			ECHConfigDomain: config.ECHConfigDomain,
 			TLSOnly:         config.TLSOnly,
 			QuicIdleTimeout: time.Duration(config.QuicIdleTimeout) * time.Second,
+			LocalAddr:       config.LocalAddress,
+			KeyLogWriter:    keyLogWriter,
 		}
 		// Add session cache backend if provided
 		if opts != nil {
@@ -150,6 +168,7 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 		cookies:      NewCookieJar(),
 		cacheEntries: make(map[string]*cacheEntry),
 		clientHints:  make(map[string]map[string]bool),
+		keyLogWriter: keyLogWriter,
 		active:       true,
 	}
 }
@@ -843,6 +862,12 @@ func (s *Session) Close() {
 
 	if s.transport != nil {
 		s.transport.Close()
+	}
+
+	// Close key log writer if we opened one
+	if s.keyLogWriter != nil {
+		s.keyLogWriter.Close()
+		s.keyLogWriter = nil
 	}
 }
 

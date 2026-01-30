@@ -250,7 +250,7 @@ using var session = new Session(
     preset: "chrome-143",
     connectTo: new Dictionary<string, string>
     {
-        ["www.cloudflare.com"] = "claude.ai"
+        ["www.cloudflare.com"] = "example.com"
     }
 );
 

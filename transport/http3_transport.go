@@ -13,9 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"io"
+
 	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/keylog"
 	"github.com/sardanioss/httpcloak/proxy"
 	"github.com/sardanioss/quic-go"
 	"github.com/sardanioss/quic-go/http3"
@@ -133,6 +136,9 @@ type HTTP3Transport struct {
 
 	// Skip TLS certificate verification (for testing)
 	insecureSkipVerify bool
+
+	// Local address for binding outgoing connections (IPv6 rotation)
+	localAddr string
 }
 
 // SetInsecureSkipVerify sets whether to skip TLS certificate verification
@@ -141,6 +147,11 @@ func (t *HTTP3Transport) SetInsecureSkipVerify(skip bool) {
 	if t.tlsConfig != nil {
 		t.tlsConfig.InsecureSkipVerify = skip
 	}
+}
+
+// SetLocalAddr sets the local IP address for outgoing connections
+func (t *HTTP3Transport) SetLocalAddr(addr string) {
+	t.localAddr = addr
 }
 
 // hasSessionForHost checks if there's a cached TLS session for the given host
@@ -243,6 +254,14 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		}
 	}
 
+	// Determine key log writer - config override or global
+	var keyLogWriter io.Writer
+	if config != nil && config.KeyLogWriter != nil {
+		keyLogWriter = config.KeyLogWriter
+	} else {
+		keyLogWriter = keylog.GetWriter()
+	}
+
 	// Create TLS config for QUIC
 	// Only enable session cache if we have PSK spec - prevents panic when session
 	// is cached but spec doesn't have PSK extension (TOCTOU race mitigation)
@@ -250,6 +269,7 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		NextProtos:         []string{http3.NextProtoH3},
 		MinVersion:         tls.VersionTLS13,
 		InsecureSkipVerify: t.insecureSkipVerify,
+		KeyLogWriter:       keyLogWriter,
 	}
 	if t.cachedClientHelloSpecPSK != nil {
 		t.tlsConfig.ClientSessionCache = t.sessionCache
@@ -311,12 +331,28 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		additionalSettings[settingH3Datagram] = 1               // Chrome enables H3_DATAGRAM
 	}
 
+	// Apply localAddr from config
+	if config != nil && config.LocalAddr != "" {
+		t.localAddr = config.LocalAddr
+	}
+
 	// Create QUIC transport for direct connections
 	// We need a bound UDP socket for quic.Transport
-	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	var localUDPAddr *net.UDPAddr
+	if t.localAddr != "" {
+		localUDPAddr = &net.UDPAddr{IP: net.ParseIP(t.localAddr)}
+	} else {
+		localUDPAddr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
+	}
+	udpConn, err := net.ListenUDP("udp", localUDPAddr)
 	if err != nil {
 		// Fallback to IPv6 if IPv4 fails
-		udpConn, err = net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
+		if t.localAddr != "" {
+			localUDPAddr = &net.UDPAddr{IP: net.ParseIP(t.localAddr)}
+		} else {
+			localUDPAddr = &net.UDPAddr{IP: net.IPv6zero, Port: 0}
+		}
+		udpConn, err = net.ListenUDP("udp6", localUDPAddr)
 		if err != nil {
 			return nil // Will use http3.Transport's default behavior
 		}
@@ -387,6 +423,11 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		echConfigCache: make(map[string][]byte),
 	}
 
+	// Apply localAddr from config
+	if config != nil && config.LocalAddr != "" {
+		t.localAddr = config.LocalAddr
+	}
+
 	// Get ClientHelloID for TLS fingerprinting
 	var clientHelloID *utls.ClientHelloID
 	if preset.QUICClientHelloID.Client != "" {
@@ -410,6 +451,14 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		}
 	}
 
+	// Determine key log writer - config override or global
+	var keyLogWriter io.Writer
+	if config != nil && config.KeyLogWriter != nil {
+		keyLogWriter = config.KeyLogWriter
+	} else {
+		keyLogWriter = keylog.GetWriter()
+	}
+
 	// Create TLS config for QUIC
 	// Only enable session cache if we have PSK spec - prevents panic when session
 	// is cached but spec doesn't have PSK extension (TOCTOU race mitigation)
@@ -417,6 +466,7 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		NextProtos:         []string{http3.NextProtoH3},
 		MinVersion:         tls.VersionTLS13,
 		InsecureSkipVerify: t.insecureSkipVerify,
+		KeyLogWriter:       keyLogWriter,
 	}
 	if t.cachedClientHelloSpecPSK != nil {
 		t.tlsConfig.ClientSessionCache = t.sessionCache
@@ -555,6 +605,11 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		echConfigCache: make(map[string][]byte),
 	}
 
+	// Apply localAddr from config
+	if config != nil && config.LocalAddr != "" {
+		t.localAddr = config.LocalAddr
+	}
+
 	// Get ClientHelloID for TLS fingerprinting
 	var clientHelloID *utls.ClientHelloID
 	if preset.QUICClientHelloID.Client != "" {
@@ -589,6 +644,14 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		}
 	}
 
+	// Determine key log writer - config override or global
+	var keyLogWriter io.Writer
+	if config != nil && config.KeyLogWriter != nil {
+		keyLogWriter = config.KeyLogWriter
+	} else {
+		keyLogWriter = keylog.GetWriter()
+	}
+
 	// Create TLS config for QUIC
 	// Only enable session cache if we have PSK spec - prevents panic when session
 	// is cached but spec doesn't have PSK extension (TOCTOU race mitigation)
@@ -596,6 +659,7 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		NextProtos:         []string{http3.NextProtoH3},
 		MinVersion:         tls.VersionTLS13,
 		InsecureSkipVerify: t.insecureSkipVerify,
+		KeyLogWriter:       keyLogWriter,
 	}
 	if t.cachedClientHelloSpecPSK != nil {
 		t.tlsConfig.ClientSessionCache = t.sessionCache
@@ -1121,10 +1185,21 @@ func (t *HTTP3Transport) Refresh() error {
 	// Close and recreate quicTransport if it exists (for direct connections)
 	if t.quicTransport != nil && t.socks5Conn == nil && t.masqueConn == nil {
 		t.quicTransport.Close()
-		// Create new UDP socket
-		udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+		// Create new UDP socket with localAddr binding if configured
+		var localUDPAddr *net.UDPAddr
+		if t.localAddr != "" {
+			localUDPAddr = &net.UDPAddr{IP: net.ParseIP(t.localAddr)}
+		} else {
+			localUDPAddr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
+		}
+		udpConn, err := net.ListenUDP("udp", localUDPAddr)
 		if err != nil {
-			udpConn, err = net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
+			if t.localAddr != "" {
+				localUDPAddr = &net.UDPAddr{IP: net.ParseIP(t.localAddr)}
+			} else {
+				localUDPAddr = &net.UDPAddr{IP: net.IPv6zero, Port: 0}
+			}
+			udpConn, err = net.ListenUDP("udp6", localUDPAddr)
 			if err != nil {
 				return fmt.Errorf("failed to create UDP socket: %w", err)
 			}
@@ -1228,11 +1303,20 @@ func (t *HTTP3Transport) Connect(ctx context.Context, host, port string) error {
 
 	resolvedAddr := net.JoinHostPort(ip.String(), port)
 
+	// Determine key log writer - config override or global
+	var keyLogWriter io.Writer
+	if t.config != nil && t.config.KeyLogWriter != nil {
+		keyLogWriter = t.config.KeyLogWriter
+	} else {
+		keyLogWriter = keylog.GetWriter()
+	}
+
 	// Create TLS config
 	tlsCfg := &tls.Config{
 		ServerName:         host,
 		NextProtos:         []string{"h3"},
 		InsecureSkipVerify: t.insecureSkipVerify,
+		KeyLogWriter:       keyLogWriter,
 	}
 
 	// Fetch ECH configs from DNS HTTPS records

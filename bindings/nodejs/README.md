@@ -291,10 +291,10 @@ Connect to one server while requesting a different domain:
 ```javascript
 const { Session } = require("httpcloak");
 
-// Connect to claude.ai's IP but request www.cloudflare.com
+// Connect to example.com's IP but request www.cloudflare.com
 const session = new Session({
   preset: "chrome-143",
-  connectTo: { "www.cloudflare.com": "claude.ai" },
+  connectTo: { "www.cloudflare.com": "example.com" },
 });
 
 const response = await session.get("https://www.cloudflare.com/cdn-cgi/trace");

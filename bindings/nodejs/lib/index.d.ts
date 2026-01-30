@@ -233,6 +233,10 @@ export interface SessionOptions {
   tlsOnly?: boolean;
   /** QUIC idle timeout in seconds (default: 30). Set higher for long-lived HTTP/3 connections. */
   quicIdleTimeout?: number;
+  /** Local IP address to bind outgoing connections (for IPv6 rotation with IP_FREEBIND on Linux) */
+  localAddress?: string;
+  /** Path to write TLS key log for Wireshark decryption (overrides SSLKEYLOGFILE env var) */
+  keyLogFile?: string;
 }
 
 export interface RequestOptions {

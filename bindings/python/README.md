@@ -208,10 +208,10 @@ Connect to one server while requesting a different domain:
 ```python
 from httpcloak import Session
 
-# Connect to claude.ai's IP but request www.cloudflare.com
+# Connect to example.com's IP but request www.cloudflare.com
 session = Session(
     preset="chrome-143",
-    connect_to={"www.cloudflare.com": "claude.ai"}
+    connect_to={"www.cloudflare.com": "example.com"}
 )
 
 response = session.get("https://www.cloudflare.com/cdn-cgi/trace")

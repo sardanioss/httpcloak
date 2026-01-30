@@ -17,6 +17,7 @@ import (
 
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/keylog"
 	"github.com/sardanioss/httpcloak/proxy"
 	utls "github.com/sardanioss/utls"
 )
@@ -42,6 +43,7 @@ type HTTP1Transport struct {
 	connectTimeout      time.Duration
 	responseTimeout     time.Duration
 	insecureSkipVerify  bool
+	localAddr           string // Local IP to bind outgoing connections
 
 	// Cleanup
 	stopCleanup chan struct{}
@@ -103,6 +105,11 @@ func NewHTTP1TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		stopCleanup:         make(chan struct{}),
 	}
 
+	// Apply localAddr from config
+	if config != nil && config.LocalAddr != "" {
+		t.localAddr = config.LocalAddr
+	}
+
 	go t.cleanupLoop()
 
 	return t
@@ -122,6 +129,11 @@ func (t *HTTP1Transport) SetConnectTo(requestHost, connectHost string) {
 // SetInsecureSkipVerify sets whether to skip TLS verification
 func (t *HTTP1Transport) SetInsecureSkipVerify(skip bool) {
 	t.insecureSkipVerify = skip
+}
+
+// SetLocalAddr sets the local IP address for outgoing connections
+func (t *HTTP1Transport) SetLocalAddr(addr string) {
+	t.localAddr = addr
 }
 
 // RoundTrip implements http.RoundTripper
@@ -369,6 +381,28 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			Timeout:   t.connectTimeout,
 			KeepAlive: 30 * time.Second,
 		}
+		if t.localAddr != "" {
+			localIP := net.ParseIP(t.localAddr)
+			dialer.LocalAddr = &net.TCPAddr{IP: localIP}
+			// Filter IPs to match local address family
+			if localIP != nil {
+				isLocalIPv6 := localIP.To4() == nil
+				var filtered []net.IP
+				for _, ip := range ips {
+					if (ip.To4() == nil) == isLocalIPv6 {
+						filtered = append(filtered, ip)
+					}
+				}
+				ips = filtered
+				if len(ips) == 0 {
+					family := "IPv4"
+					if isLocalIPv6 {
+						family = "IPv6"
+					}
+					return nil, NewDNSError(host, fmt.Errorf("no %s addresses found for host (local address is %s)", family, t.localAddr))
+				}
+			}
+		}
 
 		// Try each IP address in order (preferred first based on PreferIPv4 setting)
 		var lastErr error
@@ -411,6 +445,14 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 
 	// For HTTPS, wrap with uTLS
 	if scheme == "https" {
+		// Determine key log writer - config override or global
+		var keyLogWriter io.Writer
+		if t.config != nil && t.config.KeyLogWriter != nil {
+			keyLogWriter = t.config.KeyLogWriter
+		} else {
+			keyLogWriter = keylog.GetWriter()
+		}
+
 		tlsConfig := &utls.Config{
 			ServerName:                         host,
 			InsecureSkipVerify:                 t.insecureSkipVerify,
@@ -419,6 +461,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			ClientSessionCache:                 t.sessionCache,
 			NextProtos:                         []string{"http/1.1"}, // Force HTTP/1.1 only
 			PreferSkipResumptionOnNilExtension: true,                 // Skip resumption if spec has no PSK extension
+			KeyLogWriter:                       keyLogWriter,
 		}
 
 		// For HTTP/1.1 transport, use ClientHelloID directly
@@ -476,6 +519,9 @@ func (t *HTTP1Transport) dialThroughSOCKS5(ctx context.Context, targetHost, targ
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SOCKS5 dialer: %w", err)
 	}
+	if t.localAddr != "" {
+		socks5Dialer.SetLocalAddr(t.localAddr)
+	}
 
 	targetAddr := net.JoinHostPort(targetHost, targetPort)
 	conn, err := socks5Dialer.DialContext(ctx, "tcp", targetAddr)
@@ -517,6 +563,9 @@ func (t *HTTP1Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, t
 	dialer := &net.Dialer{
 		Timeout:   t.connectTimeout,
 		KeepAlive: 30 * time.Second,
+	}
+	if t.localAddr != "" {
+		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
 
 	// Dial using resolved IP to avoid DNS lookup in net.Dialer

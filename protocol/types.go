@@ -172,7 +172,8 @@ type SessionConfig struct {
 	ForceHTTP3        bool `json:"forceHttp3,omitempty"`
 
 	// Network options
-	PreferIPv4 bool `json:"preferIpv4,omitempty"` // Prefer IPv4 addresses over IPv6
+	PreferIPv4   bool   `json:"preferIpv4,omitempty"`   // Prefer IPv4 addresses over IPv6
+	LocalAddress string `json:"localAddress,omitempty"` // Local IP to bind outgoing connections (for IPv6 rotation)
 
 	// Domain fronting: request_host -> connect_host mapping
 	ConnectTo map[string]string `json:"connectTo,omitempty"`
@@ -187,6 +188,10 @@ type SessionConfig struct {
 	// QUIC idle timeout in seconds (default: 30)
 	// Connections are closed after this duration of inactivity
 	QuicIdleTimeout int `json:"quicIdleTimeout,omitempty"`
+
+	// KeyLogFile is the path to write TLS key log for Wireshark decryption.
+	// If set, overrides the global SSLKEYLOGFILE environment variable for this session.
+	KeyLogFile string `json:"keyLogFile,omitempty"`
 
 	// Default authentication (can be overridden per-request)
 	Auth *AuthConfig `json:"auth,omitempty"`

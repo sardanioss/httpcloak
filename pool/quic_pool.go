@@ -10,8 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"io"
+
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/keylog"
 	"github.com/sardanioss/quic-go"
 	"github.com/sardanioss/quic-go/http3"
 	"github.com/sardanioss/quic-go/quicvarint"
@@ -219,6 +222,7 @@ type QUICHostPool struct {
 	echConfigDomain    string // Domain to fetch ECH config from
 	disableECH         bool   // Disable automatic ECH fetching (Chrome doesn't always use ECH)
 	insecureSkipVerify bool   // Skip TLS certificate verification (for testing)
+	localAddr          string // Local IP to bind outgoing connections
 }
 
 // NewQUICHostPool creates a new QUIC pool for a specific host
@@ -274,6 +278,13 @@ func (p *QUICHostPool) SetMaxConns(max int) {
 	p.maxConns = max
 }
 
+// SetLocalAddr sets the local IP address for outgoing connections
+func (p *QUICHostPool) SetLocalAddr(addr string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.localAddr = addr
+}
+
 // GetConn returns an available QUIC connection or creates a new one
 func (p *QUICHostPool) GetConn(ctx context.Context) (*QUICConn, error) {
 	p.mu.Lock()
@@ -325,12 +336,16 @@ func (p *QUICHostPool) GetConn(ctx context.Context) (*QUICConn, error) {
 // createConn creates a new QUIC connection to the host
 // Implements IPv6-first connection strategy
 func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
+	// Get key log writer from global setting
+	var keyLogWriter io.Writer = keylog.GetWriter()
+
 	// TLS config for QUIC (HTTP/3)
 	tlsConfig := &tls.Config{
 		ServerName:         p.host,
 		InsecureSkipVerify: p.insecureSkipVerify,
 		NextProtos:         []string{http3.NextProtoH3}, // HTTP/3 ALPN
 		MinVersion:         tls.VersionTLS13,
+		KeyLogWriter:       keyLogWriter,
 	}
 
 	// Only enable session cache if we have PSK spec - prevents panic when session
@@ -458,6 +473,9 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		fallbackIPs = ipv4
 	}
 
+	// Capture localAddr for the dial closure
+	localAddr := p.localAddr
+
 	// Create HTTP/3 transport - simple sequential dial (no racing for fingerprint consistency)
 	h3Transport := &http3.Transport{
 		TLSClientConfig:        tlsConfig,
@@ -481,7 +499,13 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 				}
 				udpAddr := &net.UDPAddr{IP: remoteIP, Port: port}
 
-				udpConn, err := net.ListenUDP(network, nil)
+				// Create local UDP address if specified (for IPv6 rotation)
+				var localUDPAddr *net.UDPAddr
+				if localAddr != "" {
+					localUDPAddr = &net.UDPAddr{IP: net.ParseIP(localAddr)}
+				}
+
+				udpConn, err := net.ListenUDP(network, localUDPAddr)
 				if err != nil {
 					lastErr = err
 					continue
@@ -605,6 +629,7 @@ type QUICManager struct {
 	echConfigDomain    string            // Domain to fetch ECH config from
 	disableECH         bool              // Disable automatic ECH fetching
 	insecureSkipVerify bool              // Skip TLS certificate verification
+	localAddr          string            // Local IP to bind outgoing connections
 
 	// Cached TLS specs - shared across all QUICHostPools for consistent fingerprint
 	// Chrome shuffles extension order once per session, not per connection
@@ -702,6 +727,13 @@ func (m *QUICManager) SetInsecureSkipVerify(skip bool) {
 	m.insecureSkipVerify = skip
 }
 
+// SetLocalAddr sets the local IP address for outgoing connections
+func (m *QUICManager) SetLocalAddr(addr string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.localAddr = addr
+}
+
 // GetPool returns a pool for the given host, creating one if needed
 func (m *QUICManager) GetPool(host, port string) (*QUICHostPool, error) {
 	if port == "" {
@@ -749,6 +781,10 @@ func (m *QUICManager) GetPool(host, port string) (*QUICHostPool, error) {
 	pool.disableECH = m.disableECH
 	// Pass InsecureSkipVerify to the pool
 	pool.insecureSkipVerify = m.insecureSkipVerify
+	// Pass localAddr for IPv6 rotation
+	if m.localAddr != "" {
+		pool.localAddr = m.localAddr
+	}
 	m.pools[key] = pool
 	return pool, nil
 }
