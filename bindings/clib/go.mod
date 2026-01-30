@@ -11,7 +11,7 @@ require (
 	github.com/sardanioss/http v1.1.0 // indirect
 	github.com/sardanioss/net v1.2.1 // indirect
 	github.com/sardanioss/qpack v0.6.2 // indirect
-	github.com/sardanioss/quic-go v1.2.17 // indirect
+	github.com/sardanioss/quic-go v1.2.18 // indirect
 	github.com/sardanioss/utls v1.10.1 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.30.0 // indirect

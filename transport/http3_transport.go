@@ -5,15 +5,15 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
-
-	"io"
 
 	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
@@ -1118,7 +1118,18 @@ func (t *HTTP3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	// Make request - http3.Transport handles connection pooling
-	resp, err := t.transport.RoundTrip(req)
+	// Retry up to 3 times on 0-RTT rejection (can happen multiple times after Refresh)
+	var resp *http.Response
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		resp, err = t.transport.RoundTrip(req)
+		if err == nil || !is0RTTRejectedError(err) {
+			break
+		}
+		// 0-RTT rejected - close unusable connection and recreate transport
+		t.transport.Close()
+		t.recreateTransport()
+	}
 
 	// Check if a new connection was created during this request
 	t.mu.RLock()
@@ -1268,6 +1279,60 @@ func (t *HTTP3Transport) Refresh() error {
 	}
 
 	return nil
+}
+
+// is0RTTRejectedError checks if the error is due to 0-RTT rejection
+func is0RTTRejectedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// Check for 0-RTT rejection or unusable connection (which wraps 0-RTT rejection)
+	return strings.Contains(errStr, "0-RTT rejected") || strings.Contains(errStr, "conn unusable")
+}
+
+// recreateTransport recreates the HTTP/3 transport after 0-RTT rejection
+// This is called from RoundTrip when the server rejects early data
+func (t *HTTP3Transport) recreateTransport() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Generate fresh GREASE values
+	greaseSettingID := uint64(0x1f*rand.Intn(256)+0x21) | 0x0f0f0f0f00000000
+	greaseSettingValue := uint64(rand.Intn(256))
+
+	// Build additional settings
+	additionalSettings := map[uint64]uint64{
+		settingQPACKMaxTableCapacity: 65536,
+		settingQPACKBlockedStreams:   100,
+		greaseSettingID:              greaseSettingValue,
+	}
+	// Add Chrome-specific settings (not sent by Safari/iOS)
+	if t.preset == nil || !t.preset.HTTP2Settings.NoRFC7540Priorities {
+		additionalSettings[settingMaxFieldSectionSize] = 262144
+		additionalSettings[settingH3Datagram] = 1
+	}
+
+	// Determine which dial function to use
+	var dialFunc func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error)
+	if t.masqueConn != nil {
+		dialFunc = t.dialQUICWithMASQUE
+	} else if t.socks5Conn != nil {
+		dialFunc = t.dialQUICWithProxy
+	} else {
+		dialFunc = t.dialQUIC
+	}
+
+	// Recreate the transport
+	t.transport = &http3.Transport{
+		TLSClientConfig:        t.tlsConfig,
+		QUICConfig:             t.quicConfig,
+		Dial:                   dialFunc,
+		EnableDatagrams:        true,
+		AdditionalSettings:     additionalSettings,
+		MaxResponseHeaderBytes: 262144,
+		SendGreaseFrames:       true,
+	}
 }
 
 // GetSessionCache returns the TLS session cache

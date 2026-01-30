@@ -1724,8 +1724,9 @@ func httpcloak_available_presets() *C.char {
 		"chrome-144", "chrome-144-windows", "chrome-144-linux", "chrome-144-macos",
 		"chrome-143", "chrome-143-windows", "chrome-143-linux", "chrome-143-macos",
 		"chrome-141", "chrome-133", "chrome-131",
-		"ios-chrome-143", "android-chrome-143",
-		"firefox-133", "safari-18", "ios-safari-17",
+		"ios-chrome-144", "ios-chrome-143",
+		"android-chrome-144", "android-chrome-143",
+		"firefox-133", "safari-18", "ios-safari-18", "ios-safari-17",
 	}
 	data, _ := json.Marshal(presets)
 	return C.CString(string(data))
