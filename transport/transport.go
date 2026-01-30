@@ -1586,6 +1586,10 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 			httpReq.Header.Del("Priority")
 			httpReq.Header.Del("priority")
 		}
+	} else {
+		// TLS-only mode: set empty User-Agent to prevent Go's default "Go-http-client/2.0"
+		// This marks didUA=true in httpcommon.EncodeHeaders but skips writing the value
+		httpReq.Header.Set("User-Agent", "")
 	}
 
 	// Set header order for HTTP/2 and HTTP/3 fingerprinting

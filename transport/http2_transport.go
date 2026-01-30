@@ -386,10 +386,17 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 	// Build HTTP/2 settings from preset
 	settings := t.preset.HTTP2Settings
 
+	// Check TLSOnly mode - disables automatic compression and user-agent
+	tlsOnly := t.config != nil && t.config.TLSOnly
+	userAgent := t.preset.UserAgent
+	if tlsOnly {
+		userAgent = "" // Don't set default User-Agent in TLS-only mode
+	}
+
 	// Create HTTP/2 transport with native fingerprinting (no frame interception needed)
 	h2Transport := &http2.Transport{
 		AllowHTTP:                  false,
-		DisableCompression:         false,
+		DisableCompression:         tlsOnly, // Disable auto Accept-Encoding in TLS-only mode
 		StrictMaxConcurrentStreams: false,
 		ReadIdleTimeout:            t.maxIdleTime,
 		PingTimeout:                15 * time.Second,
@@ -426,7 +433,7 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 			"accept-encoding", "accept-language",
 			"cookie", "priority",
 		},
-		UserAgent:           t.preset.UserAgent,
+		UserAgent:           userAgent,
 		StreamPriorityMode:  http2.StreamPriorityChrome,
 		HPACKIndexingPolicy: hpack.IndexingChrome,
 	}

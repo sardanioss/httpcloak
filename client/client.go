@@ -1435,6 +1435,11 @@ func applyTLSOnlyHeaders(httpReq *http.Request, preset *fingerprint.Preset, req 
 		}
 	}
 
+	// In TLSOnly mode, if user didn't provide User-Agent, set empty string to prevent Go default
+	if _, hasUA := getHeaderCaseInsensitive(req.Headers, "User-Agent"); !hasUA {
+		httpReq.Header.Set("User-Agent", "") // Empty string prevents Go from adding default
+	}
+
 	// Set header order for HTTP/2 and HTTP/3 fingerprinting
 	// Even in TLSOnly mode, header order matters for fingerprinting
 	if len(customHeaderOrder) > 0 {
