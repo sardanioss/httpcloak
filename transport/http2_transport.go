@@ -217,6 +217,9 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 	// Create new connection
 	newConn, err := t.createConn(ctx, host, port)
 	if err != nil {
+		if exists {
+			delete(t.conns, key)
+		}
 		return nil, err
 	}
 

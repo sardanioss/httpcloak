@@ -209,12 +209,12 @@ func (t *HTTP3Transport) getInnerSpecForHost(host string) *utls.ClientHelloSpec 
 }
 
 // NewHTTP3Transport creates a new HTTP/3 transport
-func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) *HTTP3Transport {
+func NewHTTP3Transport(preset *fingerprint.Preset, dnsCache *dns.Cache) (*HTTP3Transport, error) {
 	return NewHTTP3TransportWithTransportConfig(preset, dnsCache, nil)
 }
 
 // NewHTTP3TransportWithTransportConfig creates a new HTTP/3 transport with advanced config
-func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *dns.Cache, config *TransportConfig) *HTTP3Transport {
+func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *dns.Cache, config *TransportConfig) (*HTTP3Transport, error) {
 	// Generate shuffle seed for session-consistent ordering
 	var seedBytes [8]byte
 	crand.Read(seedBytes[:])
@@ -371,7 +371,7 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		}
 		udpConn, err = net.ListenUDP("udp6", localUDPAddr)
 		if err != nil {
-			return nil // Will use http3.Transport's default behavior
+			return nil, fmt.Errorf("failed to create UDP socket (IPv4 and IPv6 both failed): %w", err)
 		}
 	}
 	t.quicTransport = &quic.Transport{
@@ -390,7 +390,7 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		SendGreaseFrames:       true,       // Chrome sends GREASE frames on control stream
 	}
 
-	return t
+	return t, nil
 }
 
 // NewHTTP3TransportWithProxy creates a new HTTP/3 transport with SOCKS5 proxy support

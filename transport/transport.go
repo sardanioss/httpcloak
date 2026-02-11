@@ -346,7 +346,7 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 				t.h3ProxyError = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
 				// Still create a basic H3 transport for non-proxied use cases
 				// but h3ProxyError will prevent it from being used when proxy is expected
-				t.h3Transport = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+				t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
 			} else {
 				t.h3Transport = h3Transport
 			}
@@ -356,7 +356,7 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 			if err != nil {
 				// Store the error - don't silently fallback to direct connection!
 				t.h3ProxyError = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
-				t.h3Transport = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+				t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
 			} else {
 				t.h3Transport = h3Transport
 			}
@@ -364,11 +364,11 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 			// HTTP proxy - HTTP/3 doesn't work through HTTP proxies
 			// Store error so H3 requests fail explicitly
 			t.h3ProxyError = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
-			t.h3Transport = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+			t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
 		}
 	} else {
 		// No proxy - HTTP/3 works directly
-		t.h3Transport = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+		t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
 	}
 
 	return t
@@ -430,7 +430,7 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 			h3Transport, err := NewHTTP3TransportWithProxy(t.preset, t.dnsCache, h3Proxy)
 			if err != nil {
 				// Fall back to non-proxied HTTP/3
-				t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 			} else {
 				t.h3Transport = h3Transport
 			}
@@ -438,15 +438,15 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 			h3Proxy := &ProxyConfig{URL: udpProxyURL}
 			h3Transport, err := NewHTTP3TransportWithMASQUE(t.preset, t.dnsCache, h3Proxy, nil)
 			if err != nil {
-				t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 			} else {
 				t.h3Transport = h3Transport
 			}
 		} else {
-			t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+			t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 		}
 	} else {
-		t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+		t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 	}
 }
 
@@ -468,22 +468,22 @@ func (t *Transport) SetPreset(presetName string) {
 		if isSOCKS5Proxy(t.proxy.URL) {
 			h3Transport, err := NewHTTP3TransportWithProxy(t.preset, t.dnsCache, t.proxy)
 			if err != nil {
-				t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 			} else {
 				t.h3Transport = h3Transport
 			}
 		} else if isMASQUEProxy(t.proxy.URL) {
 			h3Transport, err := NewHTTP3TransportWithMASQUE(t.preset, t.dnsCache, t.proxy, nil)
 			if err != nil {
-				t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 			} else {
 				t.h3Transport = h3Transport
 			}
 		} else {
-			t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+			t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 		}
 	} else {
-		t.h3Transport = NewHTTP3Transport(t.preset, t.dnsCache)
+		t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 	}
 }
 

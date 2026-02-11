@@ -823,6 +823,7 @@ func (t *HTTP1Transport) writeRequest(conn *http1Conn, req *http.Request) error 
 
 	// Write body if present
 	if req.Body != nil {
+		defer req.Body.Close()
 		if useChunked {
 			// Write body in chunked encoding
 			if err := t.writeChunkedBody(conn.bw, req.Body); err != nil {
