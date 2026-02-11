@@ -907,6 +907,16 @@ func (t *HTTP3Transport) dialQUICWithProxy(ctx context.Context, addr string, tls
 		return nil, err
 	}
 
+	// Auto-cleanup when the QUIC connection closes (timeout, error, idle, explicit).
+	// Without this, failed requests leave quic.Transport goroutines + udpbara relay
+	// goroutines running until session.Close(), burning CPU on Linux (ECN/GSO syscalls).
+	go func() {
+		<-conn.Context().Done()
+		closeWithTimeout(qt, 3*time.Second)
+		udpConn.Close()
+		t.removeProxyConn(pc)
+	}()
+
 	return conn, nil
 }
 
