@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -1359,54 +1360,19 @@ func (s *Session) PostStream(ctx context.Context, url string, body []byte, heade
 
 // resolveURL resolves a possibly relative URL against a base URL
 func resolveURL(base, ref string) string {
-	// If ref is absolute, return it
-	if len(ref) > 7 && (ref[:7] == "http://" || ref[:8] == "https://") {
-		return ref
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		// Fallback to simple concatenation if base URL is invalid
+		return base + "/" + ref
 	}
 
-	// Parse base URL to get scheme and host
-	schemeEnd := indexOf(base, "://")
-	if schemeEnd == -1 {
-		return ref
-	}
-	scheme := base[:schemeEnd]
-
-	rest := base[schemeEnd+3:]
-	pathStart := indexOf(rest, "/")
-
-	var host, basePath string
-	if pathStart == -1 {
-		host = rest
-		basePath = "/"
-	} else {
-		host = rest[:pathStart]
-		basePath = rest[pathStart:]
+	refURL, err := url.Parse(ref)
+	if err != nil {
+		// Fallback to simple concatenation if reference is invalid
+		return base + "/" + ref
 	}
 
-	// Handle different reference types
-	if len(ref) > 0 && ref[0] == '/' {
-		// Absolute path
-		if len(ref) > 1 && ref[1] == '/' {
-			// Protocol-relative URL (//example.com/path)
-			return scheme + ":" + ref
-		}
-		return scheme + "://" + host + ref
-	}
-
-	// Relative path - resolve against base path
-	lastSlash := -1
-	for i := len(basePath) - 1; i >= 0; i-- {
-		if basePath[i] == '/' {
-			lastSlash = i
-			break
-		}
-	}
-
-	if lastSlash >= 0 {
-		return scheme + "://" + host + basePath[:lastSlash+1] + ref
-	}
-
-	return scheme + "://" + host + "/" + ref
+	return baseURL.ResolveReference(refURL).String()
 }
 
 // ==================== Session Persistence ====================
