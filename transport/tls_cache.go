@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tls "github.com/sardanioss/utls"
@@ -154,7 +155,7 @@ type PersistableSessionCache struct {
 	preset        string        // Preset name for cache key generation
 	protocol      string        // Protocol identifier (h1, h2, h3)
 	sessionId     string        // Optional session identifier for cache key isolation
-	errorCallback ErrorCallback // Optional callback for backend errors
+	errorCallback atomic.Pointer[ErrorCallback] // Optional callback for backend errors (lock-free)
 }
 
 type cachedSession struct {
@@ -174,13 +175,16 @@ func NewPersistableSessionCache() *PersistableSessionCache {
 // Protocol should be one of: "h1", "h2", "h3"
 // The errorCallback is optional and will be called when backend operations fail.
 func NewPersistableSessionCacheWithBackend(backend SessionCacheBackend, preset, protocol string, errorCallback ErrorCallback) *PersistableSessionCache {
-	return &PersistableSessionCache{
-		sessions:      make(map[string]*cachedSession),
-		backend:       backend,
-		preset:        preset,
-		protocol:      protocol,
-		errorCallback: errorCallback,
+	cache := &PersistableSessionCache{
+		sessions: make(map[string]*cachedSession),
+		backend:  backend,
+		preset:   preset,
+		protocol: protocol,
 	}
+	if errorCallback != nil {
+		cache.errorCallback.Store(&errorCallback)
+	}
+	return cache
 }
 
 // SetBackend configures a distributed cache backend for this session cache.
@@ -191,7 +195,11 @@ func (c *PersistableSessionCache) SetBackend(backend SessionCacheBackend, preset
 	c.backend = backend
 	c.preset = preset
 	c.protocol = protocol
-	c.errorCallback = errorCallback
+	if errorCallback != nil {
+		c.errorCallback.Store(&errorCallback)
+	} else {
+		c.errorCallback.Store(nil)
+	}
 }
 
 // SetSessionIdentifier sets an optional session identifier for cache key isolation.
@@ -214,19 +222,22 @@ func (c *PersistableSessionCache) GetSessionIdentifier() string {
 
 // SetErrorCallback sets the callback for backend errors.
 func (c *PersistableSessionCache) SetErrorCallback(callback ErrorCallback) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.errorCallback = callback
+	if callback != nil {
+		c.errorCallback.Store(&callback)
+	} else {
+		c.errorCallback.Store(nil)
+	}
 }
 
 // reportError reports an error via the error callback if configured.
+// Lock-free: uses atomic load so it's safe to call from any context
+// (including while holding mu).
 func (c *PersistableSessionCache) reportError(operation, key string, err error) {
-	c.mu.RLock()
-	callback := c.errorCallback
-	c.mu.RUnlock()
-
-	if callback != nil && err != nil {
-		callback(operation, key, err)
+	if err == nil {
+		return
+	}
+	if cb := c.errorCallback.Load(); cb != nil {
+		(*cb)(operation, key, err)
 	}
 }
 
