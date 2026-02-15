@@ -72,7 +72,8 @@ type SOCKS5UDPConn struct {
 	writeCount   int64
 	readCount    int64
 
-	// Read buffer for receiving packets
+	// Read buffer for receiving packets (protected by readMu)
+	readMu  sync.Mutex
 	readBuf []byte
 
 	// Deadline management
@@ -552,15 +553,18 @@ func (c *SOCKS5UDPConn) ReadFrom(b []byte) (int, net.Addr, error) {
 		udpConn.SetReadDeadline(deadline)
 	}
 
-	// Read into buffer
+	// Serialize access to readBuf — only one goroutine may use it at a time
+	c.readMu.Lock()
 	n, _, err := udpConn.ReadFrom(c.readBuf)
 	if err != nil {
+		c.readMu.Unlock()
 		return 0, nil, err
 	}
 
 	// Parse SOCKS5 UDP header and extract data
 	dataOffset, srcAddr, err := parseSOCKS5UDPHeader(c.readBuf[:n])
 	if err != nil {
+		c.readMu.Unlock()
 		return 0, nil, fmt.Errorf("invalid SOCKS5 UDP header: %w", err)
 	}
 
@@ -570,6 +574,7 @@ func (c *SOCKS5UDPConn) ReadFrom(b []byte) (int, net.Addr, error) {
 		dataLen = len(b)
 	}
 	copy(b, c.readBuf[dataOffset:dataOffset+dataLen])
+	c.readMu.Unlock()
 
 	// Update activity time
 	c.mu.Lock()
