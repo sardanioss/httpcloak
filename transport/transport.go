@@ -402,6 +402,7 @@ func (t *Transport) SetDisableECH(disable bool) {
 // Note: This recreates the underlying transports
 func (t *Transport) SetProxy(proxy *ProxyConfig) {
 	t.proxy = proxy
+	t.h3ProxyError = nil // Clear stale error from previous proxy config
 
 	// Close existing transports
 	t.h1Transport.Close()
@@ -425,11 +426,10 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 
 	if udpProxyURL != "" {
 		if isSOCKS5Proxy(udpProxyURL) {
-			// Use UDPProxy in the config for the actual connection
 			h3Proxy := &ProxyConfig{URL: udpProxyURL}
 			h3Transport, err := NewHTTP3TransportWithProxy(t.preset, t.dnsCache, h3Proxy)
 			if err != nil {
-				// Fall back to non-proxied HTTP/3
+				t.h3ProxyError = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
 				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 			} else {
 				t.h3Transport = h3Transport
@@ -438,11 +438,14 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 			h3Proxy := &ProxyConfig{URL: udpProxyURL}
 			h3Transport, err := NewHTTP3TransportWithMASQUE(t.preset, t.dnsCache, h3Proxy, nil)
 			if err != nil {
+				t.h3ProxyError = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
 				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 			} else {
 				t.h3Transport = h3Transport
 			}
 		} else {
+			// HTTP proxy does not support HTTP/3 (QUIC requires UDP)
+			t.h3ProxyError = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
 			t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
 		}
 	} else {
