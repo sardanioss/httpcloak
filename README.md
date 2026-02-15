@@ -537,6 +537,83 @@ session.refresh();
 session.Refresh();
 ```
 
+### 🌐 Warmup (Browser Page Load)
+
+Simulates a real browser page load - fetches the HTML page and all its subresources (CSS, JS, images, fonts) with realistic headers, priorities, and timing. After warmup, the session has TLS session tickets, cookies, and cache headers populated.
+
+```python
+session = httpcloak.Session(preset="chrome-144")
+
+# Fetches page + subresources with realistic browser behavior
+session.warmup("https://example.com")
+
+# Subsequent requests look like follow-up navigation from a real user
+r = session.get("https://example.com/api/data")
+```
+
+**Go:**
+```go
+session := httpcloak.NewSession("chrome-144")
+session.Warmup(ctx, "https://example.com")
+session.Get(ctx, "https://example.com/api/data")  // Looks like real user
+```
+
+**Node.js:**
+```javascript
+session.warmup("https://example.com");
+```
+
+**C#:**
+```csharp
+session.Warmup("https://example.com");
+```
+
+### 🔀 Fork (Parallel Browser Tabs)
+
+Creates N sessions that share cookies and TLS session caches with the parent but have independent connections. This simulates multiple browser tabs - same cookies, same TLS resumption tickets, same fingerprint, but independent TCP/QUIC connections for parallel requests.
+
+```python
+session = httpcloak.Session(preset="chrome-144")
+session.warmup("https://example.com")
+
+# Create 10 parallel "tabs" sharing cookies + TLS cache
+tabs = session.fork(10)
+for i, tab in enumerate(tabs):
+    threading.Thread(
+        target=lambda t, n: t.get(f"https://example.com/page/{n}"),
+        args=(tab, i)
+    ).start()
+```
+
+**Go:**
+```go
+session := httpcloak.NewSession("chrome-144")
+session.Warmup(ctx, "https://example.com")
+
+tabs := session.Fork(10)
+for i, tab := range tabs {
+    go func(t *httpcloak.Session, n int) {
+        t.Get(ctx, fmt.Sprintf("https://example.com/page/%d", n))
+    }(tab, i)
+}
+```
+
+**Node.js:**
+```javascript
+session.warmup("https://example.com");
+const tabs = session.fork(10);
+await Promise.all(tabs.map((tab, i) => tab.get(`https://example.com/page/${i}`)));
+```
+
+**C#:**
+```csharp
+session.Warmup("https://example.com");
+var tabs = session.Fork(10);
+await Task.WhenAll(tabs.Select((tab, i) =>
+    Task.Run(() => tab.Get($"https://example.com/page/{i}"))
+));
+```
+
 ### 🌍 Local Address Binding
 
 Bind outgoing connections to a specific local IP address. Essential for IPv6 rotation scenarios where you have multiple IPs assigned to your machine.
