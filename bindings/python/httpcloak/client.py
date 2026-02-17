@@ -1431,6 +1431,9 @@ class Session:
         key_log_file: Optional[str] = None,
         disable_speculative_tls: bool = False,
         switch_protocol: Optional[str] = None,
+        ja3: Optional[str] = None,
+        akamai: Optional[str] = None,
+        extra_fp: Optional[Dict] = None,
     ):
         self._lib = _get_lib()
         self._default_timeout = timeout
@@ -1476,6 +1479,12 @@ class Session:
             config["disable_speculative_tls"] = True
         if switch_protocol:
             config["switch_protocol"] = switch_protocol
+        if ja3:
+            config["ja3"] = ja3
+        if akamai:
+            config["akamai"] = akamai
+        if extra_fp:
+            config["extra_fp"] = extra_fp
 
         config_json = json.dumps(config).encode("utf-8")
         self._handle = self._lib.httpcloak_session_new(config_json)
@@ -4017,12 +4026,15 @@ def _get_session_for_request(kwargs: dict) -> Tuple[Session, bool]:
     prefer_ipv4 = kwargs.pop("prefer_ipv4", None)
     connect_to = kwargs.pop("connect_to", None)
     ech_config_domain = kwargs.pop("ech_config_domain", None)
+    ja3 = kwargs.pop("ja3", None)
+    akamai = kwargs.pop("akamai", None)
+    extra_fp = kwargs.pop("extra_fp", None)
 
     # Check if any session-level override was provided
     has_override = any(v is not None for v in [
         preset, proxy, tcp_proxy, udp_proxy, verify, allow_redirects,
         http_version, max_redirects, retry, retry_on_status, prefer_ipv4,
-        connect_to, ech_config_domain
+        connect_to, ech_config_domain, ja3, akamai, extra_fp
     ])
 
     # If no session-level overrides, use default session
@@ -4044,6 +4056,9 @@ def _get_session_for_request(kwargs: dict) -> Tuple[Session, bool]:
     final_prefer_ipv4 = prefer_ipv4 if prefer_ipv4 is not None else _default_config.get("prefer_ipv4", False)
     final_connect_to = connect_to if connect_to is not None else _default_config.get("connect_to")
     final_ech_config_domain = ech_config_domain if ech_config_domain is not None else _default_config.get("ech_config_domain")
+    final_ja3 = ja3 if ja3 is not None else _default_config.get("ja3")
+    final_akamai = akamai if akamai is not None else _default_config.get("akamai")
+    final_extra_fp = extra_fp if extra_fp is not None else _default_config.get("extra_fp")
 
     # Create temporary session with overrides
     temp_session = Session(
@@ -4061,6 +4076,9 @@ def _get_session_for_request(kwargs: dict) -> Tuple[Session, bool]:
         prefer_ipv4=final_prefer_ipv4,
         connect_to=final_connect_to,
         ech_config_domain=final_ech_config_domain,
+        ja3=final_ja3,
+        akamai=final_akamai,
+        extra_fp=final_extra_fp,
     )
 
     # Copy default headers

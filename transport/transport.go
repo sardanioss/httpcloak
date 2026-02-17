@@ -19,6 +19,7 @@ import (
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/protocol"
+	tls "github.com/sardanioss/utls"
 )
 
 // Protocol represents the HTTP protocol version
@@ -153,6 +154,19 @@ type TransportConfig struct {
 	// When false (default), CONNECT request and TLS ClientHello are sent together,
 	// saving one round-trip. Set to true if you experience issues with certain proxies.
 	DisableSpeculativeTLS bool
+
+	// CustomJA3 is the JA3 fingerprint string for custom TLS fingerprinting.
+	// When set, a fresh ClientHelloSpec is generated from this string for each connection.
+	CustomJA3 string
+
+	// CustomJA3Extras contains additional parameters for the JA3 parser.
+	CustomJA3Extras *tls.JA3Extras
+
+	// CustomHTTP2Settings overrides the preset's HTTP/2 settings (from Akamai fingerprint).
+	CustomHTTP2Settings *fingerprint.HTTP2Settings
+
+	// CustomPseudoOrder overrides the pseudo header order (from Akamai fingerprint).
+	CustomPseudoOrder []string
 }
 
 // Request represents an HTTP request
@@ -292,6 +306,18 @@ func NewTransportWithProxy(presetName string, proxy *ProxyConfig) *Transport {
 func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *TransportConfig) *Transport {
 	preset := fingerprint.Get(presetName)
 	dnsCache := dns.NewCache()
+
+	// Apply custom JA3/Akamai overrides to the preset
+	if config != nil {
+		if config.CustomJA3 != "" {
+			// Override TLS fingerprint - specs will be generated per-connection from JA3
+			preset.ClientHelloID = tls.HelloCustom
+			preset.PSKClientHelloID = tls.ClientHelloID{} // No PSK for custom specs
+		}
+		if config.CustomHTTP2Settings != nil {
+			preset.HTTP2Settings = *config.CustomHTTP2Settings
+		}
+	}
 
 	// Determine TLS-only mode from config
 	tlsOnly := false

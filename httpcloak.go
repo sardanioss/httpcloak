@@ -36,6 +36,7 @@ import (
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/session"
 	"github.com/sardanioss/httpcloak/transport"
+	tls "github.com/sardanioss/utls"
 )
 
 // systemRoots is pre-loaded at init time to avoid ~40ms delay on first TLS connection
@@ -321,6 +322,24 @@ type sessionConfig struct {
 	// Distributed session cache
 	sessionCacheBackend       transport.SessionCacheBackend
 	sessionCacheErrorCallback transport.ErrorCallback
+
+	// Custom JA3 fingerprint
+	customJA3           string
+	customJA3Extras     *tls.JA3Extras
+	customHTTP2Settings *fingerprint.HTTP2Settings
+	customPseudoOrder   []string // Pseudo header order from Akamai string
+}
+
+// CustomTLSConfig holds custom JA3 and Akamai fingerprint configuration.
+type CustomTLSConfig struct {
+	// JA3 is a JA3 fingerprint string: "TLSVersion,CipherSuites,Extensions,Curves,PointFormats"
+	JA3 string
+
+	// Akamai is an HTTP/2 fingerprint string: "SETTINGS|WINDOW_UPDATE|STREAM_PRIORITY|PSEUDO_HEADER_ORDER"
+	Akamai string
+
+	// ExtraFP contains additional fingerprint parameters.
+	ExtraFP map[string]interface{}
 }
 
 // WithSessionProxy sets a proxy for the session
@@ -527,6 +546,64 @@ func WithSessionCache(backend transport.SessionCacheBackend, errorCallback trans
 	}
 }
 
+// WithCustomJA3 configures the session to use a custom JA3 TLS fingerprint
+// and optionally custom Akamai HTTP/2 settings, instead of a named preset.
+//
+// The config.JA3 string format is: "TLSVersion,CipherSuites,Extensions,Curves,PointFormats"
+// The config.Akamai string format is: "SETTINGS|WINDOW_UPDATE|STREAM_PRIORITY|PSEUDO_HEADER_ORDER"
+// The config.ExtraFP map supports:
+//   - "tls_signature_algorithms": []string of signature algorithm names
+//   - "tls_alpn": []string of ALPN protocols
+//   - "tls_permute_extensions": bool to enable extension permutation
+func WithCustomJA3(config CustomTLSConfig) SessionOption {
+	return func(c *sessionConfig) {
+		// Store JA3 string for per-connection spec generation
+		c.customJA3 = config.JA3
+
+		// Parse ExtraFP into JA3Extras
+		if len(config.ExtraFP) > 0 {
+			extras := &tls.JA3Extras{}
+			if sigAlgs, ok := config.ExtraFP["tls_signature_algorithms"]; ok {
+				if algs, ok := sigAlgs.([]string); ok {
+					extras.SignatureAlgorithms = algs
+				} else if algsIface, ok := sigAlgs.([]interface{}); ok {
+					for _, a := range algsIface {
+						if s, ok := a.(string); ok {
+							extras.SignatureAlgorithms = append(extras.SignatureAlgorithms, s)
+						}
+					}
+				}
+			}
+			if alpn, ok := config.ExtraFP["tls_alpn"]; ok {
+				if protocols, ok := alpn.([]string); ok {
+					extras.ALPN = protocols
+				} else if protsIface, ok := alpn.([]interface{}); ok {
+					for _, p := range protsIface {
+						if s, ok := p.(string); ok {
+							extras.ALPN = append(extras.ALPN, s)
+						}
+					}
+				}
+			}
+			if permute, ok := config.ExtraFP["tls_permute_extensions"]; ok {
+				if b, ok := permute.(bool); ok {
+					extras.PermuteExtensions = b
+				}
+			}
+			c.customJA3Extras = extras
+		}
+
+		// Parse Akamai string
+		if config.Akamai != "" {
+			settings, pseudoOrder, err := fingerprint.ParseAkamai(config.Akamai)
+			if err == nil {
+				c.customHTTP2Settings = settings
+				c.customPseudoOrder = pseudoOrder
+			}
+		}
+	}
+}
+
 // NewSession creates a new persistent session with cookie management
 func NewSession(preset string, opts ...SessionOption) *Session {
 	cfg := &sessionConfig{
@@ -586,12 +663,17 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 		sessionCfg.ForceHTTP3 = true
 	}
 
-	// Create session with optional distributed cache
+	// Create session with optional distributed cache and custom TLS spec
 	var s *session.Session
-	if cfg.sessionCacheBackend != nil {
+	needsOptions := cfg.sessionCacheBackend != nil || cfg.customJA3 != ""
+	if needsOptions {
 		opts := &session.SessionOptions{
 			SessionCacheBackend:       cfg.sessionCacheBackend,
 			SessionCacheErrorCallback: cfg.sessionCacheErrorCallback,
+			CustomJA3:                 cfg.customJA3,
+			CustomJA3Extras:           cfg.customJA3Extras,
+			CustomHTTP2Settings:       cfg.customHTTP2Settings,
+			CustomPseudoOrder:         cfg.customPseudoOrder,
 		}
 		s = session.NewSessionWithOptions("", sessionCfg, opts)
 	} else {

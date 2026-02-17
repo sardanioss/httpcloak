@@ -493,9 +493,24 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			KeyLogWriter:                       keyLogWriter,
 		}
 
-		// For HTTP/1.1 transport, use ClientHelloID directly
-		// Note: ClientHelloID includes ALPN with [h2, http/1.1], so we must modify it
-		tlsConn := utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+		// For HTTP/1.1 transport, use ClientHelloID or custom JA3 spec
+		var tlsConn *utls.UConn
+		if t.config != nil && t.config.CustomJA3 != "" {
+			// Generate fresh spec from JA3 string
+			spec, specErr := tls.FromJA3(t.config.CustomJA3, t.config.CustomJA3Extras)
+			if specErr == nil {
+				tlsConn = utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
+				if applyErr := tlsConn.ApplyPreset(spec); applyErr != nil {
+					rawConn.Close()
+					return nil, NewTLSError("apply_preset", host, port, "h1", applyErr)
+				}
+			} else {
+				tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+			}
+		} else {
+			// Note: ClientHelloID includes ALPN with [h2, http/1.1], so we must modify it
+			tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+		}
 		tlsConn.SetSessionCache(t.sessionCache)
 
 		// Build handshake state first - this populates Extensions from ClientHelloID
@@ -527,7 +542,16 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 				}
 
 				// Redo TLS setup on the clean connection
-				tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+				if t.config != nil && t.config.CustomJA3 != "" {
+					if spec, specErr := tls.FromJA3(t.config.CustomJA3, t.config.CustomJA3Extras); specErr == nil {
+						tlsConn = utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
+						tlsConn.ApplyPreset(spec)
+					} else {
+						tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+					}
+				} else {
+					tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+				}
 				tlsConn.SetSessionCache(t.sessionCache)
 				if buildErr := tlsConn.BuildHandshakeState(); buildErr != nil {
 					rawConn.Close()

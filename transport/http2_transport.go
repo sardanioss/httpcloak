@@ -383,14 +383,19 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 	// utls's ApplyPreset mutates the spec (clears KeyShares.Data, etc.), so each
 	// connection needs its own copy. Use same shuffleSeed for consistent ordering.
 	var specToUse *utls.ClientHelloSpec
-	if t.hasPSKSpec {
+	if t.config != nil && t.config.CustomJA3 != "" {
+		// Generate fresh spec from JA3 string for each connection
+		if spec, err := tls.FromJA3(t.config.CustomJA3, t.config.CustomJA3Extras); err == nil {
+			specToUse = spec
+		}
+	} else if t.hasPSKSpec {
 		// Generate fresh PSK spec for this connection
 		if spec, err := utls.UTLSIdToSpecWithSeed(t.preset.PSKClientHelloID, t.shuffleSeed); err == nil {
 			specToUse = &spec
 		}
 	}
-	if specToUse == nil {
-		// Generate fresh regular spec
+	if specToUse == nil && (t.config == nil || t.config.CustomJA3 == "") {
+		// Generate fresh regular spec (not for custom JA3 which already set specToUse)
 		if spec, err := utls.UTLSIdToSpecWithSeed(t.preset.ClientHelloID, t.shuffleSeed); err == nil {
 			specToUse = &spec
 		}
@@ -480,14 +485,20 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 
 			// Regenerate fresh TLS spec (the previous one was consumed)
 			var fallbackSpec *utls.ClientHelloSpec
-			if t.hasPSKSpec {
-				if spec, specErr := utls.UTLSIdToSpecWithSeed(t.preset.PSKClientHelloID, t.shuffleSeed); specErr == nil {
-					fallbackSpec = &spec
+			if t.config != nil && t.config.CustomJA3 != "" {
+				if spec, specErr := tls.FromJA3(t.config.CustomJA3, t.config.CustomJA3Extras); specErr == nil {
+					fallbackSpec = spec
 				}
-			}
-			if fallbackSpec == nil {
-				if spec, specErr := utls.UTLSIdToSpecWithSeed(t.preset.ClientHelloID, t.shuffleSeed); specErr == nil {
-					fallbackSpec = &spec
+			} else {
+				if t.hasPSKSpec {
+					if spec, specErr := utls.UTLSIdToSpecWithSeed(t.preset.PSKClientHelloID, t.shuffleSeed); specErr == nil {
+						fallbackSpec = &spec
+					}
+				}
+				if fallbackSpec == nil {
+					if spec, specErr := utls.UTLSIdToSpecWithSeed(t.preset.ClientHelloID, t.shuffleSeed); specErr == nil {
+						fallbackSpec = &spec
+					}
 				}
 			}
 
