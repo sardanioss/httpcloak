@@ -595,8 +595,8 @@ func (t *HTTP1Transport) dialThroughSOCKS5(ctx context.Context, targetHost, targ
 }
 
 // dialThroughHTTPProxy establishes a connection through an HTTP proxy using CONNECT.
-// By default, uses speculative TLS: sends CONNECT + ClientHello together to save one round-trip.
-// Can be disabled via TransportConfig.DisableSpeculativeTLS.
+// By default, uses the traditional blocking CONNECT flow. Speculative TLS (sending
+// CONNECT + ClientHello together) can be enabled via TransportConfig.EnableSpeculativeTLS.
 func (t *HTTP1Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, targetPort string) (net.Conn, error) {
 	proxyURL, err := url.Parse(t.proxy.URL)
 	if err != nil {
@@ -651,15 +651,14 @@ func (t *HTTP1Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, t
 
 	connectReq += "Connection: keep-alive\r\n\r\n"
 
-	// Check if speculative TLS is disabled (explicitly or via blocklist)
-	if (t.config != nil && t.config.DisableSpeculativeTLS) || IsProxyNoSpeculative(t.proxy.URL) {
-		// Traditional flow: send CONNECT, wait for 200 OK, then return conn for TLS
-		return t.dialHTTPProxyBlocking(ctx, conn, connectReq)
+	// Use speculative TLS only when explicitly enabled and not on the blocklist
+	if t.config != nil && t.config.EnableSpeculativeTLS && !IsProxyNoSpeculative(t.proxy.URL) {
+		// Speculative TLS: send CONNECT + ClientHello together to save one round-trip
+		return NewSpeculativeConn(conn, connectReq), nil
 	}
 
-	// Speculative TLS: return a SpeculativeConn that will send CONNECT + ClientHello together
-	// This saves one round-trip by overlapping the CONNECT wait with TLS handshake start
-	return NewSpeculativeConn(conn, connectReq), nil
+	// Traditional flow: send CONNECT, wait for 200 OK, then return conn for TLS
+	return t.dialHTTPProxyBlocking(ctx, conn, connectReq)
 }
 
 // dialHTTPProxyBlockingFresh opens a new TCP connection to the proxy and performs

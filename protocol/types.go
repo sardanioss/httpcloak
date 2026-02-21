@@ -197,11 +197,11 @@ type SessionConfig struct {
 	// ECH adds ~15-20ms to first connection but provides extra privacy
 	DisableECH bool `json:"disableEch,omitempty"`
 
-	// DisableSpeculativeTLS disables the speculative TLS optimization for proxy connections.
-	// When false (default), CONNECT request and TLS ClientHello are sent together,
-	// saving one round-trip (~25% faster proxy connections). Set to true if you
-	// experience issues with certain proxies.
-	DisableSpeculativeTLS bool `json:"disableSpeculativeTls,omitempty"`
+	// EnableSpeculativeTLS enables the speculative TLS optimization for proxy connections.
+	// When true, CONNECT request and TLS ClientHello are sent together, saving one
+	// round-trip (~25% faster proxy connections). Disabled by default due to
+	// compatibility issues with some proxies.
+	EnableSpeculativeTLS bool `json:"enableSpeculativeTls,omitempty"`
 
 	// SwitchProtocol is the protocol to switch to after Refresh().
 	// Valid values: "h1", "h2", "h3", "" (no switch).

@@ -277,7 +277,7 @@ type SessionConfig struct {
 	LocalAddress    string            `json:"local_address,omitempty"`     // Local IP to bind outgoing connections (IPv6 rotation)
 	KeyLogFile      string            `json:"key_log_file,omitempty"`      // Path to write TLS key log for Wireshark decryption
 	DisableECH            bool              `json:"disable_ech,omitempty"`             // Disable ECH lookup for faster first request
-	DisableSpeculativeTLS bool              `json:"disable_speculative_tls,omitempty"` // Disable speculative TLS optimization for proxy connections
+	EnableSpeculativeTLS bool              `json:"enable_speculative_tls,omitempty"` // Enable speculative TLS optimization for proxy connections
 	SwitchProtocol        string            `json:"switch_protocol,omitempty"`         // Protocol to switch to after Refresh()
 }
 
@@ -982,9 +982,9 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 		opts = append(opts, httpcloak.WithDisableECH())
 	}
 
-	// Handle speculative TLS disabling
-	if config.DisableSpeculativeTLS {
-		opts = append(opts, httpcloak.WithDisableSpeculativeTLS())
+	// Handle speculative TLS enabling
+	if config.EnableSpeculativeTLS {
+		opts = append(opts, httpcloak.WithEnableSpeculativeTLS())
 	}
 
 	// Handle switch protocol

@@ -158,13 +158,13 @@ Example with your machine's IPs:
 	fmt.Println(strings.Repeat("-", 60))
 
 	fmt.Println(`
-Speculative TLS (enabled by default):
+Speculative TLS (disabled by default):
 Sends CONNECT + TLS ClientHello together, saving one round-trip (~25% faster).
-If you experience issues with certain proxies, disable it:
+Enable it if your proxy supports it and you want the extra speed:
 
 session := httpcloak.NewSession("chrome-144",
     httpcloak.WithProxy("http://user:pass@proxy.example.com:8080"),
-    httpcloak.WithDisableSpeculativeTLS(),
+    httpcloak.WithEnableSpeculativeTLS(),
 )
 `)
 

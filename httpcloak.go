@@ -315,7 +315,7 @@ type sessionConfig struct {
 	localAddr          string            // Local IP address to bind outgoing connections
 	keyLogFile         string            // Path to write TLS key log for Wireshark decryption
 	disableECH            bool   // Disable ECH lookup for faster first request
-	disableSpeculativeTLS bool   // Disable speculative TLS optimization for proxy connections
+	enableSpeculativeTLS bool   // Enable speculative TLS optimization for proxy connections
 	switchProtocol        string // Protocol to switch to after Refresh() (e.g. "h1", "h2", "h3")
 
 	// Distributed session cache
@@ -455,12 +455,12 @@ func WithDisableECH() SessionOption {
 	}
 }
 
-// WithDisableSpeculativeTLS disables the speculative TLS optimization for proxy connections.
-// By default, httpcloak sends the CONNECT request and TLS ClientHello together to save
-// one round-trip (~25% faster). Disable this if you experience issues with certain proxies.
-func WithDisableSpeculativeTLS() SessionOption {
+// WithEnableSpeculativeTLS enables the speculative TLS optimization for proxy connections.
+// When enabled, the CONNECT request and TLS ClientHello are sent together, saving one
+// round-trip (~25% faster). Disabled by default due to compatibility issues with some proxies.
+func WithEnableSpeculativeTLS() SessionOption {
 	return func(c *sessionConfig) {
-		c.disableSpeculativeTLS = true
+		c.enableSpeculativeTLS = true
 	}
 }
 
@@ -554,7 +554,7 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 		LocalAddress:       cfg.localAddr,
 		KeyLogFile:         cfg.keyLogFile,
 		DisableECH:            cfg.disableECH,
-		DisableSpeculativeTLS: cfg.disableSpeculativeTLS,
+		EnableSpeculativeTLS: cfg.enableSpeculativeTLS,
 		SwitchProtocol:        cfg.switchProtocol,
 	}
 
