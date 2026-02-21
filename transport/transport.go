@@ -149,10 +149,10 @@ type TransportConfig struct {
 	// If nil, falls back to GetKeyLogWriter() (SSLKEYLOGFILE env var).
 	KeyLogWriter io.Writer
 
-	// DisableSpeculativeTLS disables the speculative TLS optimization for proxy connections.
-	// When false (default), CONNECT request and TLS ClientHello are sent together,
-	// saving one round-trip. Set to true if you experience issues with certain proxies.
-	DisableSpeculativeTLS bool
+	// EnableSpeculativeTLS enables the speculative TLS optimization for proxy connections.
+	// When true, CONNECT request and TLS ClientHello are sent together, saving one
+	// round-trip. Disabled by default due to compatibility issues with some proxies.
+	EnableSpeculativeTLS bool
 }
 
 // Request represents an HTTP request
@@ -1071,6 +1071,8 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
+	} else if method == "POST" || method == "PUT" || method == "PATCH" {
+		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -1183,6 +1185,8 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
+	} else if method == "POST" || method == "PUT" || method == "PATCH" {
+		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -1303,6 +1307,8 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
+	} else if method == "POST" || method == "PUT" || method == "PATCH" {
+		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -1437,6 +1443,8 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
+	} else if method == "POST" || method == "PUT" || method == "PATCH" {
+		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
