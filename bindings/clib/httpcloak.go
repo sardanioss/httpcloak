@@ -866,7 +866,7 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 //export httpcloak_session_new
 func httpcloak_session_new(configJSON *C.char) C.int64_t {
 	config := SessionConfig{
-		Preset:      "chrome-144",
+		Preset:      "chrome-145",
 		Timeout:     30,
 		HTTPVersion: "auto",
 	}
@@ -2500,7 +2500,7 @@ type LocalProxyConfig struct {
 func httpcloak_local_proxy_start(configJSON *C.char) C.int64_t {
 	config := LocalProxyConfig{
 		Port:           0,
-		Preset:         "chrome-144",
+		Preset:         "chrome-145",
 		Timeout:        30,
 		MaxConnections: 1000,
 	}

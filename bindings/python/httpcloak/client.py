@@ -132,14 +132,22 @@ class Preset:
         session = httpcloak.Session(preset=httpcloak.Preset.FIREFOX_133)
 
     All available presets:
-        Desktop Chrome: CHROME_144, CHROME_144_WINDOWS, CHROME_144_LINUX, CHROME_144_MACOS
+        Desktop Chrome: CHROME_145, CHROME_145_WINDOWS, CHROME_145_LINUX, CHROME_145_MACOS
+                        CHROME_144, CHROME_144_WINDOWS, CHROME_144_LINUX, CHROME_144_MACOS
                         CHROME_143, CHROME_143_WINDOWS, CHROME_143_LINUX, CHROME_143_MACOS
                         CHROME_141, CHROME_133
-        Mobile Chrome: CHROME_143_IOS, CHROME_144_IOS, CHROME_143_ANDROID, CHROME_144_ANDROID
+        Mobile Chrome: CHROME_145_IOS, CHROME_144_IOS, CHROME_143_IOS,
+                       CHROME_145_ANDROID, CHROME_144_ANDROID, CHROME_143_ANDROID
         Firefox: FIREFOX_133
         Safari: SAFARI_18, SAFARI_17_IOS, SAFARI_18_IOS
     """
-    # Chrome 144 (latest)
+    # Chrome 145 (latest)
+    CHROME_145 = "chrome-145"
+    CHROME_145_WINDOWS = "chrome-145-windows"
+    CHROME_145_LINUX = "chrome-145-linux"
+    CHROME_145_MACOS = "chrome-145-macos"
+
+    # Chrome 144
     CHROME_144 = "chrome-144"
     CHROME_144_WINDOWS = "chrome-144-windows"
     CHROME_144_LINUX = "chrome-144-linux"
@@ -160,8 +168,10 @@ class Preset:
     # Mobile Chrome
     CHROME_143_IOS = "chrome-143-ios"
     CHROME_144_IOS = "chrome-144-ios"
+    CHROME_145_IOS = "chrome-145-ios"
     CHROME_143_ANDROID = "chrome-143-android"
     CHROME_144_ANDROID = "chrome-144-android"
+    CHROME_145_ANDROID = "chrome-145-android"
 
     # Firefox
     FIREFOX_133 = "firefox-133"
@@ -174,8 +184,10 @@ class Preset:
     # Backwards compatibility aliases (old naming convention)
     IOS_CHROME_143 = CHROME_143_IOS
     IOS_CHROME_144 = CHROME_144_IOS
+    IOS_CHROME_145 = CHROME_145_IOS
     ANDROID_CHROME_143 = CHROME_143_ANDROID
     ANDROID_CHROME_144 = CHROME_144_ANDROID
+    ANDROID_CHROME_145 = CHROME_145_ANDROID
     IOS_SAFARI_17 = SAFARI_17_IOS
     IOS_SAFARI_18 = SAFARI_18_IOS
 
@@ -183,10 +195,12 @@ class Preset:
     def all(cls) -> List[str]:
         """Return list of all available preset names."""
         return [
+            cls.CHROME_145, cls.CHROME_145_WINDOWS, cls.CHROME_145_LINUX, cls.CHROME_145_MACOS,
             cls.CHROME_144, cls.CHROME_144_WINDOWS, cls.CHROME_144_LINUX, cls.CHROME_144_MACOS,
             cls.CHROME_143, cls.CHROME_143_WINDOWS, cls.CHROME_143_LINUX, cls.CHROME_143_MACOS,
             cls.CHROME_141, cls.CHROME_133,
-            cls.CHROME_143_IOS, cls.CHROME_144_IOS, cls.CHROME_143_ANDROID, cls.CHROME_144_ANDROID,
+            cls.CHROME_145_IOS, cls.CHROME_144_IOS, cls.CHROME_143_IOS,
+            cls.CHROME_145_ANDROID, cls.CHROME_144_ANDROID, cls.CHROME_143_ANDROID,
             cls.FIREFOX_133,
             cls.SAFARI_18, cls.SAFARI_17_IOS, cls.SAFARI_18_IOS,
         ]
@@ -1279,7 +1293,7 @@ def available_presets() -> dict:
 
     Returns a dict mapping preset names to their info:
         {
-            "chrome-144": {"protocols": ["h1", "h2", "h3"]},
+            "chrome-145": {"protocols": ["h1", "h2", "h3"]},
             "firefox-133": {"protocols": ["h1", "h2"]},
             ...
         }
@@ -1363,7 +1377,7 @@ class Session:
     API is compatible with requests.Session.
 
     Args:
-        preset: Browser preset (default: "chrome-144")
+        preset: Browser preset (default: "chrome-145")
         proxy: Proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port")
         tcp_proxy: Proxy URL for TCP protocols (HTTP/1.1, HTTP/2) - use with udp_proxy for split config
         udp_proxy: Proxy URL for UDP protocols (HTTP/3 via MASQUE) - use with tcp_proxy for split config
@@ -1416,7 +1430,7 @@ class Session:
 
     def __init__(
         self,
-        preset: str = "chrome-144",
+        preset: str = "chrome-145",
         proxy: Optional[str] = None,
         tcp_proxy: Optional[str] = None,
         udp_proxy: Optional[str] = None,
@@ -3329,7 +3343,7 @@ _default_config: Dict[str, Any] = {}
 
 
 def configure(
-    preset: str = "chrome-144",
+    preset: str = "chrome-145",
     headers: Optional[Dict[str, str]] = None,
     auth: Optional[Tuple[str, str]] = None,
     proxy: Optional[str] = None,
@@ -3349,7 +3363,7 @@ def configure(
     All subsequent calls to httpcloak.get(), httpcloak.post(), etc. will use these defaults.
 
     Args:
-        preset: Browser preset (default: "chrome-144")
+        preset: Browser preset (default: "chrome-145")
         headers: Default headers for all requests
         auth: Default basic auth tuple (username, password)
         proxy: Proxy URL (e.g., "http://user:pass@host:port")
@@ -3448,7 +3462,7 @@ class LocalProxy:
     def __init__(
         self,
         port: int = 0,
-        preset: str = "chrome-144",
+        preset: str = "chrome-145",
         timeout: int = 30,
         max_connections: int = 1000,
         tcp_proxy: Optional[str] = None,
@@ -3460,7 +3474,7 @@ class LocalProxy:
 
         Args:
             port: Port to listen on (0 = auto-select available port)
-            preset: Browser fingerprint preset (default: "chrome-144")
+            preset: Browser fingerprint preset (default: "chrome-145")
             timeout: Request timeout in seconds (default: 30)
             max_connections: Maximum concurrent connections (default: 1000)
             tcp_proxy: Default upstream TCP proxy URL (can be overridden per-request)
@@ -3975,7 +3989,7 @@ def _get_default_session() -> Session:
     if _default_session is None:
         with _default_session_lock:
             if _default_session is None:
-                preset = _default_config.get("preset", "chrome-144")
+                preset = _default_config.get("preset", "chrome-145")
                 proxy = _default_config.get("proxy")
                 timeout = _default_config.get("timeout", 30)
                 http_version = _default_config.get("http_version", "auto")
@@ -4038,7 +4052,7 @@ def _get_session_for_request(kwargs: dict) -> Tuple[Session, bool]:
         return _get_default_session(), False
 
     # Get current defaults and apply overrides
-    final_preset = preset if preset is not None else _default_config.get("preset", "chrome-144")
+    final_preset = preset if preset is not None else _default_config.get("preset", "chrome-145")
     final_proxy = proxy if proxy is not None else _default_config.get("proxy")
     final_tcp_proxy = tcp_proxy if tcp_proxy is not None else _default_config.get("tcp_proxy")
     final_udp_proxy = udp_proxy if udp_proxy is not None else _default_config.get("udp_proxy")

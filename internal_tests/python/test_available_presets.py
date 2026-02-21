@@ -13,8 +13,9 @@ import httpcloak
 EXPECTED_H3 = {
     "chrome-143", "chrome-143-windows", "chrome-143-linux", "chrome-143-macos",
     "chrome-144", "chrome-144-windows", "chrome-144-linux", "chrome-144-macos",
-    "safari-18", "chrome-143-ios", "chrome-144-ios",
-    "safari-18-ios", "chrome-143-android", "chrome-144-android",
+    "chrome-145", "chrome-145-windows", "chrome-145-linux", "chrome-145-macos",
+    "safari-18", "chrome-143-ios", "chrome-144-ios", "chrome-145-ios",
+    "safari-18-ios", "chrome-143-android", "chrome-144-android", "chrome-145-android",
 }
 
 EXPECTED_NO_H3 = {"chrome-133", "chrome-141", "firefox-133", "safari-17-ios"}

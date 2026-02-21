@@ -195,7 +195,7 @@ export class StreamResponse {
 }
 
 export interface SessionOptions {
-  /** Browser preset to use (default: "chrome-144") */
+  /** Browser preset to use (default: "chrome-145") */
   preset?: string;
   /** Proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port") */
   proxy?: string;
@@ -609,7 +609,7 @@ export class Session {
 export interface LocalProxyOptions {
   /** Port to listen on (default: 0 for auto-assign) */
   port?: number;
-  /** Browser preset to use (default: "chrome-144") */
+  /** Browser preset to use (default: "chrome-145") */
   preset?: string;
   /** Request timeout in seconds (default: 30) */
   timeout?: number;
@@ -649,7 +649,7 @@ export interface LocalProxyStats {
  *
  * @example
  * // Basic usage
- * const proxy = new LocalProxy({ preset: "chrome-144", tlsOnly: true });
+ * const proxy = new LocalProxy({ preset: "chrome-145", tlsOnly: true });
  * console.log(`Proxy running on ${proxy.proxyUrl}`);
  * // Use with any HTTP client pointing to the proxy
  * proxy.close();
@@ -806,20 +806,26 @@ export function request(method: string, url: string, options?: RequestOptions): 
 
 /** Available browser presets */
 export const Preset: {
+  CHROME_145: string;
+  CHROME_145_WINDOWS: string;
+  CHROME_145_LINUX: string;
+  CHROME_145_MACOS: string;
+  CHROME_144: string;
+  CHROME_144_WINDOWS: string;
+  CHROME_144_LINUX: string;
+  CHROME_144_MACOS: string;
   CHROME_143: string;
   CHROME_143_WINDOWS: string;
   CHROME_143_LINUX: string;
   CHROME_143_MACOS: string;
   CHROME_141: string;
   CHROME_133: string;
-  CHROME_131: string;
-  CHROME_131_WINDOWS: string;
-  CHROME_131_LINUX: string;
-  CHROME_131_MACOS: string;
   CHROME_143_IOS: string;
   CHROME_144_IOS: string;
+  CHROME_145_IOS: string;
   CHROME_143_ANDROID: string;
   CHROME_144_ANDROID: string;
+  CHROME_145_ANDROID: string;
   FIREFOX_133: string;
   SAFARI_18: string;
   SAFARI_17_IOS: string;
@@ -827,8 +833,10 @@ export const Preset: {
   // Backwards compatibility aliases
   IOS_CHROME_143: string;
   IOS_CHROME_144: string;
+  IOS_CHROME_145: string;
   ANDROID_CHROME_143: string;
   ANDROID_CHROME_144: string;
+  ANDROID_CHROME_145: string;
   IOS_SAFARI_17: string;
   IOS_SAFARI_18: string;
   all(): string[];

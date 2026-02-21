@@ -31,7 +31,19 @@ class HTTPCloakError extends Error {
  *   const session = new httpcloak.Session({ preset: httpcloak.Preset.FIREFOX_133 });
  */
 const Preset = {
-  // Chrome 143 (latest)
+  // Chrome 145 (latest)
+  CHROME_145: "chrome-145",
+  CHROME_145_WINDOWS: "chrome-145-windows",
+  CHROME_145_LINUX: "chrome-145-linux",
+  CHROME_145_MACOS: "chrome-145-macos",
+
+  // Chrome 144
+  CHROME_144: "chrome-144",
+  CHROME_144_WINDOWS: "chrome-144-windows",
+  CHROME_144_LINUX: "chrome-144-linux",
+  CHROME_144_MACOS: "chrome-144-macos",
+
+  // Chrome 143
   CHROME_143: "chrome-143",
   CHROME_143_WINDOWS: "chrome-143-windows",
   CHROME_143_LINUX: "chrome-143-linux",
@@ -46,8 +58,10 @@ const Preset = {
   // Mobile Chrome
   CHROME_143_IOS: "chrome-143-ios",
   CHROME_144_IOS: "chrome-144-ios",
+  CHROME_145_IOS: "chrome-145-ios",
   CHROME_143_ANDROID: "chrome-143-android",
   CHROME_144_ANDROID: "chrome-144-android",
+  CHROME_145_ANDROID: "chrome-145-android",
 
   // Firefox
   FIREFOX_133: "firefox-133",
@@ -60,8 +74,10 @@ const Preset = {
   // Backwards compatibility aliases (old naming convention)
   IOS_CHROME_143: "chrome-143-ios",
   IOS_CHROME_144: "chrome-144-ios",
+  IOS_CHROME_145: "chrome-145-ios",
   ANDROID_CHROME_143: "chrome-143-android",
   ANDROID_CHROME_144: "chrome-144-android",
+  ANDROID_CHROME_145: "chrome-145-android",
   IOS_SAFARI_17: "safari-17-ios",
   IOS_SAFARI_18: "safari-18-ios",
 
@@ -71,10 +87,12 @@ const Preset = {
    */
   all() {
     return [
+      this.CHROME_145, this.CHROME_145_WINDOWS, this.CHROME_145_LINUX, this.CHROME_145_MACOS,
       this.CHROME_144, this.CHROME_144_WINDOWS, this.CHROME_144_LINUX, this.CHROME_144_MACOS,
       this.CHROME_143, this.CHROME_143_WINDOWS, this.CHROME_143_LINUX, this.CHROME_143_MACOS,
       this.CHROME_141, this.CHROME_133,
-      this.CHROME_143_IOS, this.CHROME_144_IOS, this.CHROME_143_ANDROID, this.CHROME_144_ANDROID,
+      this.CHROME_145_IOS, this.CHROME_144_IOS, this.CHROME_143_IOS,
+      this.CHROME_145_ANDROID, this.CHROME_144_ANDROID, this.CHROME_143_ANDROID,
       this.FIREFOX_133,
       this.SAFARI_18, this.SAFARI_17_IOS, this.SAFARI_18_IOS,
     ];
@@ -1144,7 +1162,7 @@ function version() {
 /**
  * Get available browser presets with their supported protocols.
  * Returns an object mapping preset names to their info:
- *   { "chrome-144": { protocols: ["h1", "h2", "h3"] }, ... }
+ *   { "chrome-145": { protocols: ["h1", "h2", "h3"] }, ... }
  */
 function availablePresets() {
   const nativeLib = getLib();
@@ -1210,7 +1228,7 @@ class Session {
   /**
    * Create a new session
    * @param {Object} options - Session options
-   * @param {string} [options.preset="chrome-143"] - Browser preset to use
+   * @param {string} [options.preset="chrome-145"] - Browser preset to use
    * @param {string} [options.proxy] - Proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port")
    * @param {string} [options.tcpProxy] - Proxy URL for TCP protocols (HTTP/1.1, HTTP/2) - use with udpProxy for split config
    * @param {string} [options.udpProxy] - Proxy URL for UDP protocols (HTTP/3 via MASQUE) - use with tcpProxy for split config
@@ -1231,7 +1249,7 @@ class Session {
    */
   constructor(options = {}) {
     const {
-      preset = "chrome-143",
+      preset = "chrome-145",
       proxy = null,
       tcpProxy = null,
       udpProxy = null,
@@ -2047,7 +2065,7 @@ class Session {
    * @param {string} path - Path to save the session file
    *
    * Example:
-   *   const session = new httpcloak.Session({ preset: "chrome-143" });
+   *   const session = new httpcloak.Session({ preset: "chrome-145" });
    *   await session.get("https://example.com");  // Acquire cookies
    *   session.save("session.json");
    *
@@ -2685,7 +2703,7 @@ let _defaultConfig = {};
 /**
  * Configure defaults for module-level functions
  * @param {Object} options - Configuration options
- * @param {string} [options.preset="chrome-143"] - Browser preset
+ * @param {string} [options.preset="chrome-145"] - Browser preset
  * @param {Object} [options.headers] - Default headers
  * @param {Array} [options.auth] - Default basic auth [username, password]
  * @param {string} [options.proxy] - Proxy URL
@@ -2699,7 +2717,7 @@ let _defaultConfig = {};
  */
 function configure(options = {}) {
   const {
-    preset = "chrome-143",
+    preset = "chrome-145",
     headers = null,
     auth = null,
     proxy = null,
@@ -2757,7 +2775,7 @@ function configure(options = {}) {
  */
 function _getDefaultSession() {
   if (!_defaultSession) {
-    const preset = _defaultConfig.preset || "chrome-143";
+    const preset = _defaultConfig.preset || "chrome-145";
     const proxy = _defaultConfig.proxy || null;
     const timeout = _defaultConfig.timeout || 30;
     const httpVersion = _defaultConfig.httpVersion || "auto";
@@ -2860,7 +2878,7 @@ function request(method, url, options = {}) {
  * Without registration, cache callbacks will not be triggered for that session.
  *
  * @example
- * const proxy = new LocalProxy({ preset: "chrome-143", tlsOnly: true });
+ * const proxy = new LocalProxy({ preset: "chrome-145", tlsOnly: true });
  * console.log(`Proxy running on ${proxy.proxyUrl}`);
  *
  * // Use with any HTTP client pointing to the proxy
@@ -2889,7 +2907,7 @@ class LocalProxy {
    * Create and start a local HTTP proxy server.
    * @param {Object} options - Proxy configuration options
    * @param {number} [options.port=0] - Port to listen on (0 = auto-select)
-   * @param {string} [options.preset="chrome-143"] - Browser fingerprint preset
+   * @param {string} [options.preset="chrome-145"] - Browser fingerprint preset
    * @param {number} [options.timeout=30] - Request timeout in seconds
    * @param {number} [options.maxConnections=1000] - Maximum concurrent connections
    * @param {string} [options.tcpProxy] - Default upstream TCP proxy URL
@@ -2899,7 +2917,7 @@ class LocalProxy {
   constructor(options = {}) {
     const {
       port = 0,
-      preset = "chrome-143",
+      preset = "chrome-145",
       timeout = 30,
       maxConnections = 1000,
       tcpProxy = null,

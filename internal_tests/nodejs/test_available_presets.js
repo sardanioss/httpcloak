@@ -13,8 +13,9 @@ const httpcloak = require(path.join(__dirname, '..', '..', 'bindings', 'nodejs')
 const EXPECTED_H3 = new Set([
   "chrome-143", "chrome-143-windows", "chrome-143-linux", "chrome-143-macos",
   "chrome-144", "chrome-144-windows", "chrome-144-linux", "chrome-144-macos",
-  "safari-18", "chrome-143-ios", "chrome-144-ios",
-  "safari-18-ios", "chrome-143-android", "chrome-144-android",
+  "chrome-145", "chrome-145-windows", "chrome-145-linux", "chrome-145-macos",
+  "safari-18", "chrome-143-ios", "chrome-144-ios", "chrome-145-ios",
+  "safari-18-ios", "chrome-143-android", "chrome-144-android", "chrome-145-android",
 ]);
 
 const EXPECTED_NO_H3 = new Set(["chrome-133", "chrome-141", "firefox-133", "safari-17-ios"]);
