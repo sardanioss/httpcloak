@@ -150,37 +150,6 @@ async function main() {
   }
 
   // ============================================================
-  // Example 5: Permute Extensions Only (no custom JA3)
-  // ============================================================
-  // Use extraFp standalone without ja3 or akamai.
-
-  console.log("\n" + "=".repeat(60));
-  console.log("Example 5: Permute Extensions Only");
-  console.log("-".repeat(60));
-
-  {
-    const session = new Session({
-      preset: "chrome-145",
-      extraFp: { tls_permute_extensions: true },
-    });
-    try {
-      const response = await session.get("https://tls.peet.ws/api/tls");
-      const data = response.json();
-
-      const extensions = data.extensions || [];
-      const extNames = extensions
-        .filter((e) => typeof e === "object")
-        .map((e) => e.name)
-        .slice(0, 5);
-      console.log(`Extension count: ${extensions.length}`);
-      console.log(`First 5 extensions: ${JSON.stringify(extNames)}`);
-      console.log("Extension order is randomized for each connection.");
-    } finally {
-      session.close();
-    }
-  }
-
-  // ============================================================
   // Summary
   // ============================================================
   console.log("\n" + "=".repeat(60));
@@ -202,7 +171,7 @@ Extra options (extraFp):
   - tls_signature_algorithms: ["ecdsa_secp256r1_sha256", ...]
   - tls_cert_compression: ["brotli", "zlib", "zstd"]
   - tls_permute_extensions: true/false
-  - Can be used standalone or combined with ja3/akamai
+  - Used in combination with ja3 to fine-tune the fingerprint
 `);
 }
 

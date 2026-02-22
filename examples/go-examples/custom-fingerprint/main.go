@@ -41,7 +41,6 @@ func main() {
 	example2CustomAkamai(ctx)
 	example3Combined(ctx)
 	example4ExtraOptions(ctx)
-	example5PermuteOnly(ctx)
 	printSummary()
 }
 
@@ -60,7 +59,7 @@ func example1CustomJA3(ctx context.Context) {
 	)
 	defer session.Close()
 
-	resp, err := session.Get(ctx, "https://tls.peet.ws/api/tls", nil)
+	resp, err := session.Get(ctx, "https://tls.peet.ws/api/tls")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -100,7 +99,7 @@ func example2CustomAkamai(ctx context.Context) {
 	)
 	defer session.Close()
 
-	resp, err := session.Get(ctx, "https://tls.peet.ws/api/all", nil)
+	resp, err := session.Get(ctx, "https://tls.peet.ws/api/all")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -137,7 +136,7 @@ func example3Combined(ctx context.Context) {
 	)
 	defer session.Close()
 
-	resp, err := session.Get(ctx, "https://tls.peet.ws/api/all", nil)
+	resp, err := session.Get(ctx, "https://tls.peet.ws/api/all")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -179,7 +178,7 @@ func example4ExtraOptions(ctx context.Context) {
 	)
 	defer session.Close()
 
-	resp, err := session.Get(ctx, "https://tls.peet.ws/api/tls", nil)
+	resp, err := session.Get(ctx, "https://tls.peet.ws/api/tls")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -196,51 +195,6 @@ func example4ExtraOptions(ctx context.Context) {
 	fmt.Printf("JA3 hash: %s\n", result.JA3Hash)
 	fmt.Println("Extensions are randomly permuted — JA3 hash will vary each run")
 	fmt.Println("but cipher suites and curves remain the same.")
-}
-
-// =========================================================================
-// Example 5: Permute Extensions Only (no custom JA3)
-// =========================================================================
-func example5PermuteOnly(ctx context.Context) {
-	fmt.Println("\n" + strings.Repeat("=", 60))
-	fmt.Println("[5] Permute Extensions Only")
-	fmt.Println(strings.Repeat("-", 50))
-
-	// PermuteExtensions works even without a custom JA3 — it shuffles
-	// the preset's extensions. Note: when JA3 is not set, the preset's
-	// default TLS fingerprint is used as the base.
-	session := httpcloak.NewSession("chrome-145",
-		httpcloak.WithCustomFingerprint(httpcloak.CustomFingerprint{
-			PermuteExtensions: true,
-		}),
-	)
-	defer session.Close()
-
-	resp, err := session.Get(ctx, "https://tls.peet.ws/api/tls", nil)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-
-	var result struct {
-		Extensions []struct {
-			Name string `json:"name"`
-		} `json:"extensions"`
-	}
-	json.Unmarshal(body, &result)
-
-	fmt.Printf("Extension count: %d\n", len(result.Extensions))
-	if len(result.Extensions) > 5 {
-		names := make([]string, 5)
-		for i := 0; i < 5; i++ {
-			names[i] = result.Extensions[i].Name
-		}
-		fmt.Printf("First 5 extensions: %v\n", names)
-	}
-	fmt.Println("Extension order is randomized for each connection.")
 }
 
 func printSummary() {

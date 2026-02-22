@@ -41,7 +41,6 @@ class CustomFingerprintExamples
         await Example2_CustomAkamai();
         await Example3_CombinedFingerprint();
         await Example4_ExtraOptions();
-        await Example5_PermuteOnly();
 
         PrintSummary();
     }
@@ -143,32 +142,6 @@ class CustomFingerprintExamples
         Console.WriteLine($"JA3 hash: {ja3Hash}");
         Console.WriteLine("Extensions are randomly permuted — JA3 hash will vary each run");
         Console.WriteLine("but cipher suites and curves remain the same.");
-    }
-
-    // ============================================================
-    // Example 5: Permute Extensions Only (no custom JA3)
-    // ============================================================
-    static async Task Example5_PermuteOnly()
-    {
-        Console.WriteLine("\n" + new string('=', 60));
-        Console.WriteLine("[Example 5] Permute Extensions Only");
-        Console.WriteLine(new string('-', 50));
-
-        using var session = new Session(
-            preset: "chrome-145",
-            extraFp: new Dictionary<string, object>
-            {
-                ["tls_permute_extensions"] = true,
-            }
-        );
-
-        var response = await session.GetAsync("https://tls.peet.ws/api/tls");
-        var json = JsonDocument.Parse(response.Text);
-
-        var extensions = json.RootElement.GetProperty("extensions");
-        var count = extensions.GetArrayLength();
-        Console.WriteLine($"Extension count: {count}");
-        Console.WriteLine("Extension order is randomized for each connection.");
     }
 
     // ============================================================

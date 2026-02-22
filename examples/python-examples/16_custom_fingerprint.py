@@ -126,28 +126,6 @@ with httpcloak.Session(
     print("but cipher suites and curves remain the same.")
 
 # ============================================================
-# Example 5: Permute Extensions Only (no custom JA3)
-# ============================================================
-# Use extra_fp standalone without ja3 or akamai.
-
-print("\n" + "=" * 60)
-print("Example 5: Permute Extensions Only")
-print("-" * 60)
-
-with httpcloak.Session(
-    preset="chrome-145",
-    extra_fp={"tls_permute_extensions": True},
-) as session:
-    response = session.get("https://tls.peet.ws/api/tls")
-    data = response.json()
-
-    extensions = data.get("extensions", [])
-    ext_names = [e.get("name", "") for e in extensions if isinstance(e, dict)]
-    print(f"Extension count: {len(extensions)}")
-    print(f"First 5 extensions: {ext_names[:5]}")
-    print("Extension order is randomized for each connection.")
-
-# ============================================================
 # Summary
 # ============================================================
 print("\n" + "=" * 60)
@@ -169,5 +147,5 @@ Extra options (extra_fp):
   - tls_signature_algorithms: ["ecdsa_secp256r1_sha256", ...]
   - tls_cert_compression: ["brotli", "zlib", "zstd"]
   - tls_permute_extensions: true/false
-  - Can be used standalone or combined with ja3/akamai
+  - Used in combination with ja3 to fine-tune the fingerprint
 """)
