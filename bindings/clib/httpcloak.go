@@ -995,8 +995,8 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 		opts = append(opts, httpcloak.WithSwitchProtocol(config.SwitchProtocol))
 	}
 
-	// Handle custom fingerprint (JA3 / Akamai)
-	if config.JA3 != "" || config.Akamai != "" {
+	// Handle custom fingerprint (JA3 / Akamai / extra_fp)
+	if config.JA3 != "" || config.Akamai != "" || len(config.ExtraFP) > 0 {
 		fp := httpcloak.CustomFingerprint{
 			JA3:    config.JA3,
 			Akamai: config.Akamai,

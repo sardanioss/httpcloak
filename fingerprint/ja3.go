@@ -263,8 +263,21 @@ func extensionForID(id uint16, extras *JA3Extras, curves []tls.CurveID, pointFor
 		return &tls.GenericExtension{Id: 49}
 
 	case 50: // signature_algorithms_cert
+		// Chrome sends a broader list for cert verification than for handshake
+		// signatures (ext 13). This includes legacy algorithms needed to verify
+		// certificate chains signed with older algorithms.
 		return &tls.SignatureAlgorithmsCertExtension{
-			SupportedSignatureAlgorithms: extras.SignatureAlgorithms,
+			SupportedSignatureAlgorithms: []tls.SignatureScheme{
+				tls.ECDSAWithP256AndSHA256,
+				tls.PSSWithSHA256,
+				tls.PKCS1WithSHA256,
+				tls.ECDSAWithP384AndSHA384,
+				tls.PSSWithSHA384,
+				tls.PKCS1WithSHA384,
+				tls.PSSWithSHA512,
+				tls.PKCS1WithSHA512,
+				tls.PKCS1WithSHA1,
+			},
 		}
 
 	case 51: // key_share
