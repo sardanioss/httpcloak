@@ -45,8 +45,9 @@ with httpcloak.Session(preset="chrome-145", ja3=CHROME_131_JA3) as session:
     response = session.get("https://tls.peet.ws/api/tls")
     data = response.json()
 
-    ja3_hash = data.get("ja3_hash", "N/A")
-    ja3_text = data.get("ja3", "N/A")
+    tls_data = data.get("tls", {})
+    ja3_hash = tls_data.get("ja3_hash", "N/A")
+    ja3_text = tls_data.get("ja3", "N/A")
     print(f"JA3 hash: {ja3_hash}")
     print(f"JA3 text: {ja3_text[:80]}...")
     print("\nThe TLS fingerprint now matches the custom JA3 string,")
@@ -120,7 +121,8 @@ with httpcloak.Session(
     response = session.get("https://tls.peet.ws/api/tls")
     data = response.json()
 
-    ja3_hash = data.get("ja3_hash", "N/A")
+    tls_data = data.get("tls", {})
+    ja3_hash = tls_data.get("ja3_hash", "N/A")
     print(f"JA3 hash: {ja3_hash}")
     print("Extensions are randomly permuted — JA3 hash will vary each run")
     print("but cipher suites and curves remain the same.")

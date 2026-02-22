@@ -69,16 +69,18 @@ func example1CustomJA3(ctx context.Context) {
 	resp.Body.Close()
 
 	var result struct {
-		JA3Hash string `json:"ja3_hash"`
-		JA3     string `json:"ja3"`
+		TLS struct {
+			JA3Hash string `json:"ja3_hash"`
+			JA3     string `json:"ja3"`
+		} `json:"tls"`
 	}
 	json.Unmarshal(body, &result)
 
-	fmt.Printf("JA3 hash: %s\n", result.JA3Hash)
-	if len(result.JA3) > 80 {
-		fmt.Printf("JA3 text: %s...\n", result.JA3[:80])
+	fmt.Printf("JA3 hash: %s\n", result.TLS.JA3Hash)
+	if len(result.TLS.JA3) > 80 {
+		fmt.Printf("JA3 text: %s...\n", result.TLS.JA3[:80])
 	} else {
-		fmt.Printf("JA3 text: %s\n", result.JA3)
+		fmt.Printf("JA3 text: %s\n", result.TLS.JA3)
 	}
 	fmt.Println("\nThe TLS fingerprint now matches the custom JA3 string,")
 	fmt.Println("not the chrome-145 preset.")
@@ -188,11 +190,13 @@ func example4ExtraOptions(ctx context.Context) {
 	resp.Body.Close()
 
 	var result struct {
-		JA3Hash string `json:"ja3_hash"`
+		TLS struct {
+			JA3Hash string `json:"ja3_hash"`
+		} `json:"tls"`
 	}
 	json.Unmarshal(body, &result)
 
-	fmt.Printf("JA3 hash: %s\n", result.JA3Hash)
+	fmt.Printf("JA3 hash: %s\n", result.TLS.JA3Hash)
 	fmt.Println("Extensions are randomly permuted — JA3 hash will vary each run")
 	fmt.Println("but cipher suites and curves remain the same.")
 }

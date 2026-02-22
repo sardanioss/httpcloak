@@ -45,8 +45,8 @@ async function main() {
       const response = await session.get("https://tls.peet.ws/api/tls");
       const data = response.json();
 
-      console.log(`JA3 hash: ${data.ja3_hash || "N/A"}`);
-      console.log(`JA3 text: ${(data.ja3 || "N/A").slice(0, 80)}...`);
+      console.log(`JA3 hash: ${data.tls?.ja3_hash || "N/A"}`);
+      console.log(`JA3 text: ${(data.tls?.ja3 || "N/A").slice(0, 80)}...`);
       console.log("\nThe TLS fingerprint now matches the custom JA3 string,");
       console.log("not the chrome-145 preset.");
     } finally {
@@ -139,7 +139,7 @@ async function main() {
       const response = await session.get("https://tls.peet.ws/api/tls");
       const data = response.json();
 
-      console.log(`JA3 hash: ${data.ja3_hash || "N/A"}`);
+      console.log(`JA3 hash: ${data.tls?.ja3_hash || "N/A"}`);
       console.log(
         "Extensions are randomly permuted — JA3 hash will vary each run"
       );

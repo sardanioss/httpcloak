@@ -59,8 +59,9 @@ class CustomFingerprintExamples
         var response = await session.GetAsync("https://tls.peet.ws/api/tls");
         var json = JsonDocument.Parse(response.Text);
 
-        var ja3Hash = json.RootElement.TryGetProperty("ja3_hash", out var h) ? h.GetString() : "N/A";
-        var ja3Text = json.RootElement.TryGetProperty("ja3", out var t) ? t.GetString() : "N/A";
+        var tls = json.RootElement.GetProperty("tls");
+        var ja3Hash = tls.TryGetProperty("ja3_hash", out var h) ? h.GetString() : "N/A";
+        var ja3Text = tls.TryGetProperty("ja3", out var t) ? t.GetString() : "N/A";
         Console.WriteLine($"JA3 hash: {ja3Hash}");
         Console.WriteLine($"JA3 text: {ja3Text?[..Math.Min(ja3Text.Length, 80)]}...");
         Console.WriteLine("\nThe TLS fingerprint now matches the custom JA3 string,");
@@ -138,7 +139,8 @@ class CustomFingerprintExamples
         var response = await session.GetAsync("https://tls.peet.ws/api/tls");
         var json = JsonDocument.Parse(response.Text);
 
-        var ja3Hash = json.RootElement.TryGetProperty("ja3_hash", out var h) ? h.GetString() : "N/A";
+        var tls = json.RootElement.GetProperty("tls");
+        var ja3Hash = tls.TryGetProperty("ja3_hash", out var h) ? h.GetString() : "N/A";
         Console.WriteLine($"JA3 hash: {ja3Hash}");
         Console.WriteLine("Extensions are randomly permuted — JA3 hash will vary each run");
         Console.WriteLine("but cipher suites and curves remain the same.");
