@@ -30,7 +30,7 @@ One mismatch = blocked.
 ```python
 import httpcloak
 
-r = httpcloak.get("https://target.com", preset="chrome-145")
+r = httpcloak.get("https://target.com", preset="chrome-latest")
 ```
 
 That's it. Full browser transport layer fingerprint.
