@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,8 +107,11 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 	crand.Read(seedBytes[:])
 	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
 
-	// Check if PSK spec is available for this preset
+	// Check if PSK spec is available for this preset or custom JA3
 	hasPSKSpec := preset.PSKClientHelloID.Client != ""
+	if !hasPSKSpec && config != nil && config.CustomJA3 != "" {
+		hasPSKSpec = ja3HasExtension(config.CustomJA3, "41")
+	}
 
 	t := &HTTP2Transport{
 		preset:         preset,
@@ -383,7 +387,15 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 	// utls's ApplyPreset mutates the spec (clears KeyShares.Data, etc.), so each
 	// connection needs its own copy. Use same shuffleSeed for consistent ordering.
 	var specToUse *utls.ClientHelloSpec
-	if t.hasPSKSpec {
+	if t.config != nil && t.config.CustomJA3 != "" {
+		// Custom JA3: parse to fresh spec each connection (ApplyPreset mutates)
+		spec, parseErr := fingerprint.ParseJA3(t.config.CustomJA3, t.config.CustomJA3Extras)
+		if parseErr != nil {
+			rawConn.Close()
+			return nil, fmt.Errorf("failed to parse custom JA3: %w", parseErr)
+		}
+		specToUse = spec
+	} else if t.hasPSKSpec {
 		// Generate fresh PSK spec for this connection
 		if spec, err := utls.UTLSIdToSpecWithSeed(t.preset.PSKClientHelloID, t.shuffleSeed); err == nil {
 			specToUse = &spec
@@ -480,7 +492,14 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 
 			// Regenerate fresh TLS spec (the previous one was consumed)
 			var fallbackSpec *utls.ClientHelloSpec
-			if t.hasPSKSpec {
+			if t.config != nil && t.config.CustomJA3 != "" {
+				spec, parseErr := fingerprint.ParseJA3(t.config.CustomJA3, t.config.CustomJA3Extras)
+				if parseErr != nil {
+					rawConn.Close()
+					return nil, fmt.Errorf("speculative TLS fallback: failed to parse custom JA3: %w", parseErr)
+				}
+				fallbackSpec = spec
+			} else if t.hasPSKSpec {
 				if spec, specErr := utls.UTLSIdToSpecWithSeed(t.preset.PSKClientHelloID, t.shuffleSeed); specErr == nil {
 					fallbackSpec = &spec
 				}
@@ -541,6 +560,40 @@ alpnCheck:
 		userAgent = "" // Don't set default User-Agent in TLS-only mode
 	}
 
+	// Build SETTINGS map and order dynamically to include all non-zero settings
+	h2Settings := map[http2.SettingID]uint32{
+		http2.SettingHeaderTableSize:   settings.HeaderTableSize,
+		http2.SettingEnablePush:        boolToUint32(settings.EnablePush),
+		http2.SettingInitialWindowSize: settings.InitialWindowSize,
+		http2.SettingMaxHeaderListSize: settings.MaxHeaderListSize,
+	}
+	h2SettingsOrder := []http2.SettingID{
+		http2.SettingHeaderTableSize,
+		http2.SettingEnablePush,
+		http2.SettingInitialWindowSize,
+		http2.SettingMaxHeaderListSize,
+	}
+	if settings.MaxConcurrentStreams > 0 {
+		h2Settings[http2.SettingMaxConcurrentStreams] = settings.MaxConcurrentStreams
+		h2SettingsOrder = append(h2SettingsOrder, http2.SettingMaxConcurrentStreams)
+	}
+	if settings.MaxFrameSize > 0 {
+		h2Settings[http2.SettingMaxFrameSize] = settings.MaxFrameSize
+		h2SettingsOrder = append(h2SettingsOrder, http2.SettingMaxFrameSize)
+	}
+	if settings.NoRFC7540Priorities {
+		h2Settings[http2.SettingNoRFC7540Priorities] = 1
+		h2SettingsOrder = append(h2SettingsOrder, http2.SettingNoRFC7540Priorities)
+	}
+
+	// Pseudo-header order: use custom (Akamai), or browser-type heuristic
+	pseudoOrder := []string{":method", ":authority", ":scheme", ":path"} // Chrome default
+	if t.config != nil && len(t.config.CustomPseudoOrder) > 0 {
+		pseudoOrder = t.config.CustomPseudoOrder
+	} else if settings.NoRFC7540Priorities {
+		pseudoOrder = []string{":method", ":scheme", ":path", ":authority"} // Safari order
+	}
+
 	// Create HTTP/2 transport with native fingerprinting (no frame interception needed)
 	h2Transport := &http2.Transport{
 		AllowHTTP:                  false,
@@ -551,19 +604,9 @@ alpnCheck:
 
 		// Native fingerprinting via sardanioss/net
 		ConnectionFlow: settings.ConnectionWindowUpdate,
-		Settings: map[http2.SettingID]uint32{
-			http2.SettingHeaderTableSize:   settings.HeaderTableSize,
-			http2.SettingEnablePush:        boolToUint32(settings.EnablePush),
-			http2.SettingInitialWindowSize: settings.InitialWindowSize,
-			http2.SettingMaxHeaderListSize: settings.MaxHeaderListSize,
-		},
-		SettingsOrder: []http2.SettingID{
-			http2.SettingHeaderTableSize,
-			http2.SettingEnablePush,
-			http2.SettingInitialWindowSize,
-			http2.SettingMaxHeaderListSize,
-		},
-		PseudoHeaderOrder: []string{":method", ":authority", ":scheme", ":path"}, // Chrome order (m,a,s,p)
+		Settings:       h2Settings,
+		SettingsOrder:  h2SettingsOrder,
+		PseudoHeaderOrder: pseudoOrder,
 		HeaderPriority: &http2.PriorityParam{
 			Weight:    uint8(settings.StreamWeight - 1), // Wire format is weight-1
 			Exclusive: settings.StreamExclusive,
@@ -1110,4 +1153,18 @@ func boolToUint32(b bool) uint32 {
 		return 1
 	}
 	return 0
+}
+
+// ja3HasExtension checks if a JA3 string contains a specific extension ID.
+func ja3HasExtension(ja3, extID string) bool {
+	parts := strings.Split(ja3, ",")
+	if len(parts) < 3 {
+		return false
+	}
+	for _, id := range strings.Split(parts[2], "-") {
+		if strings.TrimSpace(id) == extID {
+			return true
+		}
+	}
+	return false
 }

@@ -487,30 +487,61 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			InsecureSkipVerify:                 t.insecureSkipVerify,
 			MinVersion:                         tls.VersionTLS12,
 			MaxVersion:                         tls.VersionTLS13,
-			ClientSessionCache:                 t.sessionCache,
 			NextProtos:                         []string{"http/1.1"}, // Force HTTP/1.1 only
 			PreferSkipResumptionOnNilExtension: true,                 // Skip resumption if spec has no PSK extension
 			KeyLogWriter:                       keyLogWriter,
 		}
-
-		// For HTTP/1.1 transport, use ClientHelloID directly
-		// Note: ClientHelloID includes ALPN with [h2, http/1.1], so we must modify it
-		tlsConn := utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
-		tlsConn.SetSessionCache(t.sessionCache)
-
-		// Build handshake state first - this populates Extensions from ClientHelloID
-		if err := tlsConn.BuildHandshakeState(); err != nil {
-			rawConn.Close()
-			return nil, NewTLSError("build_handshake", host, port, "h1", err)
+		// Only set session cache when not using custom JA3 without PSK extension
+		if t.config == nil || t.config.CustomJA3 == "" || ja3HasExtension(t.config.CustomJA3, "41") {
+			tlsConfig.ClientSessionCache = t.sessionCache
 		}
 
-		// Force HTTP/1.1 only ALPN to prevent h2 negotiation
-		// Must be done AFTER BuildHandshakeState() which generates the extensions
-		for _, ext := range tlsConn.Extensions {
-			if alpn, ok := ext.(*utls.ALPNExtension); ok {
-				alpn.AlpnProtocols = []string{"http/1.1"}
-				break
+		// Create TLS connection with appropriate fingerprint
+		var tlsConn *utls.UConn
+		if t.config != nil && t.config.CustomJA3 != "" {
+			// Custom JA3: parse to spec and apply with HelloCustom
+			spec, parseErr := fingerprint.ParseJA3(t.config.CustomJA3, t.config.CustomJA3Extras)
+			if parseErr != nil {
+				rawConn.Close()
+				return nil, NewTLSError("parse_ja3", host, port, "h1", parseErr)
 			}
+			// Force HTTP/1.1 ALPN in the spec
+			for _, ext := range spec.Extensions {
+				if alpn, ok := ext.(*utls.ALPNExtension); ok {
+					alpn.AlpnProtocols = []string{"http/1.1"}
+					break
+				}
+			}
+			tlsConn = utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
+			if err := tlsConn.ApplyPreset(spec); err != nil {
+				rawConn.Close()
+				return nil, NewTLSError("apply_ja3_preset", host, port, "h1", err)
+			}
+		} else {
+			// Use preset's ClientHelloID directly
+			// Note: ClientHelloID includes ALPN with [h2, http/1.1], so we must modify it
+			tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+			tlsConn.SetSessionCache(t.sessionCache)
+
+			// Build handshake state first - this populates Extensions from ClientHelloID
+			if err := tlsConn.BuildHandshakeState(); err != nil {
+				rawConn.Close()
+				return nil, NewTLSError("build_handshake", host, port, "h1", err)
+			}
+
+			// Force HTTP/1.1 only ALPN to prevent h2 negotiation
+			// Must be done AFTER BuildHandshakeState() which generates the extensions
+			for _, ext := range tlsConn.Extensions {
+				if alpn, ok := ext.(*utls.ALPNExtension); ok {
+					alpn.AlpnProtocols = []string{"http/1.1"}
+					break
+				}
+			}
+		}
+		// Only set session cache for preset path or custom JA3 with PSK extension.
+		// Setting session cache on a spec without PSK extension can cause handshake failures.
+		if t.config == nil || t.config.CustomJA3 == "" || ja3HasExtension(t.config.CustomJA3, "41") {
+			tlsConn.SetSessionCache(t.sessionCache)
 		}
 
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
@@ -527,18 +558,37 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 				}
 
 				// Redo TLS setup on the clean connection
-				tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
-				tlsConn.SetSessionCache(t.sessionCache)
-				if buildErr := tlsConn.BuildHandshakeState(); buildErr != nil {
-					rawConn.Close()
-					return nil, NewTLSError("build_handshake", host, port, "h1", buildErr)
-				}
-				for _, ext := range tlsConn.Extensions {
-					if alpn, ok := ext.(*utls.ALPNExtension); ok {
-						alpn.AlpnProtocols = []string{"http/1.1"}
-						break
+				if t.config != nil && t.config.CustomJA3 != "" {
+					spec, parseErr := fingerprint.ParseJA3(t.config.CustomJA3, t.config.CustomJA3Extras)
+					if parseErr != nil {
+						rawConn.Close()
+						return nil, NewTLSError("parse_ja3", host, port, "h1", parseErr)
+					}
+					for _, ext := range spec.Extensions {
+						if alpn, ok := ext.(*utls.ALPNExtension); ok {
+							alpn.AlpnProtocols = []string{"http/1.1"}
+							break
+						}
+					}
+					tlsConn = utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
+					if applyErr := tlsConn.ApplyPreset(spec); applyErr != nil {
+						rawConn.Close()
+						return nil, NewTLSError("apply_ja3_preset", host, port, "h1", applyErr)
+					}
+				} else {
+					tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+					if buildErr := tlsConn.BuildHandshakeState(); buildErr != nil {
+						rawConn.Close()
+						return nil, NewTLSError("build_handshake", host, port, "h1", buildErr)
+					}
+					for _, ext := range tlsConn.Extensions {
+						if alpn, ok := ext.(*utls.ALPNExtension); ok {
+							alpn.AlpnProtocols = []string{"http/1.1"}
+							break
+						}
 					}
 				}
+				tlsConn.SetSessionCache(t.sessionCache)
 				if hsErr := tlsConn.HandshakeContext(ctx); hsErr != nil {
 					rawConn.Close()
 					return nil, NewTLSError("tls_handshake", host, port, "h1", hsErr)

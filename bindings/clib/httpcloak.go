@@ -279,6 +279,9 @@ type SessionConfig struct {
 	DisableECH            bool              `json:"disable_ech,omitempty"`             // Disable ECH lookup for faster first request
 	EnableSpeculativeTLS bool              `json:"enable_speculative_tls,omitempty"` // Enable speculative TLS optimization for proxy connections
 	SwitchProtocol        string            `json:"switch_protocol,omitempty"`         // Protocol to switch to after Refresh()
+	JA3               string                 `json:"ja3,omitempty"`                    // Custom JA3 fingerprint string
+	Akamai            string                 `json:"akamai,omitempty"`                 // Custom Akamai HTTP/2 fingerprint string
+	ExtraFP           map[string]interface{} `json:"extra_fp,omitempty"`               // Extra fingerprint options
 }
 
 // Error response
@@ -990,6 +993,50 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 	// Handle switch protocol
 	if config.SwitchProtocol != "" {
 		opts = append(opts, httpcloak.WithSwitchProtocol(config.SwitchProtocol))
+	}
+
+	// Handle custom fingerprint (JA3 / Akamai)
+	if config.JA3 != "" || config.Akamai != "" {
+		fp := httpcloak.CustomFingerprint{
+			JA3:    config.JA3,
+			Akamai: config.Akamai,
+		}
+		// Map extra_fp keys to CustomFingerprint fields
+		if config.ExtraFP != nil {
+			if v, ok := config.ExtraFP["tls_alpn"]; ok {
+				if arr, ok := v.([]interface{}); ok {
+					for _, item := range arr {
+						if s, ok := item.(string); ok {
+							fp.ALPN = append(fp.ALPN, s)
+						}
+					}
+				}
+			}
+			if v, ok := config.ExtraFP["tls_signature_algorithms"]; ok {
+				if arr, ok := v.([]interface{}); ok {
+					for _, item := range arr {
+						if s, ok := item.(string); ok {
+							fp.SignatureAlgorithms = append(fp.SignatureAlgorithms, s)
+						}
+					}
+				}
+			}
+			if v, ok := config.ExtraFP["tls_cert_compression"]; ok {
+				if arr, ok := v.([]interface{}); ok {
+					for _, item := range arr {
+						if s, ok := item.(string); ok {
+							fp.CertCompression = append(fp.CertCompression, s)
+						}
+					}
+				}
+			}
+			if v, ok := config.ExtraFP["tls_permute_extensions"]; ok {
+				if b, ok := v.(bool); ok {
+					fp.PermuteExtensions = b
+				}
+			}
+		}
+		opts = append(opts, httpcloak.WithCustomFingerprint(fp))
 	}
 
 	// Handle session cache if configured globally

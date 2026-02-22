@@ -1272,6 +1272,9 @@ class Session {
       keyLogFile = null,
       enableSpeculativeTls = false,
       switchProtocol = null,
+      ja3 = null,
+      akamai = null,
+      extraFp = null,
     } = options;
 
     this._lib = getLib();
@@ -1337,6 +1340,15 @@ class Session {
     }
     if (switchProtocol) {
       config.switch_protocol = switchProtocol;
+    }
+    if (ja3) {
+      config.ja3 = ja3;
+    }
+    if (akamai) {
+      config.akamai = akamai;
+    }
+    if (extraFp) {
+      config.extra_fp = extraFp;
     }
 
     this._handle = this._lib.httpcloak_session_new(JSON.stringify(config));

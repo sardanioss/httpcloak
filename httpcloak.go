@@ -27,6 +27,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -36,6 +37,7 @@ import (
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/session"
 	"github.com/sardanioss/httpcloak/transport"
+	tls "github.com/sardanioss/utls"
 )
 
 // systemRoots is pre-loaded at init time to avoid ~40ms delay on first TLS connection
@@ -285,7 +287,8 @@ func (c *Client) Close() {
 
 // Session represents a persistent HTTP session with cookie management
 type Session struct {
-	inner *session.Session
+	inner     *session.Session
+	configErr error // deferred config error (e.g. invalid Akamai string)
 }
 
 // SessionOption configures a session
@@ -321,6 +324,14 @@ type sessionConfig struct {
 	// Distributed session cache
 	sessionCacheBackend       transport.SessionCacheBackend
 	sessionCacheErrorCallback transport.ErrorCallback
+
+	// Custom fingerprint
+	customJA3         string
+	customJA3Extras   *fingerprint.JA3Extras
+	customH2Settings  *fingerprint.HTTP2Settings
+	customPseudoOrder []string
+
+	configErr error // deferred error from option parsing
 }
 
 // WithSessionProxy sets a proxy for the session
@@ -527,6 +538,75 @@ func WithSessionCache(backend transport.SessionCacheBackend, errorCallback trans
 	}
 }
 
+// CustomFingerprint configures custom TLS (JA3) and HTTP/2 (Akamai) fingerprints.
+// This overrides the preset's fingerprint for fine-grained control.
+type CustomFingerprint struct {
+	// JA3 is a JA3 fingerprint string.
+	// Format: TLSVersion,CipherSuites,Extensions,EllipticCurves,PointFormats
+	// Example: "771,4865-4866-4867-49195-49199,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0"
+	JA3 string
+
+	// Akamai is an Akamai HTTP/2 fingerprint string.
+	// Format: SETTINGS|WINDOW_UPDATE|PRIORITY|PSEUDO_HEADER_ORDER
+	// Example: "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+	Akamai string
+
+	// SignatureAlgorithms overrides the default signature algorithms for the JA3 spec.
+	// Valid values: "ecdsa_secp256r1_sha256", "rsa_pss_rsae_sha256", "rsa_pkcs1_sha256",
+	// "ecdsa_secp384r1_sha384", "rsa_pss_rsae_sha384", "rsa_pkcs1_sha384",
+	// "rsa_pss_rsae_sha512", "rsa_pkcs1_sha512"
+	SignatureAlgorithms []string
+
+	// ALPN overrides the default ALPN protocols. Default: ["h2", "http/1.1"]
+	ALPN []string
+
+	// CertCompression overrides the cert compression algorithms.
+	// Valid values: "brotli", "zlib", "zstd"
+	CertCompression []string
+
+	// PermuteExtensions randomly permutes the TLS extension order.
+	PermuteExtensions bool
+}
+
+// WithCustomFingerprint sets a custom TLS/HTTP2 fingerprint for the session.
+// When JA3 is set, TLS-only mode is automatically enabled (preset HTTP headers are skipped).
+func WithCustomFingerprint(fp CustomFingerprint) SessionOption {
+	return func(c *sessionConfig) {
+		c.customJA3 = fp.JA3
+
+		// Build JA3Extras from user-friendly string-based fields
+		if fp.JA3 != "" {
+			extras := &fingerprint.JA3Extras{
+				PermuteExtensions: fp.PermuteExtensions,
+				RecordSizeLimit:   0x4001,
+			}
+			if len(fp.ALPN) > 0 {
+				extras.ALPN = fp.ALPN
+			}
+			if len(fp.SignatureAlgorithms) > 0 {
+				extras.SignatureAlgorithms = parseSignatureAlgorithms(fp.SignatureAlgorithms)
+			}
+			if len(fp.CertCompression) > 0 {
+				extras.CertCompAlgs = parseCertCompression(fp.CertCompression)
+			}
+			c.customJA3Extras = extras
+			// Auto-enable TLS-only mode when custom JA3 is set
+			c.tlsOnly = true
+		}
+
+		// Parse Akamai fingerprint
+		if fp.Akamai != "" {
+			h2Settings, pseudoOrder, err := fingerprint.ParseAkamai(fp.Akamai)
+			if err != nil {
+				c.configErr = fmt.Errorf("invalid Akamai fingerprint: %w", err)
+			} else {
+				c.customH2Settings = h2Settings
+				c.customPseudoOrder = pseudoOrder
+			}
+		}
+	}
+}
+
 // NewSession creates a new persistent session with cookie management
 func NewSession(preset string, opts ...SessionOption) *Session {
 	cfg := &sessionConfig{
@@ -586,22 +666,30 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 		sessionCfg.ForceHTTP3 = true
 	}
 
-	// Create session with optional distributed cache
+	// Create session with optional distributed cache and custom fingerprint
 	var s *session.Session
-	if cfg.sessionCacheBackend != nil {
+	needsOpts := cfg.sessionCacheBackend != nil || cfg.customJA3 != "" || cfg.customH2Settings != nil || len(cfg.customPseudoOrder) > 0
+	if needsOpts {
 		opts := &session.SessionOptions{
 			SessionCacheBackend:       cfg.sessionCacheBackend,
 			SessionCacheErrorCallback: cfg.sessionCacheErrorCallback,
+			CustomJA3:                 cfg.customJA3,
+			CustomJA3Extras:           cfg.customJA3Extras,
+			CustomH2Settings:          cfg.customH2Settings,
+			CustomPseudoOrder:         cfg.customPseudoOrder,
 		}
 		s = session.NewSessionWithOptions("", sessionCfg, opts)
 	} else {
 		s = session.NewSession("", sessionCfg)
 	}
-	return &Session{inner: s}
+	return &Session{inner: s, configErr: cfg.configErr}
 }
 
 // Do executes a request within the session, maintaining cookies
 func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
+	if s.configErr != nil {
+		return nil, s.configErr
+	}
 	sReq := &transport.Request{
 		Method:     req.Method,
 		URL:        req.URL,
@@ -640,6 +728,9 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 
 // DoWithBody executes a request with an io.Reader as the body for streaming uploads
 func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Reader) (*Response, error) {
+	if s.configErr != nil {
+		return nil, s.configErr
+	}
 	sReq := &transport.Request{
 		Method:     req.Method,
 		URL:        req.URL,
@@ -886,4 +977,48 @@ func (s *Session) GetStreamWithHeaders(ctx context.Context, url string, headers 
 // Presets returns available fingerprint presets
 func Presets() []string {
 	return fingerprint.Available()
+}
+
+// parseSignatureAlgorithms converts string names to tls.SignatureScheme values.
+func parseSignatureAlgorithms(names []string) []tls.SignatureScheme {
+	m := map[string]tls.SignatureScheme{
+		"ecdsa_secp256r1_sha256": tls.ECDSAWithP256AndSHA256,
+		"ecdsa_secp384r1_sha384": tls.ECDSAWithP384AndSHA384,
+		"ecdsa_secp521r1_sha512": tls.ECDSAWithP521AndSHA512,
+		"rsa_pss_rsae_sha256":    tls.PSSWithSHA256,
+		"rsa_pss_rsae_sha384":    tls.PSSWithSHA384,
+		"rsa_pss_rsae_sha512":    tls.PSSWithSHA512,
+		"rsa_pkcs1_sha256":       tls.PKCS1WithSHA256,
+		"rsa_pkcs1_sha384":       tls.PKCS1WithSHA384,
+		"rsa_pkcs1_sha512":       tls.PKCS1WithSHA512,
+	}
+	var result []tls.SignatureScheme
+	for _, name := range names {
+		if scheme, ok := m[strings.ToLower(name)]; ok {
+			result = append(result, scheme)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// parseCertCompression converts string names to tls.CertCompressionAlgo values.
+func parseCertCompression(names []string) []tls.CertCompressionAlgo {
+	m := map[string]tls.CertCompressionAlgo{
+		"brotli": tls.CertCompressionBrotli,
+		"zlib":   tls.CertCompressionZlib,
+		"zstd":   tls.CertCompressionZstd,
+	}
+	var result []tls.CertCompressionAlgo
+	for _, name := range names {
+		if algo, ok := m[strings.ToLower(name)]; ok {
+			result = append(result, algo)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }

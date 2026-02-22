@@ -193,7 +193,10 @@ public sealed class Session : IDisposable
         string? localAddress = null,
         string? keyLogFile = null,
         bool enableSpeculativeTls = false,
-        string? switchProtocol = null)
+        string? switchProtocol = null,
+        string? ja3 = null,
+        string? akamai = null,
+        Dictionary<string, object>? extraFp = null)
     {
         Auth = auth;
 
@@ -220,7 +223,10 @@ public sealed class Session : IDisposable
             LocalAddress = localAddress,
             KeyLogFile = keyLogFile,
             EnableSpeculativeTls = enableSpeculativeTls,
-            SwitchProtocol = switchProtocol
+            SwitchProtocol = switchProtocol,
+            Ja3 = ja3,
+            Akamai = akamai,
+            ExtraFp = extraFp
         };
 
         string configJson = JsonSerializer.Serialize(config, JsonContext.Relaxed.SessionConfig);
@@ -2481,6 +2487,18 @@ internal class SessionConfig
     [JsonPropertyName("switch_protocol")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SwitchProtocol { get; set; }
+
+    [JsonPropertyName("ja3")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Ja3 { get; set; }
+
+    [JsonPropertyName("akamai")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Akamai { get; set; }
+
+    [JsonPropertyName("extra_fp")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, object>? ExtraFp { get; set; }
 }
 
 internal class RequestConfig

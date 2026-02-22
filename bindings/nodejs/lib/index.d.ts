@@ -237,6 +237,16 @@ export interface SessionOptions {
   localAddress?: string;
   /** Path to write TLS key log for Wireshark decryption (overrides SSLKEYLOGFILE env var) */
   keyLogFile?: string;
+  /** Enable speculative TLS optimization for proxy connections (default: false) */
+  enableSpeculativeTls?: boolean;
+  /** Protocol to switch to after Refresh() (e.g., "h1", "h2", "h3") */
+  switchProtocol?: string;
+  /** Custom JA3 fingerprint string (e.g., "771,4865-4866-4867-...,0-23-65281-...,29-23-24,0") */
+  ja3?: string;
+  /** Custom Akamai HTTP/2 fingerprint string (e.g., "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p") */
+  akamai?: string;
+  /** Extra fingerprint options: { tls_alpn, tls_signature_algorithms, tls_cert_compression, tls_permute_extensions } */
+  extraFp?: Record<string, any>;
 }
 
 export interface RequestOptions {

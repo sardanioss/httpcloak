@@ -153,6 +153,23 @@ type TransportConfig struct {
 	// When true, CONNECT request and TLS ClientHello are sent together, saving one
 	// round-trip. Disabled by default due to compatibility issues with some proxies.
 	EnableSpeculativeTLS bool
+
+	// CustomJA3 is a JA3 fingerprint string to use instead of the preset's TLS fingerprint.
+	// Format: TLSVersion,CipherSuites,Extensions,EllipticCurves,PointFormats
+	// When set, the preset's ClientHelloID is overridden with HelloCustom.
+	// Not applied to H3 (QUIC TLS uses different extensions).
+	CustomJA3 string
+
+	// CustomJA3Extras provides extension data that JA3 cannot capture (e.g., signature
+	// algorithms, ALPN). If nil, sensible Chrome-like defaults are used.
+	CustomJA3Extras *fingerprint.JA3Extras
+
+	// CustomH2Settings overrides the preset's HTTP/2 settings (from Akamai fingerprint).
+	CustomH2Settings *fingerprint.HTTP2Settings
+
+	// CustomPseudoOrder overrides the pseudo-header order (from Akamai fingerprint).
+	// Values: [":method", ":authority", ":scheme", ":path"]
+	CustomPseudoOrder []string
 }
 
 // Request represents an HTTP request
@@ -274,6 +291,9 @@ type Transport struct {
 	customHeaderOrder   []string
 	customHeaderOrderMu sync.RWMutex
 
+	// Custom pseudo-header order (nil = use preset's browser-type heuristic)
+	customPseudoOrder []string
+
 	// TLS-only mode: skip preset HTTP headers, use TLS fingerprint only
 	tlsOnly bool
 }
@@ -297,17 +317,29 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 	tlsOnly := false
 	if config != nil {
 		tlsOnly = config.TLSOnly
+
+		// Override preset HTTP/2 settings with custom Akamai fingerprint
+		if config.CustomH2Settings != nil {
+			preset.HTTP2Settings = *config.CustomH2Settings
+		}
+	}
+
+	// Capture custom pseudo-header order from config
+	var customPseudoOrder []string
+	if config != nil && len(config.CustomPseudoOrder) > 0 {
+		customPseudoOrder = config.CustomPseudoOrder
 	}
 
 	t := &Transport{
-		dnsCache:        dnsCache,
-		preset:          preset,
-		timeout:         30 * time.Second,
-		protocol:        ProtocolAuto,
-		protocolSupport: make(map[string]Protocol),
-		proxy:           proxy,
-		config:          config,
-		tlsOnly:         tlsOnly,
+		dnsCache:          dnsCache,
+		preset:            preset,
+		timeout:           30 * time.Second,
+		protocol:          ProtocolAuto,
+		protocolSupport:   make(map[string]Protocol),
+		proxy:             proxy,
+		config:            config,
+		customPseudoOrder: customPseudoOrder,
+		tlsOnly:           tlsOnly,
 	}
 
 	// Determine effective TCP and UDP proxy URLs
@@ -651,6 +683,11 @@ func (t *Transport) getHeaderOrder() []string {
 	t.customHeaderOrderMu.RLock()
 	defer t.customHeaderOrderMu.RUnlock()
 	return t.customHeaderOrder
+}
+
+// getCustomPseudoOrder returns the custom pseudo-header order (from Akamai fingerprint).
+func (t *Transport) getCustomPseudoOrder() []string {
+	return t.customPseudoOrder
 }
 
 // GetConnectHost returns the connection host for a request host.
@@ -1103,7 +1140,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 
 	// Set preset headers (with ordering for fingerprinting)
 	// Pass "h1" protocol so Chrome presets don't send Priority header on HTTP/1.1
-	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), effectiveTLSOnly, "h1")
+	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1")
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1217,7 +1254,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	}
 
 	// Set preset headers - pass "h1" protocol so Chrome presets don't send Priority header
-	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), effectiveTLSOnly, "h1")
+	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1")
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1338,7 +1375,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), effectiveTLSOnly, "h2")
+	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2")
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1474,7 +1511,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), effectiveTLSOnly, "h3")
+	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3")
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1649,9 +1686,10 @@ func (t *Transport) SetSessionIdentifier(sessionId string) {
 // applyPresetHeaders applies headers from the preset to the request.
 // Uses ordered headers (HeaderOrder) if available, otherwise falls back to the map.
 // customHeaderOrder overrides preset's default order if provided.
+// customPseudoOrder overrides the preset's pseudo-header order if provided.
 // If tlsOnly is true, skips applying preset headers but still sets header order for fingerprinting.
 // The protocol parameter ("h1", "h2", "h3") is used for protocol-specific header handling.
-func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, tlsOnly bool, protocol string) {
+func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string) {
 	// In TLS-only mode, skip applying preset headers but still set header order
 	if !tlsOnly {
 		if len(preset.HeaderOrder) > 0 {
@@ -1703,11 +1741,14 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 		}
 	}
 
-	// Set pseudo-header order based on browser type
-	// Safari/iOS uses m,s,p,a; Chrome uses m,a,s,p
-	if preset.HTTP2Settings.NoRFC7540Priorities {
+	// Set pseudo-header order: custom (Akamai) > browser-type heuristic
+	if len(customPseudoOrder) > 0 {
+		httpReq.Header[http.PHeaderOrderKey] = customPseudoOrder
+	} else if preset.HTTP2Settings.NoRFC7540Priorities {
+		// Safari/iOS uses m,s,p,a
 		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":scheme", ":path", ":authority"}
 	} else {
+		// Chrome uses m,a,s,p
 		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":authority", ":scheme", ":path"}
 	}
 }

@@ -1453,6 +1453,9 @@ class Session:
         key_log_file: Optional[str] = None,
         enable_speculative_tls: bool = False,
         switch_protocol: Optional[str] = None,
+        ja3: Optional[str] = None,
+        akamai: Optional[str] = None,
+        extra_fp: Optional[Dict[str, any]] = None,
     ):
         self._lib = _get_lib()
         self._default_timeout = timeout
@@ -1498,6 +1501,12 @@ class Session:
             config["enable_speculative_tls"] = True
         if switch_protocol:
             config["switch_protocol"] = switch_protocol
+        if ja3:
+            config["ja3"] = ja3
+        if akamai:
+            config["akamai"] = akamai
+        if extra_fp:
+            config["extra_fp"] = extra_fp
 
         config_json = json.dumps(config).encode("utf-8")
         self._handle = self._lib.httpcloak_session_new(config_json)

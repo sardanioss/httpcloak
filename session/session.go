@@ -38,6 +38,18 @@ type SessionOptions struct {
 
 	// SessionCacheErrorCallback is called when backend operations fail
 	SessionCacheErrorCallback transport.ErrorCallback
+
+	// CustomJA3 is a JA3 fingerprint string for custom TLS fingerprinting
+	CustomJA3 string
+
+	// CustomJA3Extras provides extension data that JA3 cannot capture
+	CustomJA3Extras *fingerprint.JA3Extras
+
+	// CustomH2Settings overrides the preset's HTTP/2 settings (from Akamai fingerprint)
+	CustomH2Settings *fingerprint.HTTP2Settings
+
+	// CustomPseudoOrder overrides the pseudo-header order (from Akamai fingerprint)
+	CustomPseudoOrder []string
 }
 
 // cacheEntry stores cache validation headers for a URL
@@ -115,7 +127,7 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 	// Create transport config with ConnectTo, ECH, TLS-only, QUIC timeout, localAddr, and session cache settings
 	var transportConfig *transport.TransportConfig
 	needsConfig := len(config.ConnectTo) > 0 || config.ECHConfigDomain != "" || config.TLSOnly || config.QuicIdleTimeout > 0 || config.LocalAddress != "" || keyLogWriter != nil || config.EnableSpeculativeTLS
-	if opts != nil && opts.SessionCacheBackend != nil {
+	if opts != nil && (opts.SessionCacheBackend != nil || opts.CustomJA3 != "" || opts.CustomH2Settings != nil || len(opts.CustomPseudoOrder) > 0) {
 		needsConfig = true
 	}
 
@@ -133,6 +145,11 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 		if opts != nil {
 			transportConfig.SessionCacheBackend = opts.SessionCacheBackend
 			transportConfig.SessionCacheErrorCallback = opts.SessionCacheErrorCallback
+			// Add custom fingerprint settings
+			transportConfig.CustomJA3 = opts.CustomJA3
+			transportConfig.CustomJA3Extras = opts.CustomJA3Extras
+			transportConfig.CustomH2Settings = opts.CustomH2Settings
+			transportConfig.CustomPseudoOrder = opts.CustomPseudoOrder
 		}
 	}
 
