@@ -1,6 +1,6 @@
 module httpcloak-clib
 
-go 1.25.5
+go 1.26.0
 
 require github.com/sardanioss/httpcloak v1.0.4
 
@@ -8,12 +8,12 @@ require (
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/miekg/dns v1.1.69 // indirect
-	github.com/sardanioss/http v1.1.0 // indirect
+	github.com/sardanioss/http v1.2.0 // indirect
 	github.com/sardanioss/net v1.2.1 // indirect
 	github.com/sardanioss/qpack v0.6.2 // indirect
 	github.com/sardanioss/quic-go v1.2.18 // indirect
-	github.com/sardanioss/udpbara v1.0.0 // indirect
-	github.com/sardanioss/utls v1.10.1 // indirect
+	github.com/sardanioss/udpbara v1.1.0 // indirect
+	github.com/sardanioss/utls v1.10.2 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
@@ -25,12 +25,3 @@ require (
 
 // Use local httpcloak (same repo)
 replace github.com/sardanioss/httpcloak => ../..
-
-// Transitive replace directives (must match httpcloak's go.mod)
-replace github.com/sardanioss/utls => ../../../utls
-
-replace github.com/sardanioss/net => ../../../sardanioss-net
-
-replace github.com/sardanioss/quic-go => ../../../quic-go
-
-replace github.com/sardanioss/udpbara => ../../../udpbara

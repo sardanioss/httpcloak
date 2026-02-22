@@ -1,6 +1,6 @@
 {
   "name": "@httpcloak/win32-x64",
-  "version": "1.6.0-beta.13",
+  "version": "1.6.0",
   "description": "HTTPCloak native binary for win32 x64",
   "os": [
     "win32"
