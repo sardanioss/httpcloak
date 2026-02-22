@@ -407,3 +407,60 @@ func TestIsGREASE(t *testing.T) {
 		}
 	}
 }
+
+func TestParseJA3_PartialExtrasDefaultsMerging(t *testing.T) {
+	ja3 := "771,4865-4866-4867,0-10-11-13-16-43-51-23-65281-35-45,29-23-24,0"
+
+	// Create extras with only PermuteExtensions set — all other fields are zero/nil.
+	// ParseJA3 should fill in defaults for the nil fields without failing.
+	extras := &JA3Extras{
+		PermuteExtensions: true,
+	}
+
+	spec, err := ParseJA3(ja3, extras)
+	if err != nil {
+		t.Fatalf("ParseJA3 with partial extras failed: %v", err)
+	}
+
+	// Verify spec was produced
+	if spec == nil {
+		t.Fatal("expected non-nil spec")
+	}
+	if len(spec.CipherSuites) != 3 {
+		t.Errorf("expected 3 cipher suites, got %d", len(spec.CipherSuites))
+	}
+
+	// Verify caller's struct was NOT mutated
+	if len(extras.SignatureAlgorithms) != 0 {
+		t.Errorf("caller's SignatureAlgorithms was mutated: got %d entries", len(extras.SignatureAlgorithms))
+	}
+	if len(extras.ALPN) != 0 {
+		t.Errorf("caller's ALPN was mutated: got %v", extras.ALPN)
+	}
+	if len(extras.CertCompAlgs) != 0 {
+		t.Errorf("caller's CertCompAlgs was mutated: got %v", extras.CertCompAlgs)
+	}
+	if extras.RecordSizeLimit != 0 {
+		t.Errorf("caller's RecordSizeLimit was mutated: got %d", extras.RecordSizeLimit)
+	}
+
+	// Verify the spec's extensions contain proper data from defaults
+	// Check that ALPN extension has default protocols
+	for _, ext := range spec.Extensions {
+		if alpn, ok := ext.(*tls.ALPNExtension); ok {
+			if len(alpn.AlpnProtocols) == 0 {
+				t.Error("ALPN extension has no protocols (defaults not applied)")
+			}
+			break
+		}
+	}
+	// Check that signature_algorithms extension has algorithms
+	for _, ext := range spec.Extensions {
+		if sigAlg, ok := ext.(*tls.SignatureAlgorithmsExtension); ok {
+			if len(sigAlg.SupportedSignatureAlgorithms) == 0 {
+				t.Error("signature_algorithms extension is empty (defaults not applied)")
+			}
+			break
+		}
+	}
+}
