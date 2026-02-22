@@ -118,13 +118,13 @@ httpcloak.configure(
 # - socks5://host:port
 # - socks5://user:pass@host:port
 
-# Speculative TLS optimization (enabled by default):
+# Speculative TLS optimization (disabled by default):
 # Sends CONNECT + TLS ClientHello together, saving one round-trip (~25% faster).
-# If you experience issues with certain proxies, disable it:
+# Enable it for compatible proxies:
 session = httpcloak.Session(
     preset="chrome-145",
     proxy="http://user:pass@proxy.example.com:8080",
-    disable_speculative_tls=True
+    enable_speculative_tls=True
 )
 """)
 
