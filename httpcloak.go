@@ -941,6 +941,9 @@ func (r *StreamResponse) ReadChunk(size int) ([]byte, error) {
 // The caller is responsible for closing the response when done
 // Note: Streaming does NOT support redirects - use Do() for redirect handling
 func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, error) {
+	if s.configErr != nil {
+		return nil, s.configErr
+	}
 	sReq := &transport.Request{
 		Method:     req.Method,
 		URL:        req.URL,

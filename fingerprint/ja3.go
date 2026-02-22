@@ -50,10 +50,13 @@ func ParseJA3(ja3 string, extras *JA3Extras) (*tls.ClientHelloSpec, error) {
 	if extras == nil {
 		extras = defaultJA3Extras()
 	} else {
-		// Apply defaults for any fields not explicitly set.
-		// This handles the case where extras is partially filled (e.g., only
-		// PermuteExtensions set) — nil fields would produce empty TLS extensions
-		// that cause handshake failures.
+		// Make a shallow copy to avoid mutating the caller's struct, then
+		// apply defaults for any fields not explicitly set. This handles
+		// the case where extras is partially filled (e.g., only
+		// PermuteExtensions set) — nil fields would produce empty TLS
+		// extensions that cause handshake failures.
+		merged := *extras
+		extras = &merged
 		defaults := defaultJA3Extras()
 		if len(extras.SignatureAlgorithms) == 0 {
 			extras.SignatureAlgorithms = defaults.SignatureAlgorithms
@@ -265,12 +268,15 @@ func extensionForID(id uint16, extras *JA3Extras, curves []tls.CurveID, pointFor
 		}
 
 	case 51: // key_share
+		// Real browsers only generate a key share for the first (preferred) curve.
+		// Generating shares for all curves is a detectable fingerprinting signal.
+		// The server sends HelloRetryRequest if it prefers a different group.
 		var keyShares []tls.KeyShare
 		for _, curve := range curves {
-			if isGREASE(uint16(curve)) {
-				continue
+			if !isGREASE(uint16(curve)) {
+				keyShares = append(keyShares, tls.KeyShare{Group: curve})
+				break
 			}
-			keyShares = append(keyShares, tls.KeyShare{Group: curve})
 		}
 		return &tls.KeyShareExtension{KeyShares: keyShares}
 

@@ -588,7 +588,10 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 						}
 					}
 				}
-				tlsConn.SetSessionCache(t.sessionCache)
+				// Only set session cache when not using custom JA3 without PSK extension
+				if t.config == nil || t.config.CustomJA3 == "" || ja3HasExtension(t.config.CustomJA3, "41") {
+					tlsConn.SetSessionCache(t.sessionCache)
+				}
 				if hsErr := tlsConn.HandshakeContext(ctx); hsErr != nil {
 					rawConn.Close()
 					return nil, NewTLSError("tls_handshake", host, port, "h1", hsErr)

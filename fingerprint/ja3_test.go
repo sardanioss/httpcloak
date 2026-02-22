@@ -207,16 +207,11 @@ func TestParseJA3_ExtensionTypes(t *testing.T) {
 	if ks, ok := spec.Extensions[4].(*tls.KeyShareExtension); !ok {
 		t.Errorf("extension 4: expected KeyShareExtension, got %T", spec.Extensions[4])
 	} else {
-		// Key shares for all non-GREASE curves
-		if len(ks.KeyShares) != 2 {
-			t.Errorf("expected 2 key shares, got %v", ks.KeyShares)
-		} else {
-			if ks.KeyShares[0].Group != tls.X25519 {
-				t.Errorf("key share 0: expected X25519, got %v", ks.KeyShares[0].Group)
-			}
-			if ks.KeyShares[1].Group != tls.CurveP256 {
-				t.Errorf("key share 1: expected P256, got %v", ks.KeyShares[1].Group)
-			}
+		// Key share only for first (preferred) non-GREASE curve, matching real browser behavior
+		if len(ks.KeyShares) != 1 {
+			t.Errorf("expected 1 key share (first preferred curve only), got %d", len(ks.KeyShares))
+		} else if ks.KeyShares[0].Group != tls.X25519 {
+			t.Errorf("key share 0: expected X25519, got %v", ks.KeyShares[0].Group)
 		}
 	}
 }
