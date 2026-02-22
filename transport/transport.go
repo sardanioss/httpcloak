@@ -441,9 +441,14 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 	t.h2Transport.Close()
 	t.h3Transport.Close()
 
-	// Recreate HTTP/1.1 and HTTP/2 with new proxy config
-	t.h1Transport = NewHTTP1TransportWithProxy(t.preset, t.dnsCache, proxy)
-	t.h2Transport = NewHTTP2TransportWithProxy(t.preset, t.dnsCache, proxy)
+	// Recreate HTTP/1.1 and HTTP/2 with new proxy config, preserving transport config
+	// (custom JA3, H2 settings, speculative TLS, etc.)
+	tcpProxy := proxy
+	if proxy != nil && proxy.TCPProxy != "" {
+		tcpProxy = &ProxyConfig{URL: proxy.TCPProxy}
+	}
+	t.h1Transport = NewHTTP1TransportWithConfig(t.preset, t.dnsCache, tcpProxy, t.config)
+	t.h2Transport = NewHTTP2TransportWithConfig(t.preset, t.dnsCache, tcpProxy, t.config)
 
 	// Recreate HTTP/3 - with proxy support if applicable
 	// Check both URL (unified proxy) and UDPProxy (split proxy config)
@@ -489,14 +494,27 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 func (t *Transport) SetPreset(presetName string) {
 	t.preset = fingerprint.Get(presetName)
 
+	// Re-apply custom H2 settings to the fresh preset (if any)
+	if t.config != nil && t.config.CustomH2Settings != nil {
+		t.preset.HTTP2Settings = *t.config.CustomH2Settings
+	}
+
 	// Close all transports
 	t.h1Transport.Close()
 	t.h2Transport.Close()
 	t.h3Transport.Close()
 
-	// Recreate HTTP/1.1 and HTTP/2 with new preset
-	t.h1Transport = NewHTTP1TransportWithProxy(t.preset, t.dnsCache, t.proxy)
-	t.h2Transport = NewHTTP2TransportWithProxy(t.preset, t.dnsCache, t.proxy)
+	// Recreate HTTP/1.1 and HTTP/2 with new preset, preserving transport config
+	var tcpProxy *ProxyConfig
+	if t.proxy != nil {
+		if t.proxy.TCPProxy != "" {
+			tcpProxy = &ProxyConfig{URL: t.proxy.TCPProxy}
+		} else {
+			tcpProxy = t.proxy
+		}
+	}
+	t.h1Transport = NewHTTP1TransportWithConfig(t.preset, t.dnsCache, tcpProxy, t.config)
+	t.h2Transport = NewHTTP2TransportWithConfig(t.preset, t.dnsCache, tcpProxy, t.config)
 
 	// Recreate HTTP/3 - with proxy support if applicable
 	if t.proxy != nil && t.proxy.URL != "" {
