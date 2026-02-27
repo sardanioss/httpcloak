@@ -62,7 +62,47 @@ type Preset struct {
 	Headers           map[string]string // For backward compatibility
 	HeaderOrder       []HeaderPair      // Ordered headers for HTTP/2 and HTTP/3
 	HTTP2Settings     HTTP2Settings
+	TCPFingerprint    TCPFingerprint
 	SupportHTTP3      bool
+}
+
+// TCPFingerprint contains TCP/IP stack parameters that identify the OS.
+// Anti-bot systems check TTL, window size, and other TCP options in the SYN packet
+// to verify the claimed browser platform matches the actual OS.
+type TCPFingerprint struct {
+	TTL         int  // IP Time-To-Live: 128=Windows, 64=Linux/macOS/iOS/Android
+	MSS         int  // TCP Maximum Segment Size: 1460 for standard Ethernet
+	WindowSize  int  // TCP Window Size in SYN: 64240=Win10/11, 65535=Linux/macOS
+	WindowScale int  // TCP Window Scale option: 8=Win10/11, 7=Linux/Android, 6=macOS/iOS
+	DFBit       bool // IP Don't Fragment flag
+}
+
+// WindowsTCPFingerprint returns TCP fingerprint values for Windows 10/11
+func WindowsTCPFingerprint() TCPFingerprint {
+	return TCPFingerprint{TTL: 128, MSS: 1460, WindowSize: 64240, WindowScale: 8, DFBit: true}
+}
+
+// LinuxTCPFingerprint returns TCP fingerprint values for Linux
+func LinuxTCPFingerprint() TCPFingerprint {
+	return TCPFingerprint{TTL: 64, MSS: 1460, WindowSize: 65535, WindowScale: 7, DFBit: true}
+}
+
+// MacOSTCPFingerprint returns TCP fingerprint values for macOS
+func MacOSTCPFingerprint() TCPFingerprint {
+	return TCPFingerprint{TTL: 64, MSS: 1460, WindowSize: 65535, WindowScale: 6, DFBit: true}
+}
+
+// PlatformTCPFingerprint returns the TCP fingerprint matching the given platform string.
+// Used by auto-platform presets that detect the running OS at runtime.
+func PlatformTCPFingerprint(platform string) TCPFingerprint {
+	switch platform {
+	case "Windows":
+		return WindowsTCPFingerprint()
+	case "macOS":
+		return MacOSTCPFingerprint()
+	default:
+		return LinuxTCPFingerprint()
+	}
 }
 
 // HTTP2Settings contains HTTP/2 connection settings
@@ -132,6 +172,7 @@ func Chrome133() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: PlatformTCPFingerprint(p.Platform),
 		SupportHTTP3: false, // Legacy preset, no proper QUIC fingerprint
 	}
 }
@@ -187,6 +228,7 @@ func Chrome141() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: PlatformTCPFingerprint(p.Platform),
 		SupportHTTP3: false, // Legacy preset, no proper QUIC fingerprint
 	}
 }
@@ -229,6 +271,7 @@ func Firefox133() *Preset {
 			StreamWeight:           42,
 			StreamExclusive:        false,
 		},
+		TCPFingerprint: PlatformTCPFingerprint(p.Platform),
 		SupportHTTP3: false, // No Firefox QUIC fingerprint in utls
 	}
 }
@@ -301,6 +344,7 @@ func Chrome143() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: PlatformTCPFingerprint(p.Platform),
 		SupportHTTP3: true,
 	}
 }
@@ -358,6 +402,7 @@ func Chrome143Windows() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: WindowsTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -415,6 +460,7 @@ func Chrome143Linux() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: LinuxTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -472,6 +518,7 @@ func Chrome143macOS() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: MacOSTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -539,6 +586,7 @@ func Chrome144() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: PlatformTCPFingerprint(p.Platform),
 		SupportHTTP3: true,
 	}
 }
@@ -592,6 +640,7 @@ func Chrome144Windows() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: WindowsTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -645,6 +694,7 @@ func Chrome144Linux() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: LinuxTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -698,6 +748,7 @@ func Chrome144macOS() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: MacOSTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -765,6 +816,7 @@ func Chrome145() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: PlatformTCPFingerprint(p.Platform),
 		SupportHTTP3: true,
 	}
 }
@@ -818,6 +870,7 @@ func Chrome145Windows() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: WindowsTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -871,6 +924,7 @@ func Chrome145Linux() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: LinuxTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -924,6 +978,7 @@ func Chrome145macOS() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: MacOSTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -970,6 +1025,7 @@ func Safari18() *Preset {
 			StreamExclusive:        false,
 			NoRFC7540Priorities:    true, // Safari sends NO_RFC7540_PRIORITIES=1
 		},
+		TCPFingerprint: MacOSTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -1018,6 +1074,7 @@ func IOSChrome143() *Preset {
 			StreamExclusive:        false,
 			NoRFC7540Priorities:    true, // iOS sends NO_RFC7540_PRIORITIES=1
 		},
+		TCPFingerprint: MacOSTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -1066,6 +1123,7 @@ func IOSChrome144() *Preset {
 			StreamExclusive:        false,
 			NoRFC7540Priorities:    true, // iOS sends NO_RFC7540_PRIORITIES=1
 		},
+		TCPFingerprint: MacOSTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -1113,6 +1171,7 @@ func IOSChrome145() *Preset {
 			StreamExclusive:        false,
 			NoRFC7540Priorities:    true,
 		},
+		TCPFingerprint: MacOSTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -1156,6 +1215,7 @@ func IOSSafari17() *Preset {
 			StreamExclusive:        false,
 			NoRFC7540Priorities:    true, // Safari uses m,s,p,a pseudo header order
 		},
+		TCPFingerprint: MacOSTCPFingerprint(),
 		SupportHTTP3: false, // iOS Safari 17 doesn't have proper H3 TLS spec
 	}
 }
@@ -1202,6 +1262,7 @@ func IOSSafari18() *Preset {
 			StreamExclusive:        false,
 			NoRFC7540Priorities:    true, // iOS sends NO_RFC7540_PRIORITIES=1
 		},
+		TCPFingerprint: MacOSTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -1261,6 +1322,7 @@ func AndroidChrome143() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: LinuxTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -1314,6 +1376,7 @@ func AndroidChrome144() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: LinuxTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
@@ -1367,6 +1430,7 @@ func AndroidChrome145() *Preset {
 			StreamWeight:           256,
 			StreamExclusive:        true,
 		},
+		TCPFingerprint: LinuxTCPFingerprint(),
 		SupportHTTP3: true,
 	}
 }
