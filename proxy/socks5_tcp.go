@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"syscall"
 	"time"
 )
 
@@ -26,6 +27,10 @@ type SOCKS5Dialer struct {
 
 	// Local address to bind outgoing connections
 	localAddr string
+
+	// Control is called after creating the network connection but before
+	// the connect() call. Used to apply TCP/IP fingerprint setsockopt options.
+	Control func(network, address string, conn syscall.RawConn) error
 }
 
 // NewSOCKS5Dialer creates a new SOCKS5 dialer from a proxy URL
@@ -89,6 +94,9 @@ func (d *SOCKS5Dialer) DialContext(ctx context.Context, network, addr string) (n
 	dialer := &net.Dialer{Timeout: d.timeout}
 	if d.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(d.localAddr)}
+	}
+	if d.Control != nil {
+		dialer.Control = d.Control
 	}
 	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {

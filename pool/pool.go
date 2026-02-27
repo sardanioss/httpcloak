@@ -418,11 +418,18 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 			}
 			return []string{":method", ":authority", ":scheme", ":path"} // Chrome order (m,a,s,p)
 		}(),
-		HeaderPriority: &http2.PriorityParam{
-			Weight:    uint8(settings.StreamWeight - 1), // Wire format is weight-1
-			Exclusive: settings.StreamExclusive,
-			StreamDep: 0,
-		},
+		HeaderPriority: func() *http2.PriorityParam {
+			// Chrome 120+ uses RFC 9218 extensible priorities (priority: header)
+			// instead of RFC 7540 PRIORITY frames. StreamWeight=0 means no PRIORITY data.
+			if settings.StreamWeight > 0 {
+				return &http2.PriorityParam{
+					Weight:    uint8(settings.StreamWeight - 1), // Wire format is weight-1
+					Exclusive: settings.StreamExclusive,
+					StreamDep: 0,
+				}
+			}
+			return nil
+		}(),
 		HeaderOrder: []string{
 			// Chrome 143 header order (verified via tls.peet.ws)
 			"cache-control", // appears on reload/session resumption
@@ -506,6 +513,7 @@ func (p *HostPool) dialHappyEyeballs(ctx context.Context, preferredIPs, fallback
 			}
 			addr := net.JoinHostPort(ip.String(), p.port)
 			dialer := &net.Dialer{Timeout: perAddrTimeout}
+			transport.SetDialerControl(dialer, &p.preset.TCPFingerprint)
 			if p.localAddr != "" {
 				dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(p.localAddr)}
 			}
@@ -698,6 +706,7 @@ func (p *HostPool) dialHTTPProxy(ctx context.Context, proxy *proxyConfig) (net.C
 	}
 
 	dialer := &net.Dialer{Timeout: p.connectTimeout}
+	transport.SetDialerControl(dialer, &p.preset.TCPFingerprint)
 	if p.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(p.localAddr)}
 	}
@@ -756,6 +765,7 @@ func (p *HostPool) dialSOCKS5Proxy(ctx context.Context, proxy *proxyConfig) (net
 	}
 
 	dialer := &net.Dialer{Timeout: p.connectTimeout}
+	transport.SetDialerControl(dialer, &p.preset.TCPFingerprint)
 	if p.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(p.localAddr)}
 	}

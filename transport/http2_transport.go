@@ -320,6 +320,7 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 			Timeout:   t.connectTimeout,
 			KeepAlive: 30 * time.Second,
 		}
+		SetDialerControl(dialer, &t.preset.TCPFingerprint)
 		if t.localAddr != "" {
 			localIP := net.ParseIP(t.localAddr)
 			dialer.LocalAddr = &net.TCPAddr{IP: localIP}
@@ -607,11 +608,18 @@ alpnCheck:
 		Settings:       h2Settings,
 		SettingsOrder:  h2SettingsOrder,
 		PseudoHeaderOrder: pseudoOrder,
-		HeaderPriority: &http2.PriorityParam{
-			Weight:    uint8(settings.StreamWeight - 1), // Wire format is weight-1
-			Exclusive: settings.StreamExclusive,
-			StreamDep: 0,
-		},
+		HeaderPriority: func() *http2.PriorityParam {
+			// Chrome 120+ uses RFC 9218 extensible priorities (priority: header)
+			// instead of RFC 7540 PRIORITY frames. StreamWeight=0 means no PRIORITY data.
+			if settings.StreamWeight > 0 {
+				return &http2.PriorityParam{
+					Weight:    uint8(settings.StreamWeight - 1), // Wire format is weight-1
+					Exclusive: settings.StreamExclusive,
+					StreamDep: 0,
+				}
+			}
+			return nil
+		}(),
 		HeaderOrder: []string{
 			// Chrome 143 header order (verified via tls.peet.ws)
 			"cache-control", // appears on reload/session resumption
@@ -675,6 +683,7 @@ func (t *HTTP2Transport) dialThroughSOCKS5(ctx context.Context, targetHost, targ
 	if t.localAddr != "" {
 		socks5Dialer.SetLocalAddr(t.localAddr)
 	}
+	socks5Dialer.Control = BuildDialerControl(&t.preset.TCPFingerprint)
 
 	targetAddr := net.JoinHostPort(targetHost, targetPort)
 	conn, err := socks5Dialer.DialContext(ctx, "tcp", targetAddr)
@@ -722,6 +731,7 @@ func (t *HTTP2Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, t
 		Timeout:   t.connectTimeout,
 		KeepAlive: 30 * time.Second,
 	}
+	SetDialerControl(dialer, &t.preset.TCPFingerprint)
 	if t.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
@@ -786,6 +796,7 @@ func (t *HTTP2Transport) dialHTTPProxyBlockingFresh(ctx context.Context, targetH
 		Timeout:   t.connectTimeout,
 		KeepAlive: 30 * time.Second,
 	}
+	SetDialerControl(dialer, &t.preset.TCPFingerprint)
 	if t.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
