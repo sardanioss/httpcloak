@@ -282,6 +282,11 @@ type SessionConfig struct {
 	JA3               string                 `json:"ja3,omitempty"`                    // Custom JA3 fingerprint string
 	Akamai            string                 `json:"akamai,omitempty"`                 // Custom Akamai HTTP/2 fingerprint string
 	ExtraFP           map[string]interface{} `json:"extra_fp,omitempty"`               // Extra fingerprint options
+	TCPTTL            *int                   `json:"tcp_ttl,omitempty"`                // Override TCP/IP TTL (128=Windows, 64=Linux/macOS)
+	TCPMSS            *int                   `json:"tcp_mss,omitempty"`                // Override TCP MSS (1460=Ethernet)
+	TCPWindowSize     *int                   `json:"tcp_window_size,omitempty"`        // Override TCP window size (64240=Windows, 65535=Linux)
+	TCPWindowScale    *int                   `json:"tcp_window_scale,omitempty"`       // Override TCP window scale (8=Win, 7=Linux, 6=macOS)
+	TCPDFBit          *bool                  `json:"tcp_df,omitempty"`                 // Override IP Don't Fragment flag
 }
 
 // Error response
@@ -1037,6 +1042,27 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 			}
 		}
 		opts = append(opts, httpcloak.WithCustomFingerprint(fp))
+	}
+
+	// Handle TCP/IP fingerprint overrides
+	if config.TCPTTL != nil || config.TCPMSS != nil || config.TCPWindowSize != nil || config.TCPWindowScale != nil || config.TCPDFBit != nil {
+		tcpFP := fingerprint.TCPFingerprint{}
+		if config.TCPTTL != nil {
+			tcpFP.TTL = *config.TCPTTL
+		}
+		if config.TCPMSS != nil {
+			tcpFP.MSS = *config.TCPMSS
+		}
+		if config.TCPWindowSize != nil {
+			tcpFP.WindowSize = *config.TCPWindowSize
+		}
+		if config.TCPWindowScale != nil {
+			tcpFP.WindowScale = *config.TCPWindowScale
+		}
+		if config.TCPDFBit != nil {
+			tcpFP.DFBit = *config.TCPDFBit
+		}
+		opts = append(opts, httpcloak.WithTCPFingerprint(tcpFP))
 	}
 
 	// Handle session cache if configured globally

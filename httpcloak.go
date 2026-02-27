@@ -326,10 +326,11 @@ type sessionConfig struct {
 	sessionCacheErrorCallback transport.ErrorCallback
 
 	// Custom fingerprint
-	customJA3         string
-	customJA3Extras   *fingerprint.JA3Extras
-	customH2Settings  *fingerprint.HTTP2Settings
-	customPseudoOrder []string
+	customJA3            string
+	customJA3Extras      *fingerprint.JA3Extras
+	customH2Settings     *fingerprint.HTTP2Settings
+	customPseudoOrder    []string
+	customTCPFingerprint *fingerprint.TCPFingerprint
 
 	configErr error // deferred error from option parsing
 }
@@ -570,6 +571,14 @@ type CustomFingerprint struct {
 
 // WithCustomFingerprint sets a custom TLS/HTTP2 fingerprint for the session.
 // When JA3 is set, TLS-only mode is automatically enabled (preset HTTP headers are skipped).
+// WithTCPFingerprint overrides individual TCP/IP fingerprint fields from the preset.
+// Only non-zero fields are applied; zero fields keep the preset default.
+func WithTCPFingerprint(fp fingerprint.TCPFingerprint) SessionOption {
+	return func(c *sessionConfig) {
+		c.customTCPFingerprint = &fp
+	}
+}
+
 func WithCustomFingerprint(fp CustomFingerprint) SessionOption {
 	return func(c *sessionConfig) {
 		c.customJA3 = fp.JA3
@@ -668,7 +677,7 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 
 	// Create session with optional distributed cache and custom fingerprint
 	var s *session.Session
-	needsOpts := cfg.sessionCacheBackend != nil || cfg.customJA3 != "" || cfg.customH2Settings != nil || len(cfg.customPseudoOrder) > 0
+	needsOpts := cfg.sessionCacheBackend != nil || cfg.customJA3 != "" || cfg.customH2Settings != nil || len(cfg.customPseudoOrder) > 0 || cfg.customTCPFingerprint != nil
 	if needsOpts {
 		opts := &session.SessionOptions{
 			SessionCacheBackend:       cfg.sessionCacheBackend,
@@ -677,6 +686,7 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 			CustomJA3Extras:           cfg.customJA3Extras,
 			CustomH2Settings:          cfg.customH2Settings,
 			CustomPseudoOrder:         cfg.customPseudoOrder,
+			CustomTCPFingerprint:      cfg.customTCPFingerprint,
 		}
 		s = session.NewSessionWithOptions("", sessionCfg, opts)
 	} else {

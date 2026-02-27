@@ -170,6 +170,10 @@ type TransportConfig struct {
 	// CustomPseudoOrder overrides the pseudo-header order (from Akamai fingerprint).
 	// Values: [":method", ":authority", ":scheme", ":path"]
 	CustomPseudoOrder []string
+
+	// CustomTCPFingerprint overrides individual TCP/IP fingerprint fields from the preset.
+	// Only non-zero fields are applied; zero fields keep the preset default.
+	CustomTCPFingerprint *fingerprint.TCPFingerprint
 }
 
 // Request represents an HTTP request
@@ -321,6 +325,25 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 		// Override preset HTTP/2 settings with custom Akamai fingerprint
 		if config.CustomH2Settings != nil {
 			preset.HTTP2Settings = *config.CustomH2Settings
+		}
+		// Override individual TCP/IP fingerprint fields
+		if config.CustomTCPFingerprint != nil {
+			fp := config.CustomTCPFingerprint
+			if fp.TTL > 0 {
+				preset.TCPFingerprint.TTL = fp.TTL
+			}
+			if fp.MSS > 0 {
+				preset.TCPFingerprint.MSS = fp.MSS
+			}
+			if fp.WindowSize > 0 {
+				preset.TCPFingerprint.WindowSize = fp.WindowSize
+			}
+			if fp.WindowScale > 0 {
+				preset.TCPFingerprint.WindowScale = fp.WindowScale
+			}
+			if fp.DFBit {
+				preset.TCPFingerprint.DFBit = fp.DFBit
+			}
 		}
 	}
 

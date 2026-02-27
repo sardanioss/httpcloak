@@ -50,6 +50,9 @@ type SessionOptions struct {
 
 	// CustomPseudoOrder overrides the pseudo-header order (from Akamai fingerprint)
 	CustomPseudoOrder []string
+
+	// CustomTCPFingerprint overrides individual TCP/IP fingerprint fields from the preset
+	CustomTCPFingerprint *fingerprint.TCPFingerprint
 }
 
 // cacheEntry stores cache validation headers for a URL
@@ -150,6 +153,7 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 			transportConfig.CustomJA3Extras = opts.CustomJA3Extras
 			transportConfig.CustomH2Settings = opts.CustomH2Settings
 			transportConfig.CustomPseudoOrder = opts.CustomPseudoOrder
+			transportConfig.CustomTCPFingerprint = opts.CustomTCPFingerprint
 		}
 	}
 
