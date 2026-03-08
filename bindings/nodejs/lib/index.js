@@ -1275,6 +1275,10 @@ class Session {
       ja3 = null,
       akamai = null,
       extraFp = null,
+      tcpTtl = null,
+      tcpMss = null,
+      tcpWindowSize = null,
+      tcpWindowScale = null,
     } = options;
 
     this._lib = getLib();
@@ -1349,6 +1353,18 @@ class Session {
     }
     if (extraFp) {
       config.extra_fp = extraFp;
+    }
+    if (tcpTtl != null) {
+      config.tcp_ttl = tcpTtl;
+    }
+    if (tcpMss != null) {
+      config.tcp_mss = tcpMss;
+    }
+    if (tcpWindowSize != null) {
+      config.tcp_window_size = tcpWindowSize;
+    }
+    if (tcpWindowScale != null) {
+      config.tcp_window_scale = tcpWindowScale;
     }
 
     this._handle = this._lib.httpcloak_session_new(JSON.stringify(config));

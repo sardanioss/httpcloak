@@ -60,6 +60,7 @@ That's it. Full browser transport layer fingerprint.
 - Stream priorities (HPACK)
 - QUIC transport parameters
 - HTTP/3 GREASE frames
+- TCP/IP stack (TTL, MSS, Window)
 
 </td>
 <td width="33%" valign="top">
@@ -336,6 +337,53 @@ session = httpcloak.Session(preset="chrome-145", http_version="h1")  # Force HTT
 ```
 
 Auto mode tries HTTP/3 first, falls back gracefully.
+
+### 🖥️ TCP/IP Fingerprinting
+
+Anti-bot systems inspect TCP SYN packet parameters (TTL, Window Size, MSS, Window Scale) to verify your claimed OS matches. A request claiming Chrome on Windows but with Linux TCP parameters (TTL=64) is instantly flagged.
+
+httpcloak automatically sets the correct TCP/IP fingerprint for each preset's platform. You can also override manually:
+
+```python
+session = httpcloak.Session(
+    preset="chrome-145-windows",
+    tcp_ttl=128,           # Windows=128, Linux/macOS=64
+    tcp_window_size=64240, # Windows=64240, Linux/macOS=65535
+    tcp_window_scale=8,    # Windows=8, Linux=7, macOS=6
+    tcp_mss=1460,          # Standard Ethernet MTU
+)
+```
+
+**Go:**
+```go
+client := client.NewClient("chrome-145-windows",
+    client.WithTCPFingerprint(fingerprint.TCPFingerprint{
+        TTL: 128, MSS: 1460, WindowSize: 64240, WindowScale: 8, DFBit: true,
+    }),
+)
+```
+
+**Node.js:**
+```javascript
+const session = new httpcloak.Session({
+    preset: "chrome-145-windows",
+    tcpTtl: 128,
+    tcpWindowSize: 64240,
+    tcpWindowScale: 8,
+});
+```
+
+**C#:**
+```csharp
+var session = new Session(
+    preset: Presets.Chrome145Windows,
+    tcpTtl: 128,
+    tcpWindowSize: 64240,
+    tcpWindowScale: 8
+);
+```
+
+Built-in platform profiles: Windows (TTL=128, WS=8), Linux (TTL=64, WS=7), macOS (TTL=64, WS=6).
 
 ### 🔀 Runtime Proxy Switching
 

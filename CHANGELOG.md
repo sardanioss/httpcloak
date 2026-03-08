@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1-beta.3] - 2026-03-08
+
+### Added
+
+- **TCP/IP fingerprint spoofing** — Spoof OS-level TCP/IP stack parameters (TTL, MSS, Window Size, Window Scale, DF bit) to match the claimed browser platform. Anti-bot systems check SYN packet characteristics to verify Windows/Linux/macOS claims. Platform-specific presets included: Windows (TTL=128, WS=8), Linux (TTL=64, WS=7), macOS (TTL=64, WS=6). Override via `WithTCPFingerprint` in Go or `tcp_ttl`/`tcp_mss`/`tcp_window_size`/`tcp_window_scale` options in bindings.
+- **`FetchModeNoCors`** — Simulate subresource loads (`<script>`, `<link>`, `<img>`) with `sec-fetch-mode: no-cors` and content-type-appropriate Accept headers. Use with `FetchDest` field to set `sec-fetch-dest` (script, style, image).
+- **`SetForceProtocol()`** — Switch HTTP protocol version (H1/H2/H3) at runtime without creating a new client. Useful for mimicking Chrome's H2→H3 alt-svc upgrade pattern.
+
+### Fixed
+
+- **Fix duplicate Content-Length in H1 transport** — The `writeHeadersInOrder` "remaining headers" loop wrote headers not in the preset order but did not mark them in the tracking map. The fallback "ensure Content-Length" block then wrote Content-Length a second time. Duplicate Content-Length is an HTTP/1.1 protocol violation — nginx and other strict servers return 400 Bad Request. This affected all H1 POST/PUT/PATCH requests with a body through all language bindings.
+- **Fix bindings sending Navigate headers to API endpoints** — The transport-level `applyPresetHeaders` always applied Navigate mode headers (`sec-fetch-mode: navigate`, `upgrade-insecure-requests: 1`) regardless of request type. API calls via Python/Node.js/.NET bindings were flagged by WAFs like Incapsula because browser navigation headers on an API call is a bot signal. Now auto-detects CORS mode from the user's Accept header (`application/json`, `*/*`, etc.) and adjusts sec-fetch headers accordingly.
+- **Fix Chrome 145 sending unnecessary MAX_FRAME_SIZE** — Chrome omits HTTP/2 SETTINGS_MAX_FRAME_SIZE (setting 5), relying on the RFC default of 16384. Our preset was sending it explicitly, creating a fingerprint mismatch.
+
+### Changed
+
+- **H3 header order unified with H2** — Removed separate `H3HeaderOrder` from presets. Chrome uses the same `request_->extra_headers` ordered vector for both H2 and H3 (confirmed from Chromium source). The previous H3-specific order was based on tls3.peet.ws's randomized output (their Go server uses maps internally, losing QPACK header order).
+- **QPACK Never-Index bit for sensitive headers** — Cookie, Authorization, and Proxy-Authorization headers are now encoded with the N=1 (Never-Index) bit in QPACK, matching Chrome's behavior of preventing intermediaries from caching sensitive values in dynamic tables.
+- **H3 SETTINGS frame delivery** — Re-added 5ms delay after opening control/QPACK streams to ensure the SETTINGS frame is parsed by the server before request HEADERS arrive. Without this, SETTINGS and request can be bundled in the same packet.
+- **Deterministic H3 header ordering** — Headers not in the preset order are now sorted alphabetically instead of random Go map iteration order. Canonical key lookup added for case-insensitive header matching in QPACK encoder.
+- **Chrome QUIC Initial packet structure** — Fixed to match Chrome's exact packet layout for fingerprint consistency.
+- **Chrome DefaultInitialRTT** — Set to 100ms matching Chrome's PTO (Probe Timeout) behavior.
+
+### Dependencies
+
+- quic-go v1.2.18 → v1.2.21
+- qpack v0.6.2 → v0.6.3
+
 ## [1.6.1-beta.2] - 2026-02-23
 
 ### Fixed
@@ -130,6 +158,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Baseline release. This changelog begins tracking changes from this version forward.
 
+[1.6.1-beta.3]: https://github.com/sardanioss/httpcloak/compare/v1.6.1-beta.2...v1.6.1-beta.3
 [1.6.1-beta.2]: https://github.com/sardanioss/httpcloak/compare/v1.6.1-beta.1...v1.6.1-beta.2
 [1.6.1-beta.1]: https://github.com/sardanioss/httpcloak/compare/v1.6.0...v1.6.1-beta.1
 [1.6.0]: https://github.com/sardanioss/httpcloak/compare/v1.6.0-beta.13...v1.6.0

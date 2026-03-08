@@ -1456,6 +1456,10 @@ class Session:
         ja3: Optional[str] = None,
         akamai: Optional[str] = None,
         extra_fp: Optional[Dict[str, any]] = None,
+        tcp_ttl: Optional[int] = None,
+        tcp_mss: Optional[int] = None,
+        tcp_window_size: Optional[int] = None,
+        tcp_window_scale: Optional[int] = None,
     ):
         self._lib = _get_lib()
         self._default_timeout = timeout
@@ -1507,6 +1511,14 @@ class Session:
             config["akamai"] = akamai
         if extra_fp:
             config["extra_fp"] = extra_fp
+        if tcp_ttl is not None:
+            config["tcp_ttl"] = tcp_ttl
+        if tcp_mss is not None:
+            config["tcp_mss"] = tcp_mss
+        if tcp_window_size is not None:
+            config["tcp_window_size"] = tcp_window_size
+        if tcp_window_scale is not None:
+            config["tcp_window_scale"] = tcp_window_scale
 
         config_json = json.dumps(config).encode("utf-8")
         self._handle = self._lib.httpcloak_session_new(config_json)
