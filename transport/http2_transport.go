@@ -62,17 +62,17 @@ type HTTP2Transport struct {
 
 // persistentConn represents a persistent HTTP/2 connection
 type persistentConn struct {
-	host            string
-	tlsConn         *utls.UConn
-	h2Conn          *http2.ClientConn
-	createdAt       time.Time
-	lastUsedAt      time.Time
-	useCount        int64
-	inFlight        int32 // number of active RoundTrip calls — prevents cleanup during long requests
-	sessionResumed  bool  // True if TLS session was resumed (faster handshake)
-	tlsVersion      uint16
-	cipherSuite     uint16
-	mu              sync.Mutex
+	host           string
+	tlsConn        *utls.UConn
+	h2Conn         *http2.ClientConn
+	createdAt      time.Time
+	lastUsedAt     time.Time
+	useCount       int64
+	inFlight       int32 // number of active RoundTrip calls — prevents cleanup during long requests
+	sessionResumed bool  // True if TLS session was resumed (faster handshake)
+	tlsVersion     uint16
+	cipherSuite    uint16
+	mu             sync.Mutex
 }
 
 // NewHTTP2Transport creates a new HTTP/2 transport with uTLS
@@ -219,6 +219,10 @@ func (t *HTTP2Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key string) (*persistentConn, error) {
 	// Try to get existing connection
 	t.connsMu.RLock()
+	if t.closed {
+		t.connsMu.RUnlock()
+		return nil, fmt.Errorf("http2: transport closed")
+	}
 	conn, exists := t.conns[key]
 	t.connsMu.RUnlock()
 
@@ -228,6 +232,10 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 
 	// Need to create new connection — verify under write lock first
 	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		return nil, fmt.Errorf("http2: transport closed")
+	}
 
 	// Double-check after acquiring write lock
 	if conn, exists = t.conns[key]; exists && t.isConnUsable(conn) {
@@ -251,6 +259,11 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 
 	// Store the new connection
 	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		go newConn.close()
+		return nil, fmt.Errorf("http2: transport closed")
+	}
 	// Another goroutine may have created a conn while we were dialing
 	if existingConn, ok := t.conns[key]; ok && t.isConnUsable(existingConn) {
 		t.connsMu.Unlock()
@@ -604,9 +617,9 @@ alpnCheck:
 		PingTimeout:                15 * time.Second,
 
 		// Native fingerprinting via sardanioss/net
-		ConnectionFlow: settings.ConnectionWindowUpdate,
-		Settings:       h2Settings,
-		SettingsOrder:  h2SettingsOrder,
+		ConnectionFlow:    settings.ConnectionWindowUpdate,
+		Settings:          h2Settings,
+		SettingsOrder:     h2SettingsOrder,
 		PseudoHeaderOrder: pseudoOrder,
 		HeaderPriority: func() *http2.PriorityParam {
 			// Chrome 120+ uses RFC 9218 extensible priorities (priority: header)
@@ -1125,6 +1138,10 @@ func (t *HTTP2Transport) Connect(ctx context.Context, host, port string) error {
 
 	// Check if we already have a usable connection
 	t.connsMu.RLock()
+	if t.closed {
+		t.connsMu.RUnlock()
+		return fmt.Errorf("http2: transport closed")
+	}
 	existingConn, exists := t.conns[key]
 	t.connsMu.RUnlock()
 
