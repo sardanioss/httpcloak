@@ -219,6 +219,10 @@ func (t *HTTP2Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key string) (*persistentConn, error) {
 	// Try to get existing connection
 	t.connsMu.RLock()
+	if t.closed {
+		t.connsMu.RUnlock()
+		return nil, fmt.Errorf("http2: transport closed")
+	}
 	conn, exists := t.conns[key]
 	t.connsMu.RUnlock()
 
@@ -228,6 +232,10 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 
 	// Need to create new connection — verify under write lock first
 	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		return nil, fmt.Errorf("http2: transport closed")
+	}
 
 	// Double-check after acquiring write lock
 	if conn, exists = t.conns[key]; exists && t.isConnUsable(conn) {
@@ -251,6 +259,11 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 
 	// Store the new connection
 	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		go newConn.close()
+		return nil, fmt.Errorf("http2: transport closed")
+	}
 	// Another goroutine may have created a conn while we were dialing
 	if existingConn, ok := t.conns[key]; ok && t.isConnUsable(existingConn) {
 		t.connsMu.Unlock()
@@ -320,7 +333,6 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 			Timeout:   t.connectTimeout,
 			KeepAlive: 30 * time.Second,
 		}
-		SetDialerControl(dialer, &t.preset.TCPFingerprint)
 		if t.localAddr != "" {
 			localIP := net.ParseIP(t.localAddr)
 			dialer.LocalAddr = &net.TCPAddr{IP: localIP}
@@ -608,18 +620,11 @@ alpnCheck:
 		Settings:       h2Settings,
 		SettingsOrder:  h2SettingsOrder,
 		PseudoHeaderOrder: pseudoOrder,
-		HeaderPriority: func() *http2.PriorityParam {
-			// Chrome 120+ uses RFC 9218 extensible priorities (priority: header)
-			// instead of RFC 7540 PRIORITY frames. StreamWeight=0 means no PRIORITY data.
-			if settings.StreamWeight > 0 {
-				return &http2.PriorityParam{
-					Weight:    uint8(settings.StreamWeight - 1), // Wire format is weight-1
-					Exclusive: settings.StreamExclusive,
-					StreamDep: 0,
-				}
-			}
-			return nil
-		}(),
+		HeaderPriority: &http2.PriorityParam{
+			Weight:    uint8(settings.StreamWeight - 1), // Wire format is weight-1
+			Exclusive: settings.StreamExclusive,
+			StreamDep: 0,
+		},
 		HeaderOrder: []string{
 			// Chrome 143 header order (verified via tls.peet.ws)
 			"cache-control", // appears on reload/session resumption
@@ -683,7 +688,6 @@ func (t *HTTP2Transport) dialThroughSOCKS5(ctx context.Context, targetHost, targ
 	if t.localAddr != "" {
 		socks5Dialer.SetLocalAddr(t.localAddr)
 	}
-	socks5Dialer.Control = BuildDialerControl(&t.preset.TCPFingerprint)
 
 	targetAddr := net.JoinHostPort(targetHost, targetPort)
 	conn, err := socks5Dialer.DialContext(ctx, "tcp", targetAddr)
@@ -731,7 +735,6 @@ func (t *HTTP2Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, t
 		Timeout:   t.connectTimeout,
 		KeepAlive: 30 * time.Second,
 	}
-	SetDialerControl(dialer, &t.preset.TCPFingerprint)
 	if t.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
@@ -796,7 +799,6 @@ func (t *HTTP2Transport) dialHTTPProxyBlockingFresh(ctx context.Context, targetH
 		Timeout:   t.connectTimeout,
 		KeepAlive: 30 * time.Second,
 	}
-	SetDialerControl(dialer, &t.preset.TCPFingerprint)
 	if t.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
@@ -1125,6 +1127,10 @@ func (t *HTTP2Transport) Connect(ctx context.Context, host, port string) error {
 
 	// Check if we already have a usable connection
 	t.connsMu.RLock()
+	if t.closed {
+		t.connsMu.RUnlock()
+		return fmt.Errorf("http2: transport closed")
+	}
 	existingConn, exists := t.conns[key]
 	t.connsMu.RUnlock()
 
@@ -1140,6 +1146,11 @@ func (t *HTTP2Transport) Connect(ctx context.Context, host, port string) error {
 
 	// Store connection for reuse
 	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		go conn.close()
+		return fmt.Errorf("http2: transport closed")
+	}
 	// Check again in case another goroutine created one
 	if oldConn, exists := t.conns[key]; exists {
 		// Close the old one if not usable
