@@ -219,6 +219,10 @@ func (t *HTTP2Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key string) (*persistentConn, error) {
 	// Try to get existing connection
 	t.connsMu.RLock()
+	if t.closed {
+		t.connsMu.RUnlock()
+		return nil, fmt.Errorf("http2: transport closed")
+	}
 	conn, exists := t.conns[key]
 	t.connsMu.RUnlock()
 
@@ -228,6 +232,10 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 
 	// Need to create new connection — verify under write lock first
 	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		return nil, fmt.Errorf("http2: transport closed")
+	}
 
 	// Double-check after acquiring write lock
 	if conn, exists = t.conns[key]; exists && t.isConnUsable(conn) {
@@ -251,6 +259,11 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 
 	// Store the new connection
 	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		go newConn.close()
+		return nil, fmt.Errorf("http2: transport closed")
+	}
 	// Another goroutine may have created a conn while we were dialing
 	if existingConn, ok := t.conns[key]; ok && t.isConnUsable(existingConn) {
 		t.connsMu.Unlock()
@@ -1126,6 +1139,10 @@ func (t *HTTP2Transport) Connect(ctx context.Context, host, port string) error {
 
 	// Check if we already have a usable connection
 	t.connsMu.RLock()
+	if t.closed {
+		t.connsMu.RUnlock()
+		return fmt.Errorf("http2: transport closed")
+	}
 	existingConn, exists := t.conns[key]
 	t.connsMu.RUnlock()
 
@@ -1141,6 +1158,11 @@ func (t *HTTP2Transport) Connect(ctx context.Context, host, port string) error {
 
 	// Store connection for reuse
 	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		go conn.close()
+		return fmt.Errorf("http2: transport closed")
+	}
 	// Check again in case another goroutine created one
 	if oldConn, exists := t.conns[key]; exists {
 		// Close the old one if not usable
