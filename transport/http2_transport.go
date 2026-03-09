@@ -604,9 +604,10 @@ alpnCheck:
 		PingTimeout:                15 * time.Second,
 
 		// Native fingerprinting via sardanioss/net
-		ConnectionFlow: settings.ConnectionWindowUpdate,
-		Settings:       h2Settings,
-		SettingsOrder:  h2SettingsOrder,
+		ConnectionFlow:     settings.ConnectionWindowUpdate,
+		Settings:           h2Settings,
+		SettingsOrder:      h2SettingsOrder,
+		DisableCookieSplit: true, // Chrome sends cookies as one HPACK entry, not split per RFC 9113
 		PseudoHeaderOrder: pseudoOrder,
 		HeaderPriority: func() *http2.PriorityParam {
 			// Chrome 120+ uses RFC 9218 extensible priorities (priority: header)
