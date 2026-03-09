@@ -166,7 +166,7 @@ func Chrome133() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -222,7 +222,7 @@ func Chrome141() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -338,7 +338,7 @@ func Chrome143() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -396,7 +396,7 @@ func Chrome143Windows() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -454,7 +454,7 @@ func Chrome143Linux() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -512,7 +512,7 @@ func Chrome143macOS() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -580,7 +580,7 @@ func Chrome144() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -634,7 +634,7 @@ func Chrome144Windows() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -688,7 +688,7 @@ func Chrome144Linux() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -742,7 +742,7 @@ func Chrome144macOS() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -1316,7 +1316,7 @@ func AndroidChrome143() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -1370,7 +1370,7 @@ func AndroidChrome144() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
@@ -1424,7 +1424,7 @@ func AndroidChrome145() *Preset {
 			EnablePush:             false,
 			MaxConcurrentStreams:   0,
 			InitialWindowSize:      6291456,
-			MaxFrameSize:           16384,
+			MaxFrameSize:           0, // Chrome omits setting 5 (16384 is RFC default)
 			MaxHeaderListSize:      262144,
 			ConnectionWindowUpdate: 15663105,
 			StreamWeight:           256,
