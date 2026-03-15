@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Userspace UDP receive buffering** — On platforms where the kernel limits UDP socket buffer size (Azure Container Apps: 416 KiB), a dedicated drain goroutine now keeps the kernel buffer permanently drained by buffering packets in userspace (256–4096 slots). Prevents silent packet drops, retransmissions, and connection failures for HTTP/3. Activates automatically when the kernel buffer is below 7 MB; zero overhead on systems with proper buffers.
+- **`google_connection_options` QUIC transport parameter** — Chrome sends `google_connection_options` (0x3128) with value "B2ON" in QUIC handshakes. This was the last missing Chrome-specific transport parameter identified in a full fingerprint audit against azuretls-client.
+- **HPACK never-indexed representation for sensitive headers** — `cookie`, `authorization`, and `proxy-authorization` now use the HPACK "Never Indexed" wire encoding (0x10 prefix) matching Chrome's behavior. Previously used "Without Indexing" (0x00 prefix) which anti-bot systems like Akamai can distinguish.
+- **`tcp_df` option in Python and Node.js bindings** — The DF (Don't Fragment) bit was missing from the Python and Node.js session constructors. Now all 5 TCP fingerprint fields are exposed in all bindings.
+- **All TCP fingerprint fields in .NET binding** — The .NET `Session` constructor and `SessionConfig` class now expose `tcpTtl`, `tcpMss`, `tcpWindowSize`, `tcpWindowScale`, and `tcpDf` parameters.
+
+### Fixed
+
+- **Fix pool H2 path splitting cookies per RFC 9113** — The pool `http2.Transport` was missing `DisableCookieSplit: true`, causing cookies to be sent as separate HPACK entries instead of a single entry like real Chrome. Detectable by Akamai's H2 fingerprinter.
+
+### Changed
+
+- **TCP/IP fingerprint spoofing disabled by default** — Spoofing (TTL, MSS, WindowSize, WindowScale, DF bit) applied to proxy connections breaks connectivity and is useless — the proxy terminates TCP, so the target never sees spoofed values. All 24 presets now ship with zero TCPFingerprint. Users can opt in via `WithTCPFingerprint()` (Go) or `tcp_ttl`/`tcp_mss` etc. in bindings.
+- **UDP buffer size warnings permanently suppressed** — The `log.Printf` warnings about insufficient kernel UDP buffer sizes are removed. `setReceiveBuffer`/`setSendBuffer` still attempt to increase buffers best-effort; failures are silently handled by userspace buffering.
+
+### Dependencies
+
+- sardanioss/quic-go v1.2.21 → v1.2.23
+- sardanioss/net v1.2.4 → v1.2.5
+
 ## [1.6.1-beta.3] - 2026-03-08
 
 ### Added
