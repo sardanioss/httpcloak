@@ -31,7 +31,7 @@ async function main() {
     console.log('-'.repeat(60));
 
     let session = new Session({
-        preset: 'chrome-145',
+        preset: 'chrome-latest',
         timeout: 30
     });
 
@@ -59,7 +59,7 @@ async function main() {
 
     // Create a session, warm it up, then fork into parallel tabs
     session = new Session({
-        preset: 'chrome-145',
+        preset: 'chrome-latest',
         timeout: 30
     });
 
@@ -106,7 +106,7 @@ The recommended pattern for parallel scraping:
 3. Fork into N parallel sessions
 4. Use each fork for independent requests
 
-    const session = new Session({ preset: "chrome-145" });
+    const session = new Session({ preset: "chrome-latest" });
     session.warmup("https://example.com");
 
     const tabs = session.fork(10);

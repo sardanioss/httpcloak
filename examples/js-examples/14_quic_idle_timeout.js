@@ -32,7 +32,7 @@ async function main() {
   console.log("-".repeat(50));
 
   let session = new httpcloak.Session({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     httpVersion: "h3", // Force HTTP/3 to use QUIC
   });
 
@@ -49,7 +49,7 @@ async function main() {
   console.log("-".repeat(50));
 
   session = new httpcloak.Session({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     httpVersion: "h3",
     quicIdleTimeout: 120, // 2 minutes
   });
@@ -77,7 +77,7 @@ async function main() {
   console.log("-".repeat(50));
 
   session = new httpcloak.Session({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     httpVersion: "h3",
     quicIdleTimeout: 300, // 5 minutes
   });
@@ -95,7 +95,7 @@ async function main() {
   console.log("-".repeat(50));
 
   session = new httpcloak.Session({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     httpVersion: "h3",
     quicIdleTimeout: 180, // 3 minutes
     timeout: 60, // Request timeout

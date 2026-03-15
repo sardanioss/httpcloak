@@ -31,7 +31,7 @@ print("Example 1: Basic Proxy Switching")
 print("-" * 60)
 
 # Create session without proxy (direct connection)
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 
 # Make request with direct connection
 r = session.get(TEST_URL)
@@ -57,7 +57,7 @@ print("\n" + "=" * 60)
 print("Example 2: Getting Current Proxy Configuration")
 print("-" * 60)
 
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 
 print(f"Initial proxy: '{session.get_proxy()}' (empty = direct)")
 print(f"TCP proxy: '{session.get_tcp_proxy()}'")
@@ -73,7 +73,7 @@ print("-" * 60)
 print("""
 # Use different proxies for HTTP/1.1+HTTP/2 (TCP) and HTTP/3 (UDP):
 
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 
 # Set TCP proxy for HTTP/1.1 and HTTP/2
 session.set_tcp_proxy("http://tcp-proxy.example.com:8080")
@@ -98,7 +98,7 @@ print("""
 # - SOCKS5 with UDP ASSOCIATE (most residential proxies)
 # - MASQUE (CONNECT-UDP) - premium providers like Bright Data, Oxylabs
 
-session = httpcloak.Session(preset="chrome-145", http_version="h3")
+session = httpcloak.Session(preset="chrome-latest", http_version="h3")
 
 # Direct H3 connection
 r = session.get("https://example.com")
@@ -129,7 +129,7 @@ proxies = [
     "http://proxy3.example.com:8080",
 ]
 
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 
 for i, proxy in enumerate(proxies):
     session.set_proxy(proxy)

@@ -1117,7 +1117,7 @@ public sealed class Session : IDisposable
     /// <param name="path">Path to save the session file</param>
     /// <example>
     /// <code>
-    /// using var session = new Session(preset: "chrome-145");
+    /// using var session = new Session(preset: "chrome-latest");
     /// var r = session.Get("https://example.com");  // Acquire cookies
     /// session.Save("session.json");
     ///
@@ -2772,7 +2772,7 @@ internal class StreamMetadata
 /// <example>
 /// <code>
 /// // Create handler with browser fingerprint
-/// using var handler = new HttpCloakHandler(preset: "chrome-145");
+/// using var handler = new HttpCloakHandler(preset: "chrome-latest");
 /// using var client = new HttpClient(handler);
 ///
 /// // All requests now go through httpcloak with TLS fingerprinting

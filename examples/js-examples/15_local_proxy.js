@@ -21,7 +21,7 @@ async function basicLocalProxy() {
 
   // Start a local proxy on an auto-selected port
   const proxy = new LocalProxy({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     port: 0, // Auto-select available port
   });
 
@@ -49,7 +49,7 @@ async function tlsOnlyMode() {
 
   // Start proxy in TLS-only mode
   const proxy = new LocalProxy({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     tlsOnly: true, // Only apply TLS fingerprint, pass headers through
     port: 0,
   });
@@ -59,7 +59,7 @@ async function tlsOnlyMode() {
   // Use with httpcloak Session pointing to the local proxy
   const session = new Session({
     proxy: proxy.proxyUrl,
-    preset: "chrome-145",
+    preset: "chrome-latest",
   });
 
   try {
@@ -95,7 +95,7 @@ async function perRequestProxyRotation() {
 
   // Start local proxy without a default upstream proxy
   const proxy = new LocalProxy({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     tlsOnly: true,
     port: 0,
   });
@@ -134,7 +134,7 @@ async function withDefaultUpstreamProxy() {
   // Start proxy with a default upstream proxy
   // Replace with your actual proxy URL
   const proxy = new LocalProxy({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     tlsOnly: true,
     tcpProxy: "http://user:pass@your-proxy.example.com:8080", // Default for HTTP/1.1, HTTP/2
     // udpProxy: 'socks5://user:pass@your-proxy.example.com:1080', // For HTTP/3
@@ -154,7 +154,7 @@ async function proxyStatistics() {
   console.log("=== Proxy Statistics ===\n");
 
   const proxy = new LocalProxy({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     maxConnections: 1000,
     timeout: 30,
     port: 0,
@@ -163,7 +163,7 @@ async function proxyStatistics() {
   // Make some requests through the proxy
   const session = new Session({
     proxy: proxy.proxyUrl,
-    preset: "chrome-145",
+    preset: "chrome-latest",
   });
 
   try {
@@ -199,7 +199,7 @@ const { ProxyAgent } = require('undici');
 
 // Start LocalProxy with TLS-only mode
 const proxy = new LocalProxy({
-  preset: 'chrome-145',
+  preset: 'chrome-latest',
   tlsOnly: true,  // Pass headers through, only apply TLS fingerprint
   port: 8888
 });

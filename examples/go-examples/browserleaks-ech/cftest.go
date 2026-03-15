@@ -11,7 +11,7 @@ import (
 func main() {
 	ctx := context.Background()
 	
-	c := client.NewClient("chrome-145-windows",
+	c := client.NewClient("chrome-latest-windows",
 		client.WithTimeout(30*time.Second),
 	)
 	defer c.Close()

@@ -51,7 +51,7 @@ Use streaming when:
 - Processing data incrementally (parsing, transforming)
 - Writing to disk as data arrives`)
 
-	session := httpcloak.NewSession("chrome-145")
+	session := httpcloak.NewSession("chrome-latest")
 	defer session.Close()
 
 	// =========================================================================
@@ -205,7 +205,7 @@ Use streaming when:
 	fmt.Println(strings.Repeat("-", 50))
 
 	// HTTP/2 streaming
-	sessionH2 := httpcloak.NewSession("chrome-145", httpcloak.WithForceHTTP2())
+	sessionH2 := httpcloak.NewSession("chrome-latest", httpcloak.WithForceHTTP2())
 	stream, err = sessionH2.GetStream(ctx, "https://cloudflare.com/cdn-cgi/trace")
 	if err != nil {
 		fmt.Printf("HTTP/2 stream error: %v\n", err)
@@ -221,7 +221,7 @@ Use streaming when:
 	sessionH2.Close()
 
 	// HTTP/3 streaming
-	sessionH3 := httpcloak.NewSession("chrome-145", httpcloak.WithForceHTTP3())
+	sessionH3 := httpcloak.NewSession("chrome-latest", httpcloak.WithForceHTTP3())
 	stream, err = sessionH3.GetStream(ctx, "https://cloudflare.com/cdn-cgi/trace")
 	if err != nil {
 		fmt.Printf("HTTP/3 stream error: %v\n", err)

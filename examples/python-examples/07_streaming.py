@@ -48,7 +48,7 @@ Use streaming when:
 - Writing to disk as data arrives
 """)
 
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 
 # =============================================================================
 # Example 1: Basic Streaming with iter_content()
@@ -149,14 +149,14 @@ print("\n[5] Streaming with Different Protocols")
 print("-" * 50)
 
 # HTTP/2 streaming
-session_h2 = httpcloak.Session(preset="chrome-145", http_version="h2")
+session_h2 = httpcloak.Session(preset="chrome-latest", http_version="h2")
 with session_h2.get_stream("https://cloudflare.com/cdn-cgi/trace") as stream:
     data = b"".join(stream.iter_content(chunk_size=1024))
     print(f"HTTP/2 stream: {len(data)} bytes, protocol: {stream.protocol}")
 session_h2.close()
 
 # HTTP/3 streaming
-session_h3 = httpcloak.Session(preset="chrome-145", http_version="h3")
+session_h3 = httpcloak.Session(preset="chrome-latest", http_version="h3")
 with session_h3.get_stream("https://cloudflare.com/cdn-cgi/trace") as stream:
     data = b"".join(stream.iter_content(chunk_size=1024))
     print(f"HTTP/3 stream: {len(data)} bytes, protocol: {stream.protocol}")

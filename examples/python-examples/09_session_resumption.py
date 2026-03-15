@@ -31,7 +31,7 @@ if os.path.exists(SESSION_FILE):
     print("Session loaded with TLS tickets!")
 else:
     print("Creating new session...")
-    session = httpcloak.Session(preset="chrome-145")
+    session = httpcloak.Session(preset="chrome-latest")
 
     # Warm up - this acquires TLS session tickets
     print("Warming up session...")
@@ -55,7 +55,7 @@ print("Example 2: Marshal/Unmarshal Session (String)")
 print("-" * 60)
 
 # Create and warm up session
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 session.get("https://cloudflare.com/")
 
 # Export to JSON string (store in Redis, database, etc.)
@@ -76,7 +76,7 @@ print("\n" + "=" * 60)
 print("Example 3: Cross-Domain Warming")
 print("-" * 60)
 
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 
 # Warm up on cloudflare.com (safe, no bot detection)
 print("Warming up on cloudflare.com...")
@@ -112,7 +112,7 @@ def get_or_create_session(session_key: str) -> httpcloak.Session:
         return httpcloak.Session.load(session_file)
 
     # Create new session and warm it up
-    session = httpcloak.Session(preset="chrome-145")
+    session = httpcloak.Session(preset="chrome-latest")
 
     # Warm up on a neutral Cloudflare endpoint
     session.get("https://cloudflare.com/cdn-cgi/trace")

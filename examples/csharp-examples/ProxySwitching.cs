@@ -31,7 +31,7 @@ Console.WriteLine("Example 1: Basic Proxy Switching");
 Console.WriteLine(new string('-', 60));
 
 // Create session without proxy (direct connection)
-using (var session = new Session(preset: "chrome-145"))
+using (var session = new Session(preset: "chrome-latest"))
 {
     // Make request with direct connection
     var r = await session.GetAsync(TEST_URL);
@@ -56,7 +56,7 @@ Console.WriteLine("\n" + new string('=', 60));
 Console.WriteLine("Example 2: Getting Current Proxy Configuration");
 Console.WriteLine(new string('-', 60));
 
-using (var session = new Session(preset: "chrome-145"))
+using (var session = new Session(preset: "chrome-latest"))
 {
     Console.WriteLine($"Initial proxy: '{session.GetProxy()}' (empty = direct)");
     Console.WriteLine($"TCP proxy: '{session.GetTcpProxy()}'");
@@ -74,7 +74,7 @@ Console.WriteLine(new string('-', 60));
 Console.WriteLine(@"
 // Use different proxies for HTTP/1.1+HTTP/2 (TCP) and HTTP/3 (UDP):
 
-using var session = new Session(preset: ""chrome-145"");
+using var session = new Session(preset: ""chrome-latest"");
 
 // Set TCP proxy for HTTP/1.1 and HTTP/2
 session.SetTcpProxy(""http://tcp-proxy.example.com:8080"");
@@ -99,7 +99,7 @@ Console.WriteLine(@"
 // - SOCKS5 with UDP ASSOCIATE (most residential proxies)
 // - MASQUE (CONNECT-UDP) - premium providers like Bright Data, Oxylabs
 
-using var session = new Session(preset: ""chrome-145"", httpVersion: ""h3"");
+using var session = new Session(preset: ""chrome-latest"", httpVersion: ""h3"");
 
 // Direct H3 connection
 var r = await session.GetAsync(""https://example.com"");
@@ -131,7 +131,7 @@ var proxies = new[]
     ""http://proxy3.example.com:8080"",
 };
 
-using var session = new Session(preset: ""chrome-145"");
+using var session = new Session(preset: ""chrome-latest"");
 
 for (int i = 0; i < proxies.Length; i++)
 {
@@ -152,7 +152,7 @@ Console.WriteLine(@"
 // If you experience issues with certain proxies, disable it:
 
 using var session = new Session(
-    preset: ""chrome-145"",
+    preset: ""chrome-latest"",
     proxy: ""http://user:pass@proxy.example.com:8080"",
     disableSpeculativeTls: true
 );

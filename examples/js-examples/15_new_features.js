@@ -33,7 +33,7 @@ async function main() {
     console.log('-'.repeat(60));
 
     let session = new Session({
-        preset: 'chrome-145',
+        preset: 'chrome-latest',
         timeout: 30
     });
 
@@ -70,7 +70,7 @@ async function main() {
 
     // Create session with key logging enabled
     session = new Session({
-        preset: 'chrome-145',
+        preset: 'chrome-latest',
         timeout: 30,
         keyLogFile: keylogPath
     });
@@ -105,13 +105,13 @@ Usage:
 
 // Bind to specific IPv6 address
 const session = new Session({
-    preset: 'chrome-145',
+    preset: 'chrome-latest',
     localAddress: '2001:db8::1'
 });
 
 // Bind to specific IPv4 address
 const session = new Session({
-    preset: 'chrome-145',
+    preset: 'chrome-latest',
     localAddress: '192.168.1.100'
 });
 
@@ -125,7 +125,7 @@ Example with your machine's IPs:
     // Uncomment to test with your real IPv6/IPv4:
     //
     // const session3 = new Session({
-    //     preset: 'chrome-145',
+    //     preset: 'chrome-latest',
     //     localAddress: 'YOUR_LOCAL_IP_HERE',
     //     timeout: 30
     // });

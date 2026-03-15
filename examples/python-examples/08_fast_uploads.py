@@ -42,7 +42,7 @@ Key optimizations:
 3. Connection keep-alive for multiple uploads
 """)
 
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 
 # =============================================================================
 # Example 1: Basic Binary Upload
@@ -137,13 +137,13 @@ print("-" * 50)
 small_data = b"test upload data"
 
 # HTTP/2
-session_h2 = httpcloak.Session(preset="chrome-145", http_version="h2")
+session_h2 = httpcloak.Session(preset="chrome-latest", http_version="h2")
 r = session_h2.post("https://httpbin.org/post", data=small_data)
 print(f"HTTP/2 upload: {r.status_code}, protocol: {r.protocol}")
 session_h2.close()
 
 # HTTP/3
-session_h3 = httpcloak.Session(preset="chrome-145", http_version="h3")
+session_h3 = httpcloak.Session(preset="chrome-latest", http_version="h3")
 r = session_h3.post("https://cloudflare.com/cdn-cgi/trace", data=small_data)
 print(f"HTTP/3 upload: {r.status_code}, protocol: {r.protocol}")
 session_h3.close()

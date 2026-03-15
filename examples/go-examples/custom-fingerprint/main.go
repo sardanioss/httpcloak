@@ -52,7 +52,7 @@ func example1CustomJA3(ctx context.Context) {
 	fmt.Println(strings.Repeat("-", 50))
 
 	// TLS-only mode is automatically enabled when JA3 is set
-	session := httpcloak.NewSession("chrome-145",
+	session := httpcloak.NewSession("chrome-latest",
 		httpcloak.WithCustomFingerprint(httpcloak.CustomFingerprint{
 			JA3: chrome131JA3,
 		}),
@@ -83,7 +83,7 @@ func example1CustomJA3(ctx context.Context) {
 		fmt.Printf("JA3 text: %s\n", result.TLS.JA3)
 	}
 	fmt.Println("\nThe TLS fingerprint now matches the custom JA3 string,")
-	fmt.Println("not the chrome-145 preset.")
+	fmt.Println("not the chrome-latest preset.")
 }
 
 // =========================================================================
@@ -94,7 +94,7 @@ func example2CustomAkamai(ctx context.Context) {
 	fmt.Println("[2] Custom Akamai HTTP/2 Fingerprint")
 	fmt.Println(strings.Repeat("-", 50))
 
-	session := httpcloak.NewSession("chrome-145",
+	session := httpcloak.NewSession("chrome-latest",
 		httpcloak.WithCustomFingerprint(httpcloak.CustomFingerprint{
 			Akamai: chromeAkamai,
 		}),
@@ -130,7 +130,7 @@ func example3Combined(ctx context.Context) {
 	fmt.Println("[3] Combined JA3 + Akamai")
 	fmt.Println(strings.Repeat("-", 50))
 
-	session := httpcloak.NewSession("chrome-145",
+	session := httpcloak.NewSession("chrome-latest",
 		httpcloak.WithCustomFingerprint(httpcloak.CustomFingerprint{
 			JA3:    chrome131JA3,
 			Akamai: chromeAkamai,
@@ -170,7 +170,7 @@ func example4ExtraOptions(ctx context.Context) {
 	fmt.Println("[4] Extra Fingerprint Options")
 	fmt.Println(strings.Repeat("-", 50))
 
-	session := httpcloak.NewSession("chrome-145",
+	session := httpcloak.NewSession("chrome-latest",
 		httpcloak.WithCustomFingerprint(httpcloak.CustomFingerprint{
 			JA3:               chrome131JA3,
 			ALPN:              []string{"h2", "http/1.1"},

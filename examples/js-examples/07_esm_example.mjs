@@ -86,7 +86,7 @@ console.log("Example 4: Default Import");
 console.log("-".repeat(60));
 
 // You can also use the default import for everything
-const session2 = new httpcloak.Session({ preset: "chrome-145" });
+const session2 = new httpcloak.Session({ preset: "chrome-latest" });
 const r2 = await session2.get("https://httpbin.org/headers");
 console.log(`Default import GET: ${r2.statusCode}`);
 session2.close();

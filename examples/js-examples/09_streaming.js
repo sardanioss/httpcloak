@@ -49,7 +49,7 @@ Use streaming when:
 - Writing to disk as data arrives
 `);
 
-  const session = new httpcloak.Session({ preset: "chrome-145" });
+  const session = new httpcloak.Session({ preset: "chrome-latest" });
 
   // ===========================================================================
   // Example 1: Basic Streaming
@@ -163,7 +163,7 @@ Use streaming when:
   console.log("-".repeat(50));
 
   // HTTP/2 streaming
-  const sessionH2 = new httpcloak.Session({ preset: "chrome-145", httpVersion: "h2" });
+  const sessionH2 = new httpcloak.Session({ preset: "chrome-latest", httpVersion: "h2" });
   stream = sessionH2.getStream("https://cloudflare.com/cdn-cgi/trace");
   let data = Buffer.alloc(0);
   while (true) {
@@ -176,7 +176,7 @@ Use streaming when:
   sessionH2.close();
 
   // HTTP/3 streaming
-  const sessionH3 = new httpcloak.Session({ preset: "chrome-145", httpVersion: "h3" });
+  const sessionH3 = new httpcloak.Session({ preset: "chrome-latest", httpVersion: "h3" });
   stream = sessionH3.getStream("https://cloudflare.com/cdn-cgi/trace");
   data = Buffer.alloc(0);
   while (true) {

@@ -39,7 +39,7 @@ func main() {
 	fmt.Println("Example 1: Refresh (Browser Page Refresh)")
 	fmt.Println(strings.Repeat("-", 60))
 
-	session := httpcloak.NewSession("chrome-145", httpcloak.WithSessionTimeout(30*time.Second))
+	session := httpcloak.NewSession("chrome-latest", httpcloak.WithSessionTimeout(30*time.Second))
 
 	// Make initial request - establishes TLS session
 	resp, err := session.Get(ctx, TEST_URL)
@@ -81,7 +81,7 @@ func main() {
 	os.Remove(keylogPath)
 
 	// Create session with key logging enabled
-	session2 := httpcloak.NewSession("chrome-145",
+	session2 := httpcloak.NewSession("chrome-latest",
 		httpcloak.WithSessionTimeout(30*time.Second),
 		httpcloak.WithKeyLogFile(keylogPath),
 	)
@@ -118,12 +118,12 @@ for outgoing connections. This is essential for IPv6 rotation scenarios.
 Usage:
 
 // Bind to specific IPv6 address
-session, _ := httpcloak.NewSession("chrome-145",
+session, _ := httpcloak.NewSession("chrome-latest",
     httpcloak.WithLocalAddress("2001:db8::1"),
 )
 
 // Bind to specific IPv4 address
-session, _ := httpcloak.NewSession("chrome-145",
+session, _ := httpcloak.NewSession("chrome-latest",
     httpcloak.WithLocalAddress("192.168.1.100"),
 )
 
@@ -136,7 +136,7 @@ Example with your machine's IPs:
 	// This is a demonstration - replace with actual local IP
 	// Uncomment to test with your real IPv6/IPv4:
 	//
-	// session3 := httpcloak.NewSession("chrome-145",
+	// session3 := httpcloak.NewSession("chrome-latest",
 	//     httpcloak.WithLocalAddress("YOUR_LOCAL_IP_HERE"),
 	//     httpcloak.WithSessionTimeout(30*time.Second),
 	// )
@@ -162,7 +162,7 @@ Speculative TLS (disabled by default):
 Sends CONNECT + TLS ClientHello together, saving one round-trip (~25% faster).
 Enable it if your proxy supports it and you want the extra speed:
 
-session := httpcloak.NewSession("chrome-145",
+session := httpcloak.NewSession("chrome-latest",
     httpcloak.WithProxy("http://user:pass@proxy.example.com:8080"),
     httpcloak.WithEnableSpeculativeTLS(),
 )

@@ -31,7 +31,7 @@ print("=" * 60)
 print("Example 1: Refresh (Browser Page Refresh)")
 print("-" * 60)
 
-session = httpcloak.Session(preset="chrome-145", timeout=30)
+session = httpcloak.Session(preset="chrome-latest", timeout=30)
 
 # Make initial request - establishes TLS session
 r = session.get(TEST_URL)
@@ -66,7 +66,7 @@ if os.path.exists(keylog_path):
 
 # Create session with key logging enabled
 session = httpcloak.Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     timeout=30,
     key_log_file=keylog_path
 )
@@ -101,13 +101,13 @@ Usage:
 
 # Bind to specific IPv6 address
 session = httpcloak.Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     local_address="2001:db8::1"
 )
 
 # Bind to specific IPv4 address
 session = httpcloak.Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     local_address="192.168.1.100"
 )
 
@@ -121,7 +121,7 @@ Example with your machine's IPs:
 # Uncomment to test with your real IPv6/IPv4:
 #
 # session = httpcloak.Session(
-#     preset="chrome-145",
+#     preset="chrome-latest",
 #     local_address="YOUR_LOCAL_IP_HERE",
 #     timeout=30
 # )

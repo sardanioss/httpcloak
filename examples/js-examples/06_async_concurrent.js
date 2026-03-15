@@ -26,7 +26,7 @@ async function main() {
   console.log("-".repeat(60));
 
   // Create a session (recommended for multiple requests)
-  const session = new httpcloak.Session({ preset: "chrome-145" });
+  const session = new httpcloak.Session({ preset: "chrome-latest" });
 
   // Async GET - returns a Promise that resolves to the response
   const response = await session.get("https://httpbin.org/get");

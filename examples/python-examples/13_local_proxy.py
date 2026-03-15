@@ -25,7 +25,7 @@ def basic_local_proxy():
 
     # Start a local proxy on an auto-selected port
     proxy = LocalProxy(
-        preset="chrome-145",
+        preset="chrome-latest",
         port=0,  # Auto-select available port
     )
 
@@ -50,7 +50,7 @@ def tls_only_mode():
 
     # Start proxy in TLS-only mode
     proxy = LocalProxy(
-        preset="chrome-145",
+        preset="chrome-latest",
         tls_only=True,  # Only apply TLS fingerprint, pass headers through
         port=0,
     )
@@ -60,7 +60,7 @@ def tls_only_mode():
     # Use with httpcloak Session pointing to the local proxy
     session = Session(
         proxy=proxy.proxy_url,
-        preset="chrome-145",
+        preset="chrome-latest",
     )
 
     try:
@@ -91,7 +91,7 @@ def per_request_proxy_rotation():
 
     # Start local proxy without a default upstream proxy
     proxy = LocalProxy(
-        preset="chrome-145",
+        preset="chrome-latest",
         tls_only=True,
         port=0,
     )
@@ -126,7 +126,7 @@ def with_default_upstream_proxy():
     # Start proxy with a default upstream proxy
     # Replace with your actual proxy URL
     proxy = LocalProxy(
-        preset="chrome-145",
+        preset="chrome-latest",
         tls_only=True,
         tcp_proxy="http://user:pass@your-proxy.example.com:8080",  # Default for HTTP/1.1, HTTP/2
         # udp_proxy='socks5://user:pass@your-proxy.example.com:1080',  # For HTTP/3
@@ -145,7 +145,7 @@ def proxy_statistics():
     print("=== Proxy Statistics ===\n")
 
     proxy = LocalProxy(
-        preset="chrome-145",
+        preset="chrome-latest",
         max_connections=1000,
         timeout=30,
         port=0,
@@ -154,7 +154,7 @@ def proxy_statistics():
     # Make some requests through the proxy
     session = Session(
         proxy=proxy.proxy_url,
-        preset="chrome-145",
+        preset="chrome-latest",
     )
 
     try:
@@ -183,7 +183,7 @@ def context_manager_usage():
     print("=== Context Manager Usage ===\n")
 
     # Use context manager for automatic cleanup
-    with LocalProxy(preset="chrome-145", tls_only=True) as proxy:
+    with LocalProxy(preset="chrome-latest", tls_only=True) as proxy:
         print(f"Proxy running on {proxy.proxy_url}")
 
         with Session(proxy=proxy.proxy_url) as session:
@@ -204,7 +204,7 @@ import requests
 
 # Start LocalProxy with TLS-only mode
 proxy = LocalProxy(
-    preset="chrome-145",
+    preset="chrome-latest",
     tls_only=True,  # Pass headers through, only apply TLS fingerprint
     port=8888
 )

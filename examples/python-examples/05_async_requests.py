@@ -15,7 +15,7 @@ async def main():
     print("Example 1: Basic Async Requests")
     print("-" * 60)
 
-    session = httpcloak.Session(preset="chrome-145")
+    session = httpcloak.Session(preset="chrome-latest")
 
     # Async GET
     r = await session.get_async("https://httpbin.org/get")
@@ -35,7 +35,7 @@ async def main():
     print("Example 2: Concurrent Requests")
     print("-" * 60)
 
-    session = httpcloak.Session(preset="chrome-145")
+    session = httpcloak.Session(preset="chrome-latest")
 
     urls = [
         "https://httpbin.org/get",
@@ -62,7 +62,7 @@ async def main():
     print("Example 3: Sequential vs Concurrent Timing")
     print("-" * 60)
 
-    session = httpcloak.Session(preset="chrome-145")
+    session = httpcloak.Session(preset="chrome-latest")
     test_urls = ["https://httpbin.org/delay/1"] * 3
 
     # Sequential

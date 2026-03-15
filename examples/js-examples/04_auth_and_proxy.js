@@ -38,7 +38,7 @@ async function main() {
   console.log("-".repeat(60));
 
   httpcloak.configure({
-    preset: "chrome-145",
+    preset: "chrome-latest",
     auth: ["user", "pass"],
   });
 
@@ -47,7 +47,7 @@ async function main() {
   console.log("Auth header sent automatically");
 
   // Reset configuration
-  httpcloak.configure({ preset: "chrome-145" });
+  httpcloak.configure({ preset: "chrome-latest" });
 
   // Timeout configuration
   console.log("\n" + "=".repeat(60));
@@ -55,7 +55,7 @@ async function main() {
   console.log("-".repeat(60));
 
   // Session-level timeout
-  const session = new httpcloak.Session({ preset: "chrome-145", timeout: 10 });
+  const session = new httpcloak.Session({ preset: "chrome-latest", timeout: 10 });
 
   try {
     // This should complete within timeout
@@ -92,13 +92,13 @@ async function main() {
   console.log(`
 // To use a proxy:
 const session = new httpcloak.Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "http://user:pass@proxy.example.com:8080"
 });
 
 // Or with configure():
 httpcloak.configure({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "socks5://user:pass@proxy.example.com:1080"
 });
 
@@ -112,7 +112,7 @@ httpcloak.configure({
 // Sends CONNECT + TLS ClientHello together, saving one round-trip (~25% faster).
 // If you experience issues with certain proxies, disable it:
 const session2 = new httpcloak.Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "http://user:pass@proxy.example.com:8080",
   disableSpeculativeTls: true
 });

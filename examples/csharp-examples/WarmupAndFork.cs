@@ -38,7 +38,7 @@ class WarmupAndFork
         Console.WriteLine("Example 1: Warmup (Browser Page Load)");
         Console.WriteLine(new string('-', 60));
 
-        using (var session = new Session(preset: "chrome-145", timeout: 30))
+        using (var session = new Session(preset: "chrome-latest", timeout: 30))
         {
             // Warmup fetches the page + its CSS, JS, images with realistic
             // headers, priorities, and timing. After this, the session has:
@@ -63,7 +63,7 @@ class WarmupAndFork
         Console.WriteLine("Example 2: Fork (Parallel Browser Tabs)");
         Console.WriteLine(new string('-', 60));
 
-        using (var session = new Session(preset: "chrome-145", timeout: 30))
+        using (var session = new Session(preset: "chrome-latest", timeout: 30))
         {
             // Warmup once to populate TLS tickets and cookies
             session.Warmup("https://www.cloudflare.com");
@@ -118,7 +118,7 @@ The recommended pattern for parallel scraping:
 3. Fork into N parallel sessions
 4. Use each fork for independent requests
 
-    using var session = new Session(preset: ""chrome-145"");
+    using var session = new Session(preset: ""chrome-latest"");
     session.Warmup(""https://example.com"");
 
     var tabs = session.Fork(10);

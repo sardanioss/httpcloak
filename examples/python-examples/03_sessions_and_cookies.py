@@ -16,7 +16,7 @@ print("=" * 60)
 print("Example 1: Session with Context Manager")
 print("-" * 60)
 
-with httpcloak.Session(preset="chrome-145") as session:
+with httpcloak.Session(preset="chrome-latest") as session:
     # First request
     r = session.get("https://httpbin.org/cookies/set/session_id/abc123")
     print(f"Set cookie - Status: {r.status_code}")
@@ -34,7 +34,7 @@ print("\n" + "=" * 60)
 print("Example 2: Session with Default Headers")
 print("-" * 60)
 
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 session.headers["Authorization"] = "Bearer my-token"
 session.headers["X-API-Key"] = "secret-key"
 
@@ -50,7 +50,7 @@ print("\n" + "=" * 60)
 print("Example 3: Manual Cookie Management")
 print("-" * 60)
 
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 
 # Set cookies manually
 session.set_cookie("user_id", "12345")
@@ -70,7 +70,7 @@ print("\n" + "=" * 60)
 print("Example 4: Multiple Requests (Connection Reuse)")
 print("-" * 60)
 
-with httpcloak.Session(preset="chrome-145") as session:
+with httpcloak.Session(preset="chrome-latest") as session:
     urls = [
         "https://httpbin.org/get",
         "https://httpbin.org/headers",

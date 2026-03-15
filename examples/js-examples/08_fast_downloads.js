@@ -43,7 +43,7 @@ to the pool for reuse. After release(), response.body is invalid.
 `);
 
   // Create a session for multiple requests
-  const session = new httpcloak.Session({ preset: "chrome-145" });
+  const session = new httpcloak.Session({ preset: "chrome-latest" });
 
   // ===========================================================================
   // Example 1: Basic getFast() Usage
@@ -176,14 +176,14 @@ USE get() when:
   console.log("-".repeat(50));
 
   // Force HTTP/2
-  const sessionH2 = new httpcloak.Session({ preset: "chrome-145", httpVersion: "h2" });
+  const sessionH2 = new httpcloak.Session({ preset: "chrome-latest", httpVersion: "h2" });
   response = sessionH2.getFast("https://cloudflare.com/cdn-cgi/trace");
   console.log(`HTTP/2: ${response.body.length} bytes, protocol: ${response.protocol}`);
   response.release();
   sessionH2.close();
 
   // Force HTTP/3 (QUIC)
-  const sessionH3 = new httpcloak.Session({ preset: "chrome-145", httpVersion: "h3" });
+  const sessionH3 = new httpcloak.Session({ preset: "chrome-latest", httpVersion: "h3" });
   response = sessionH3.getFast("https://cloudflare.com/cdn-cgi/trace");
   console.log(`HTTP/3: ${response.body.length} bytes, protocol: ${response.protocol}`);
   response.release();

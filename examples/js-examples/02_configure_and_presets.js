@@ -19,7 +19,7 @@ async function main() {
   console.log("-".repeat(60));
 
   httpcloak.configure({
-    preset: "chrome-145-linux",
+    preset: "chrome-latest-linux",
     headers: { "Accept-Language": "en-US,en;q=0.9" },
     timeout: 30,
   });
@@ -38,9 +38,9 @@ async function main() {
   console.log("-".repeat(60));
 
   const presets = [
-    "chrome-145",
-    "chrome-145-windows",
-    "chrome-145-linux",
+    "chrome-latest",
+    "chrome-latest-windows",
+    "chrome-latest-linux",
     "chrome-143",
     "firefox-133",
     "safari-18",
@@ -72,7 +72,7 @@ async function main() {
 
   for (const version of httpVersions) {
     const session = new httpcloak.Session({
-      preset: "chrome-145",
+      preset: "chrome-latest",
       httpVersion: version,
     });
 
@@ -110,7 +110,7 @@ async function main() {
   console.log("Example 5: Header Order Customization");
   console.log("-".repeat(60));
 
-  const session = new httpcloak.Session({ preset: "chrome-145" });
+  const session = new httpcloak.Session({ preset: "chrome-latest" });
 
   // Get default header order from preset
   const defaultOrder = session.getHeaderOrder();

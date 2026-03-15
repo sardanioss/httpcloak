@@ -44,7 +44,7 @@ func main() {
 	fmt.Println("\n[httpcloak] Making", numRequests, "requests to Cloudflare trace")
 	fmt.Println(strings.Repeat("-", 50))
 
-	c := client.NewClient("chrome-145",
+	c := client.NewClient("chrome-latest",
 		client.WithTimeout(30*time.Second),
 	)
 	defer c.Close()
@@ -127,7 +127,7 @@ func main() {
 	fmt.Println("\n[Preset Comparison] Different browser fingerprints")
 	fmt.Println(strings.Repeat("-", 50))
 
-	presets := []string{"chrome-145", "chrome-143", "firefox-133", "safari-18"}
+	presets := []string{"chrome-latest", "chrome-143", "firefox-133", "safari-18"}
 
 	for _, preset := range presets {
 		pc := client.NewClient(preset, client.WithTimeout(30*time.Second))
@@ -192,7 +192,7 @@ func main() {
 	fmt.Println("\n[Session] Requests with cookie persistence")
 	fmt.Println(strings.Repeat("-", 50))
 
-	session := client.NewSession("chrome-145")
+	session := client.NewSession("chrome-latest")
 	defer session.Close()
 
 	for i := 1; i <= 3; i++ {

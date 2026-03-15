@@ -17,7 +17,7 @@ async function main() {
   console.log("Example 1: Session with Cookies");
   console.log("-".repeat(60));
 
-  const session1 = new httpcloak.Session({ preset: "chrome-145" });
+  const session1 = new httpcloak.Session({ preset: "chrome-latest" });
 
   // Set a cookie via endpoint
   let r = await session1.get("https://httpbin.org/cookies/set/session_id/abc123");
@@ -38,7 +38,7 @@ async function main() {
   console.log("Example 2: Session with Default Headers");
   console.log("-".repeat(60));
 
-  const session2 = new httpcloak.Session({ preset: "chrome-145" });
+  const session2 = new httpcloak.Session({ preset: "chrome-latest" });
   session2.headers["Authorization"] = "Bearer my-token";
   session2.headers["X-API-Key"] = "secret-key";
 
@@ -54,7 +54,7 @@ async function main() {
   console.log("Example 3: Manual Cookie Management");
   console.log("-".repeat(60));
 
-  const session3 = new httpcloak.Session({ preset: "chrome-145" });
+  const session3 = new httpcloak.Session({ preset: "chrome-latest" });
 
   // Set cookies manually
   session3.setCookie("user_id", "12345");
@@ -74,7 +74,7 @@ async function main() {
   console.log("Example 4: Multiple Requests (Connection Reuse)");
   console.log("-".repeat(60));
 
-  const session4 = new httpcloak.Session({ preset: "chrome-145" });
+  const session4 = new httpcloak.Session({ preset: "chrome-latest" });
 
   const urls = [
     "https://httpbin.org/get",

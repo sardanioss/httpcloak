@@ -15,7 +15,7 @@ console.log("=".repeat(60));
 console.log("Example 1: Synchronous GET Request");
 console.log("-".repeat(60));
 
-const session = new httpcloak.Session({ preset: "chrome-145" });
+const session = new httpcloak.Session({ preset: "chrome-latest" });
 
 let r = session.getSync("https://httpbin.org/get");
 console.log(`Status: ${r.statusCode}`);

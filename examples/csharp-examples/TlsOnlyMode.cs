@@ -43,7 +43,7 @@ class TlsOnlyModeExamples
         Console.WriteLine("\n[Example 1] Normal Mode (preset headers applied)");
         Console.WriteLine(new string('-', 50));
 
-        using var session = new Session(preset: "chrome-145");
+        using var session = new Session(preset: "chrome-latest");
 
         var response = await session.GetAsync("https://httpbin.org/headers");
         var json = JsonDocument.Parse(response.Text);
@@ -77,7 +77,7 @@ class TlsOnlyModeExamples
         Console.WriteLine(new string('-', 50));
 
         // Enable TLS-only mode - only TLS fingerprint, no preset HTTP headers
-        using var session = new Session(preset: "chrome-145", tlsOnly: true);
+        using var session = new Session(preset: "chrome-latest", tlsOnly: true);
 
         // Only our custom headers will be sent
         var response = await session.GetAsync(
@@ -112,7 +112,7 @@ class TlsOnlyModeExamples
         Console.WriteLine("[Example 3] TLS-Only for API Clients");
         Console.WriteLine(new string('-', 50));
 
-        using var session = new Session(preset: "chrome-145", tlsOnly: true);
+        using var session = new Session(preset: "chrome-latest", tlsOnly: true);
 
         // API-style request with custom headers
         var response = await session.GetAsync(
@@ -151,7 +151,7 @@ class TlsOnlyModeExamples
         Console.WriteLine(new string('-', 50));
 
         // Check TLS fingerprint in normal mode
-        using (var session = new Session(preset: "chrome-145"))
+        using (var session = new Session(preset: "chrome-latest"))
         {
             var response = await session.GetAsync("https://tls.peet.ws/api/all");
             var json = JsonDocument.Parse(response.Text);
@@ -160,7 +160,7 @@ class TlsOnlyModeExamples
         }
 
         // Check TLS fingerprint in TLS-only mode
-        using (var session = new Session(preset: "chrome-145", tlsOnly: true))
+        using (var session = new Session(preset: "chrome-latest", tlsOnly: true))
         {
             var response = await session.GetAsync("https://tls.peet.ws/api/all");
             var json = JsonDocument.Parse(response.Text);

@@ -41,7 +41,7 @@ print("=" * 60)
 print("Example 1: Custom JA3 Fingerprint")
 print("-" * 60)
 
-with httpcloak.Session(preset="chrome-145", ja3=CHROME_131_JA3) as session:
+with httpcloak.Session(preset="chrome-latest", ja3=CHROME_131_JA3) as session:
     response = session.get("https://tls.peet.ws/api/tls")
     data = response.json()
 
@@ -51,7 +51,7 @@ with httpcloak.Session(preset="chrome-145", ja3=CHROME_131_JA3) as session:
     print(f"JA3 hash: {ja3_hash}")
     print(f"JA3 text: {ja3_text[:80]}...")
     print("\nThe TLS fingerprint now matches the custom JA3 string,")
-    print("not the chrome-145 preset.")
+    print("not the chrome-latest preset.")
 
 # ============================================================
 # Example 2: Custom Akamai HTTP/2 Fingerprint
@@ -63,7 +63,7 @@ print("\n" + "=" * 60)
 print("Example 2: Custom Akamai HTTP/2 Fingerprint")
 print("-" * 60)
 
-with httpcloak.Session(preset="chrome-145", akamai=CHROME_AKAMAI) as session:
+with httpcloak.Session(preset="chrome-latest", akamai=CHROME_AKAMAI) as session:
     response = session.get("https://tls.peet.ws/api/all")
     data = response.json()
 
@@ -82,7 +82,7 @@ print("Example 3: Combined JA3 + Akamai")
 print("-" * 60)
 
 with httpcloak.Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     ja3=CHROME_131_JA3,
     akamai=CHROME_AKAMAI,
 ) as session:
@@ -110,7 +110,7 @@ print("Example 4: Extra Fingerprint Options")
 print("-" * 60)
 
 with httpcloak.Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     ja3=CHROME_131_JA3,
     extra_fp={
         "tls_alpn": ["h2", "http/1.1"],

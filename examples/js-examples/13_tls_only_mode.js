@@ -29,7 +29,7 @@ async function main() {
   console.log("-".repeat(60));
 
   {
-    const session = new Session({ preset: "chrome-145" });
+    const session = new Session({ preset: "chrome-latest" });
     try {
       const response = await session.get("https://httpbin.org/headers");
       const headers = response.json().headers || {};
@@ -65,7 +65,7 @@ async function main() {
   console.log("-".repeat(60));
 
   {
-    const session = new Session({ preset: "chrome-145", tlsOnly: true });
+    const session = new Session({ preset: "chrome-latest", tlsOnly: true });
     try {
       // Only our custom headers will be sent
       const response = await session.get("https://httpbin.org/headers", {
@@ -98,7 +98,7 @@ async function main() {
   console.log("-".repeat(60));
 
   {
-    const session = new Session({ preset: "chrome-145", tlsOnly: true });
+    const session = new Session({ preset: "chrome-latest", tlsOnly: true });
     try {
       // API-style request with custom headers
       const response = await session.get("https://httpbin.org/headers", {
@@ -136,7 +136,7 @@ async function main() {
 
   // Check TLS fingerprint in normal mode
   {
-    const session = new Session({ preset: "chrome-145" });
+    const session = new Session({ preset: "chrome-latest" });
     try {
       const response = await session.get("https://tls.peet.ws/api/all");
       const data = response.json();
@@ -149,7 +149,7 @@ async function main() {
 
   // Check TLS fingerprint in TLS-only mode
   {
-    const session = new Session({ preset: "chrome-145", tlsOnly: true });
+    const session = new Session({ preset: "chrome-latest", tlsOnly: true });
     try {
       const response = await session.get("https://tls.peet.ws/api/all");
       const data = response.json();

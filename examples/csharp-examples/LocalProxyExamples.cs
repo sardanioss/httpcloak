@@ -61,7 +61,7 @@ class LocalProxyExamples
         Console.WriteLine(new string('-', 50));
 
         // Start a local proxy with Chrome fingerprint
-        using var proxy = new LocalProxy(preset: "chrome-145");
+        using var proxy = new LocalProxy(preset: "chrome-latest");
         Console.WriteLine($"Proxy started on port: {proxy.Port}");
 
         // Create HttpClient that uses the proxy
@@ -84,7 +84,7 @@ class LocalProxyExamples
         Console.WriteLine("\n[Example 2] With Existing HttpClient");
         Console.WriteLine(new string('-', 50));
 
-        using var proxy = new LocalProxy(preset: "chrome-145");
+        using var proxy = new LocalProxy(preset: "chrome-latest");
 
         // Use proxy URL directly with HttpClientHandler
         var handler = new HttpClientHandler
@@ -108,7 +108,7 @@ class LocalProxyExamples
         Console.WriteLine("\n[Example 3] POST with Large Body (True Streaming)");
         Console.WriteLine(new string('-', 50));
 
-        using var proxy = new LocalProxy(preset: "chrome-145");
+        using var proxy = new LocalProxy(preset: "chrome-latest");
         var handler = proxy.CreateHandler();
         using var client = new HttpClient(handler);
         client.Timeout = TimeSpan.FromMinutes(5);
@@ -135,7 +135,7 @@ class LocalProxyExamples
         Console.WriteLine("\n[Example 4] Concurrent Requests");
         Console.WriteLine(new string('-', 50));
 
-        using var proxy = new LocalProxy(preset: "chrome-145", maxConnections: 100);
+        using var proxy = new LocalProxy(preset: "chrome-latest", maxConnections: 100);
         var handler = proxy.CreateHandler();
         using var client = new HttpClient(handler);
 
@@ -162,7 +162,7 @@ class LocalProxyExamples
         Console.WriteLine("\n[Example 5] HTTPS CONNECT Tunnel");
         Console.WriteLine(new string('-', 50));
 
-        using var proxy = new LocalProxy(preset: "chrome-145");
+        using var proxy = new LocalProxy(preset: "chrome-latest");
         var handler = proxy.CreateHandler();
         using var client = new HttpClient(handler);
 
@@ -185,7 +185,7 @@ class LocalProxyExamples
         // Full configuration options
         using var proxy = new LocalProxy(
             port: 0,              // 0 = auto-select available port
-            preset: "chrome-145", // Browser fingerprint
+            preset: "chrome-latest", // Browser fingerprint
             timeout: 60,          // Request timeout in seconds
             maxConnections: 500   // Max concurrent connections
             // tcpProxy: "socks5://user:pass@proxy.example.com:1080"  // Optional upstream proxy
@@ -210,7 +210,7 @@ class LocalProxyExamples
         Console.WriteLine("\n[Example 7] Monitoring Stats");
         Console.WriteLine(new string('-', 50));
 
-        using var proxy = new LocalProxy(preset: "chrome-145");
+        using var proxy = new LocalProxy(preset: "chrome-latest");
         var handler = proxy.CreateHandler();
         using var client = new HttpClient(handler);
 
@@ -238,7 +238,7 @@ class LocalProxyExamples
         Console.WriteLine("\n[Example 8] Third-Party Library Integration");
         Console.WriteLine(new string('-', 50));
 
-        using var proxy = new LocalProxy(preset: "chrome-145");
+        using var proxy = new LocalProxy(preset: "chrome-latest");
 
         // Many third-party libraries accept HttpClient or IHttpClientFactory
         // You can configure them to use your proxy-enabled client

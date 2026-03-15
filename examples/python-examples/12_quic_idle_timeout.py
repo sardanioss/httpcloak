@@ -27,7 +27,7 @@ print("\n[Example 1] Default QUIC Idle Timeout")
 print("-" * 50)
 
 session = httpcloak.Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     http_version="h3"  # Force HTTP/3 to use QUIC
 )
 
@@ -44,7 +44,7 @@ print("\n[Example 2] Extended QUIC Idle Timeout (2 minutes)")
 print("-" * 50)
 
 session = httpcloak.Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     http_version="h3",
     quic_idle_timeout=120  # 2 minutes
 )
@@ -70,7 +70,7 @@ print("\n[Example 3] Very Long Idle Timeout (5 minutes)")
 print("-" * 50)
 
 session = httpcloak.Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     http_version="h3",
     quic_idle_timeout=300  # 5 minutes
 )
@@ -88,7 +88,7 @@ print("\n[Example 4] Combined with Other Options")
 print("-" * 50)
 
 session = httpcloak.Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     http_version="h3",
     quic_idle_timeout=180,  # 3 minutes
     timeout=60,             # Request timeout

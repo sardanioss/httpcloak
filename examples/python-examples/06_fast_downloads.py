@@ -44,7 +44,7 @@ subsequent get_fast() calls. Copy if you need to keep the data.
 """)
 
 # Create a session for multiple requests
-session = httpcloak.Session(preset="chrome-145")
+session = httpcloak.Session(preset="chrome-latest")
 
 # =============================================================================
 # Example 1: Basic get_fast() Usage
@@ -181,13 +181,13 @@ print("\n[7] get_fast() with Different Protocols")
 print("-" * 50)
 
 # Force HTTP/2
-session_h2 = httpcloak.Session(preset="chrome-145", http_version="h2")
+session_h2 = httpcloak.Session(preset="chrome-latest", http_version="h2")
 response = session_h2.get_fast("https://cloudflare.com/cdn-cgi/trace")
 print(f"HTTP/2: {len(response.content)} bytes, protocol: {response.protocol}")
 session_h2.close()
 
 # Force HTTP/3 (QUIC)
-session_h3 = httpcloak.Session(preset="chrome-145", http_version="h3")
+session_h3 = httpcloak.Session(preset="chrome-latest", http_version="h3")
 response = session_h3.get_fast("https://cloudflare.com/cdn-cgi/trace")
 print(f"HTTP/3: {len(response.content)} bytes, protocol: {response.protocol}")
 session_h3.close()

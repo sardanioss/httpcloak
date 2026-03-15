@@ -39,7 +39,7 @@ func main() {
 	fmt.Println(strings.Repeat("-", 60))
 
 	// Create client without proxy (direct connection)
-	c := client.NewClient("chrome-145", client.WithTimeout(30*time.Second))
+	c := client.NewClient("chrome-latest", client.WithTimeout(30*time.Second))
 	defer c.Close()
 
 	// Make request with direct connection
@@ -82,7 +82,7 @@ func main() {
 	fmt.Println(`
 // Use different proxies for HTTP/1.1+HTTP/2 (TCP) and HTTP/3 (UDP):
 
-c := client.NewClient("chrome-145")
+c := client.NewClient("chrome-latest")
 defer c.Close()
 
 // Set TCP proxy for HTTP/1.1 and HTTP/2
@@ -108,7 +108,7 @@ fmt.Printf("UDP proxy: %s\n", c.GetUDPProxy())
 // - SOCKS5 with UDP ASSOCIATE (most residential proxies)
 // - MASQUE (CONNECT-UDP) - premium providers like Bright Data, Oxylabs
 
-c := client.NewClient("chrome-145", client.WithForceHTTP3())
+c := client.NewClient("chrome-latest", client.WithForceHTTP3())
 defer c.Close()
 
 // Direct H3 connection
@@ -140,7 +140,7 @@ proxies := []string{
     "http://proxy3.example.com:8080",
 }
 
-c := client.NewClient("chrome-145")
+c := client.NewClient("chrome-latest")
 defer c.Close()
 
 for i, proxy := range proxies {

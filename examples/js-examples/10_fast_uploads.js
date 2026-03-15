@@ -42,7 +42,7 @@ IMPORTANT: Call response.release() when done to return response
 buffers to the pool.
 `);
 
-  const session = new httpcloak.Session({ preset: "chrome-145" });
+  const session = new httpcloak.Session({ preset: "chrome-latest" });
 
   // ===========================================================================
   // Example 1: Basic postFast() Usage
@@ -166,14 +166,14 @@ To upload a file efficiently:
   const smallData = Buffer.from("test upload data");
 
   // HTTP/2
-  const sessionH2 = new httpcloak.Session({ preset: "chrome-145", httpVersion: "h2" });
+  const sessionH2 = new httpcloak.Session({ preset: "chrome-latest", httpVersion: "h2" });
   let r = sessionH2.postFast("https://httpbin.org/post", { body: smallData });
   console.log(`HTTP/2 upload: ${r.statusCode}, protocol: ${r.protocol}`);
   r.release();
   sessionH2.close();
 
   // HTTP/3
-  const sessionH3 = new httpcloak.Session({ preset: "chrome-145", httpVersion: "h3" });
+  const sessionH3 = new httpcloak.Session({ preset: "chrome-latest", httpVersion: "h3" });
   r = sessionH3.postFast("https://cloudflare.com/cdn-cgi/trace", { body: smallData });
   console.log(`HTTP/3 upload: ${r.statusCode}, protocol: ${r.protocol}`);
   r.release();

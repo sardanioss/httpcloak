@@ -25,7 +25,7 @@ func main() {
 	fmt.Println("httpcloak - High-Performance Downloads")
 	fmt.Println(strings.Repeat("=", 70))
 
-	session := httpcloak.NewSession("chrome-145")
+	session := httpcloak.NewSession("chrome-latest")
 	defer session.Close()
 
 	// =========================================================================
@@ -184,6 +184,6 @@ Streaming doesn't load the entire file into memory.`)
 3. Body is automatically decompressed (gzip, br, zstd)
 4. Multiple reads from Bytes()/Text() return cached data
 5. Connection pooling reduces latency for repeated requests
-6. Use appropriate preset for your use case (chrome-145, firefox-133, etc.)
+6. Use appropriate preset for your use case (chrome-latest, firefox-133, etc.)
 `)
 }

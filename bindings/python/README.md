@@ -16,7 +16,7 @@ pip install httpcloak
 from httpcloak import Session
 
 # Create a session with Chrome fingerprint
-session = Session(preset="chrome-145")
+session = Session(preset="chrome-latest")
 
 # Make requests
 response = session.get("https://www.cloudflare.com/cdn-cgi/trace")
@@ -33,7 +33,7 @@ response = session.post("https://api.example.com/form", data="field1=value1&fiel
 response = session.get("https://example.com", headers={"X-Custom": "value"})
 
 # With proxy
-session = Session(preset="chrome-145", proxy="http://user:pass@host:port")
+session = Session(preset="chrome-latest", proxy="http://user:pass@host:port")
 
 # Always close when done
 session.close()
@@ -44,7 +44,7 @@ session.close()
 ```python
 from httpcloak import Session
 
-with Session(preset="chrome-145") as session:
+with Session(preset="chrome-latest") as session:
     response = session.get("https://example.com")
     print(response.text)
 # Session automatically closed
@@ -57,7 +57,7 @@ import asyncio
 from httpcloak import Session
 
 async def main():
-    session = Session(preset="chrome-145")
+    session = Session(preset="chrome-latest")
 
     # Async GET
     response = await session.get_async("https://example.com")
@@ -85,7 +85,7 @@ For performance-critical applications, use `get_fast()` which returns a lightwei
 ```python
 from httpcloak import Session
 
-with Session(preset="chrome-145") as session:
+with Session(preset="chrome-latest") as session:
     # Fast mode - minimal overhead
     response = session.get_fast("https://example.com")
     data = bytes(response.content)  # Raw bytes
@@ -100,7 +100,7 @@ For large downloads, use streaming to avoid loading entire response into memory:
 ```python
 from httpcloak import Session
 
-with Session(preset="chrome-145") as session:
+with Session(preset="chrome-latest") as session:
     # Stream a large file
     stream = session.get_stream("https://example.com/large-file.zip")
     print(f"Status: {stream.status_code}")
@@ -114,7 +114,7 @@ with Session(preset="chrome-145") as session:
     stream.close()
 
 # Or use context manager
-with Session(preset="chrome-145") as session:
+with Session(preset="chrome-latest") as session:
     with session.get_stream("https://example.com/large-file.zip") as stream:
         total = 0
         for chunk in stream.iter_content(65536):
@@ -132,13 +132,13 @@ HTTPCloak supports HTTP, SOCKS5, and HTTP/3 (MASQUE) proxies with full fingerpri
 from httpcloak import Session
 
 # Basic HTTP proxy
-session = Session(preset="chrome-145", proxy="http://host:port")
+session = Session(preset="chrome-latest", proxy="http://host:port")
 
 # With authentication
-session = Session(preset="chrome-145", proxy="http://user:pass@host:port")
+session = Session(preset="chrome-latest", proxy="http://user:pass@host:port")
 
 # HTTPS proxy
-session = Session(preset="chrome-145", proxy="https://user:pass@host:port")
+session = Session(preset="chrome-latest", proxy="https://user:pass@host:port")
 ```
 
 ### SOCKS5 Proxy
@@ -147,10 +147,10 @@ session = Session(preset="chrome-145", proxy="https://user:pass@host:port")
 from httpcloak import Session
 
 # SOCKS5 proxy (with DNS resolution on proxy)
-session = Session(preset="chrome-145", proxy="socks5h://host:port")
+session = Session(preset="chrome-latest", proxy="socks5h://host:port")
 
 # With authentication
-session = Session(preset="chrome-145", proxy="socks5h://user:pass@host:port")
+session = Session(preset="chrome-latest", proxy="socks5h://user:pass@host:port")
 
 response = session.get("https://www.cloudflare.com/cdn-cgi/trace")
 print(response.protocol)  # h3 (HTTP/3 through SOCKS5!)
@@ -164,7 +164,7 @@ MASQUE (RFC 9484) enables HTTP/3 connections through compatible proxies:
 from httpcloak import Session
 
 # MASQUE proxy (auto-detected for known providers like Bright Data)
-session = Session(preset="chrome-145", proxy="https://user:pass@brd.superproxy.io:10001")
+session = Session(preset="chrome-latest", proxy="https://user:pass@brd.superproxy.io:10001")
 
 response = session.get("https://www.cloudflare.com/cdn-cgi/trace")
 print(response.protocol)  # h3
@@ -178,7 +178,7 @@ Use different proxies for TCP (HTTP/1.1, HTTP/2) and UDP (HTTP/3) traffic:
 from httpcloak import Session
 
 session = Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     tcp_proxy="http://tcp-proxy:port",      # For HTTP/1.1, HTTP/2
     udp_proxy="https://masque-proxy:port"   # For HTTP/3
 )
@@ -194,7 +194,7 @@ ECH encrypts the SNI (Server Name Indication) to prevent traffic analysis. Works
 from httpcloak import Session
 
 # Enable ECH for Cloudflare domains
-session = Session(preset="chrome-145", ech_config_domain="cloudflare-ech.com")
+session = Session(preset="chrome-latest", ech_config_domain="cloudflare-ech.com")
 
 response = session.get("https://www.cloudflare.com/cdn-cgi/trace")
 print(response.text)
@@ -210,7 +210,7 @@ from httpcloak import Session
 
 # Connect to example.com's IP but request www.cloudflare.com
 session = Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     connect_to={"www.cloudflare.com": "example.com"}
 )
 
@@ -225,7 +225,7 @@ Get HTTP/3 with encrypted SNI through a SOCKS5 proxy:
 from httpcloak import Session
 
 session = Session(
-    preset="chrome-145",
+    preset="chrome-latest",
     proxy="socks5h://user:pass@host:port",
     ech_config_domain="cloudflare-ech.com"
 )
@@ -266,7 +266,7 @@ session.close()
 from httpcloak import Session
 
 session = Session(
-    preset="chrome-145",           # Browser fingerprint preset
+    preset="chrome-latest",           # Browser fingerprint preset
     proxy=None,                    # Proxy URL
     tcp_proxy=None,                # Separate TCP proxy
     udp_proxy=None,                # Separate UDP proxy (MASQUE)
@@ -289,8 +289,8 @@ session = Session(
 from httpcloak import available_presets
 
 print(available_presets())
-# ['chrome-145', 'chrome-144', 'chrome-143', 'chrome-141', 'chrome-133',
-#  'firefox-133', 'safari-18', 'chrome-145-ios', ...]
+# ['chrome-146', 'chrome-145', 'chrome-144', 'chrome-143', 'chrome-141', 'chrome-133',
+#  'firefox-133', 'safari-18', 'chrome-146-ios', ...]
 ```
 
 ## Response Object
@@ -358,7 +358,7 @@ stream.close()
 ```python
 from httpcloak import Session
 
-with Session(preset="chrome-145") as session:
+with Session(preset="chrome-latest") as session:
     # GET
     response = session.get("https://example.com")
 
@@ -434,7 +434,7 @@ from httpcloak import LocalProxy
 import requests
 
 # Start local proxy with Chrome fingerprint
-proxy = LocalProxy(preset="chrome-145")
+proxy = LocalProxy(preset="chrome-latest")
 print(f"Proxy running on {proxy.proxy_url}")
 
 # Use X-HTTPCloak-Scheme header for HTTPS with fingerprinting + streaming
@@ -468,7 +468,7 @@ from httpcloak import LocalProxy
 import requests
 
 # Start local proxy with Chrome fingerprint
-proxy = LocalProxy(preset="chrome-145")
+proxy = LocalProxy(preset="chrome-latest")
 
 # Standard HTTPS (uses CONNECT tunnel - fingerprinting via upstream proxy only)
 response = requests.get("https://example.com", proxies={"https": proxy.proxy_url})
@@ -491,7 +491,7 @@ When your client already provides authentic browser headers, use TLS-only mode:
 from httpcloak import LocalProxy
 
 # Only apply TLS fingerprint, pass headers through
-proxy = LocalProxy(preset="chrome-145", tls_only=True)
+proxy = LocalProxy(preset="chrome-latest", tls_only=True)
 
 # Your client's headers are preserved
 response = requests.get(
@@ -510,10 +510,10 @@ Route different requests through different browser fingerprints:
 ```python
 from httpcloak import LocalProxy, Session
 
-proxy = LocalProxy(preset="chrome-145")
+proxy = LocalProxy(preset="chrome-latest")
 
 # Create sessions with different fingerprints
-chrome_session = Session(preset="chrome-145")
+chrome_session = Session(preset="chrome-latest")
 firefox_session = Session(preset="firefox-133")
 
 # Register sessions with the proxy
@@ -541,7 +541,7 @@ proxy.close()
 ```python
 proxy = LocalProxy(
     port=0,              # Port (0 = auto-select)
-    preset="chrome-145", # Browser fingerprint
+    preset="chrome-latest", # Browser fingerprint
     timeout=30,          # Request timeout in seconds
     max_connections=1000,# Max concurrent connections
     tcp_proxy=None,      # Default upstream TCP proxy

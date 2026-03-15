@@ -36,7 +36,7 @@ func main() {
 	fmt.Println("\n[1] Default QUIC Idle Timeout")
 	fmt.Println(strings.Repeat("-", 50))
 
-	session := httpcloak.NewSession("chrome-145", httpcloak.WithHTTPVersion("h3"))
+	session := httpcloak.NewSession("chrome-latest", httpcloak.WithHTTPVersion("h3"))
 	defer session.Close()
 
 	resp, err := session.Get(ctx, "https://cloudflare.com", nil)
@@ -60,7 +60,7 @@ func main() {
 	fmt.Println(strings.Repeat("-", 50))
 
 	extendedSession := httpcloak.NewSession(
-		"chrome-145",
+		"chrome-latest",
 		httpcloak.WithHTTPVersion("h3"),
 		httpcloak.WithQuicIdleTimeout(120*time.Second), // 2 minutes
 	)
@@ -102,7 +102,7 @@ func main() {
 	fmt.Println(strings.Repeat("-", 50))
 
 	longSession := httpcloak.NewSession(
-		"chrome-145",
+		"chrome-latest",
 		httpcloak.WithHTTPVersion("h3"),
 		httpcloak.WithQuicIdleTimeout(300*time.Second), // 5 minutes
 	)
@@ -129,7 +129,7 @@ func main() {
 	fmt.Println(strings.Repeat("-", 50))
 
 	combinedSession := httpcloak.NewSession(
-		"chrome-145",
+		"chrome-latest",
 		httpcloak.WithHTTPVersion("h3"),
 		httpcloak.WithQuicIdleTimeout(180*time.Second), // 3 minutes
 		httpcloak.WithTimeout(60*time.Second),          // Request timeout

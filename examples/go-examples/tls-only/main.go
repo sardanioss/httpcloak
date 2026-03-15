@@ -35,7 +35,7 @@ func main() {
 	fmt.Println("\n[1] Normal Mode (preset headers applied)")
 	fmt.Println(strings.Repeat("-", 50))
 
-	session := httpcloak.NewSession("chrome-145")
+	session := httpcloak.NewSession("chrome-latest")
 	defer session.Close()
 
 	resp, err := session.Get(ctx, "https://httpbin.org/headers", nil)
@@ -79,7 +79,7 @@ func main() {
 	fmt.Println("[2] TLS-Only Mode (custom headers only)")
 	fmt.Println(strings.Repeat("-", 50))
 
-	tlsOnlySession := httpcloak.NewSession("chrome-145", httpcloak.WithTLSOnly())
+	tlsOnlySession := httpcloak.NewSession("chrome-latest", httpcloak.WithTLSOnly())
 	defer tlsOnlySession.Close()
 
 	// Only our custom headers will be sent
@@ -117,7 +117,7 @@ func main() {
 	fmt.Println("[3] TLS-Only for API Clients")
 	fmt.Println(strings.Repeat("-", 50))
 
-	apiSession := httpcloak.NewSession("chrome-145", httpcloak.WithTLSOnly())
+	apiSession := httpcloak.NewSession("chrome-latest", httpcloak.WithTLSOnly())
 	defer apiSession.Close()
 
 	// API-style request with custom headers
@@ -159,7 +159,7 @@ func main() {
 	fmt.Println(strings.Repeat("-", 50))
 
 	// Check TLS fingerprint in normal mode
-	normalSession := httpcloak.NewSession("chrome-145")
+	normalSession := httpcloak.NewSession("chrome-latest")
 	defer normalSession.Close()
 
 	resp, err = normalSession.Get(ctx, "https://tls.peet.ws/api/all", nil)
@@ -180,7 +180,7 @@ func main() {
 	fmt.Printf("Normal mode JA4:   %s\n", tlsResult.TLS.JA4)
 
 	// Check TLS fingerprint in TLS-only mode
-	tlsOnlySession2 := httpcloak.NewSession("chrome-145", httpcloak.WithTLSOnly())
+	tlsOnlySession2 := httpcloak.NewSession("chrome-latest", httpcloak.WithTLSOnly())
 	defer tlsOnlySession2.Close()
 
 	resp, err = tlsOnlySession2.Get(ctx, "https://tls.peet.ws/api/all", nil)

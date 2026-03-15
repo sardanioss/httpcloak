@@ -28,7 +28,7 @@ print("=" * 60)
 print("Example 1: Normal Mode (preset headers applied)")
 print("-" * 60)
 
-with httpcloak.Session(preset="chrome-145") as session:
+with httpcloak.Session(preset="chrome-latest") as session:
     response = session.get("https://httpbin.org/headers")
     headers = response.json().get("headers", {})
 
@@ -49,7 +49,7 @@ print("\n" + "=" * 60)
 print("Example 2: TLS-Only Mode (custom headers only)")
 print("-" * 60)
 
-with httpcloak.Session(preset="chrome-145", tls_only=True) as session:
+with httpcloak.Session(preset="chrome-latest", tls_only=True) as session:
     # Only our custom headers will be sent
     response = session.get("https://httpbin.org/headers", headers={
         "User-Agent": "MyBot/1.0",
@@ -73,7 +73,7 @@ print("\n" + "=" * 60)
 print("Example 3: TLS-Only for API Clients")
 print("-" * 60)
 
-with httpcloak.Session(preset="chrome-145", tls_only=True) as session:
+with httpcloak.Session(preset="chrome-latest", tls_only=True) as session:
     # API-style request with custom headers
     response = session.get("https://httpbin.org/headers", headers={
         "Authorization": "Bearer my-api-token",
@@ -100,14 +100,14 @@ print("Example 4: TLS Fingerprint Comparison")
 print("-" * 60)
 
 # Check TLS fingerprint in normal mode
-with httpcloak.Session(preset="chrome-145") as session:
+with httpcloak.Session(preset="chrome-latest") as session:
     response = session.get("https://tls.peet.ws/api/all")
     data = response.json()
     ja4 = data.get("tls", {}).get("ja4", "N/A")
     print(f"Normal mode JA4:   {ja4}")
 
 # Check TLS fingerprint in TLS-only mode
-with httpcloak.Session(preset="chrome-145", tls_only=True) as session:
+with httpcloak.Session(preset="chrome-latest", tls_only=True) as session:
     response = session.get("https://tls.peet.ws/api/all")
     data = response.json()
     ja4 = data.get("tls", {}).get("ja4", "N/A")

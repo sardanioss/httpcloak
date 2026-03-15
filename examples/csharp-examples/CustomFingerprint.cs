@@ -54,7 +54,7 @@ class CustomFingerprintExamples
         Console.WriteLine(new string('-', 50));
 
         // TLS-only mode is automatically enabled when JA3 is set
-        using var session = new Session(preset: "chrome-145", ja3: Chrome131JA3);
+        using var session = new Session(preset: "chrome-latest", ja3: Chrome131JA3);
 
         var response = await session.GetAsync("https://tls.peet.ws/api/tls");
         var json = JsonDocument.Parse(response.Text);
@@ -65,7 +65,7 @@ class CustomFingerprintExamples
         Console.WriteLine($"JA3 hash: {ja3Hash}");
         Console.WriteLine($"JA3 text: {ja3Text?[..Math.Min(ja3Text.Length, 80)]}...");
         Console.WriteLine("\nThe TLS fingerprint now matches the custom JA3 string,");
-        Console.WriteLine("not the chrome-145 preset.");
+        Console.WriteLine("not the chrome-latest preset.");
     }
 
     // ============================================================
@@ -77,7 +77,7 @@ class CustomFingerprintExamples
         Console.WriteLine("[Example 2] Custom Akamai HTTP/2 Fingerprint");
         Console.WriteLine(new string('-', 50));
 
-        using var session = new Session(preset: "chrome-145", akamai: ChromeAkamai);
+        using var session = new Session(preset: "chrome-latest", akamai: ChromeAkamai);
 
         var response = await session.GetAsync("https://tls.peet.ws/api/all");
         var json = JsonDocument.Parse(response.Text);
@@ -99,7 +99,7 @@ class CustomFingerprintExamples
         Console.WriteLine(new string('-', 50));
 
         using var session = new Session(
-            preset: "chrome-145",
+            preset: "chrome-latest",
             ja3: Chrome131JA3,
             akamai: ChromeAkamai
         );
@@ -126,7 +126,7 @@ class CustomFingerprintExamples
         Console.WriteLine(new string('-', 50));
 
         using var session = new Session(
-            preset: "chrome-145",
+            preset: "chrome-latest",
             ja3: Chrome131JA3,
             extraFp: new Dictionary<string, object>
             {

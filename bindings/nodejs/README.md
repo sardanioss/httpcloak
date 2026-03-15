@@ -16,7 +16,7 @@ npm install httpcloak
 const { Session } = require("httpcloak");
 
 async function main() {
-  const session = new Session({ preset: "chrome-145" });
+  const session = new Session({ preset: "chrome-latest" });
 
   try {
     // GET request
@@ -53,7 +53,7 @@ main();
 ```javascript
 import { Session } from "httpcloak";
 
-const session = new Session({ preset: "chrome-145" });
+const session = new Session({ preset: "chrome-latest" });
 
 const response = await session.get("https://example.com");
 console.log(response.text);
@@ -66,7 +66,7 @@ session.close();
 ```javascript
 const { Session } = require("httpcloak");
 
-const session = new Session({ preset: "chrome-145" });
+const session = new Session({ preset: "chrome-latest" });
 
 // Sync GET
 const response = session.getSync("https://example.com");
@@ -86,7 +86,7 @@ session.close();
 ```javascript
 const { Session } = require("httpcloak");
 
-const session = new Session({ preset: "chrome-145" });
+const session = new Session({ preset: "chrome-latest" });
 
 // GET with callback
 session.getCb("https://example.com", (err, response) => {
@@ -121,7 +121,7 @@ const { Session } = require("httpcloak");
 const fs = require("fs");
 
 async function downloadFile() {
-  const session = new Session({ preset: "chrome-145" });
+  const session = new Session({ preset: "chrome-latest" });
 
   try {
     // Start streaming request
@@ -158,7 +158,7 @@ downloadFile();
 ```javascript
 const { Session } = require("httpcloak");
 
-const session = new Session({ preset: "chrome-145" });
+const session = new Session({ preset: "chrome-latest" });
 
 // Stream GET
 const getStream = session.getStream("https://example.com/data");
@@ -195,19 +195,19 @@ const { Session } = require("httpcloak");
 
 // Basic HTTP proxy
 const session = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "http://host:port",
 });
 
 // With authentication
 const sessionAuth = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "http://user:pass@host:port",
 });
 
 // HTTPS proxy
 const sessionHttps = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "https://user:pass@host:port",
 });
 ```
@@ -219,13 +219,13 @@ const { Session } = require("httpcloak");
 
 // SOCKS5 proxy (with DNS resolution on proxy)
 const session = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "socks5h://host:port",
 });
 
 // With authentication
 const sessionAuth = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "socks5h://user:pass@host:port",
 });
 
@@ -242,7 +242,7 @@ const { Session } = require("httpcloak");
 
 // MASQUE proxy (auto-detected for known providers like Bright Data)
 const session = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "https://user:pass@brd.superproxy.io:10001",
 });
 
@@ -258,7 +258,7 @@ Use different proxies for TCP (HTTP/1.1, HTTP/2) and UDP (HTTP/3) traffic:
 const { Session } = require("httpcloak");
 
 const session = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   tcpProxy: "http://tcp-proxy:port",      // For HTTP/1.1, HTTP/2
   udpProxy: "https://masque-proxy:port",  // For HTTP/3
 });
@@ -275,7 +275,7 @@ const { Session } = require("httpcloak");
 
 // Enable ECH for Cloudflare domains
 const session = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   echConfigDomain: "cloudflare-ech.com",
 });
 
@@ -293,7 +293,7 @@ const { Session } = require("httpcloak");
 
 // Connect to example.com's IP but request www.cloudflare.com
 const session = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   connectTo: { "www.cloudflare.com": "example.com" },
 });
 
@@ -308,7 +308,7 @@ Get HTTP/3 with encrypted SNI through a SOCKS5 proxy:
 const { Session } = require("httpcloak");
 
 const session = new Session({
-  preset: "chrome-145",
+  preset: "chrome-latest",
   proxy: "socks5h://user:pass@host:port",
   echConfigDomain: "cloudflare-ech.com",
 });
@@ -349,7 +349,7 @@ session.close();
 const { Session } = require("httpcloak");
 
 const session = new Session({
-  preset: "chrome-145",           // Browser fingerprint preset
+  preset: "chrome-latest",           // Browser fingerprint preset
   proxy: null,                    // Proxy URL
   tcpProxy: null,                 // Separate TCP proxy
   udpProxy: null,                 // Separate UDP proxy (MASQUE)
@@ -371,8 +371,8 @@ const session = new Session({
 const { availablePresets } = require("httpcloak");
 
 console.log(availablePresets());
-// ['chrome-145', 'chrome-144', 'chrome-143', 'chrome-141', 'chrome-133',
-//  'firefox-133', 'safari-18', 'chrome-145-ios', ...]
+// ['chrome-146', 'chrome-145', 'chrome-144', 'chrome-143', 'chrome-141', 'chrome-133',
+//  'firefox-133', 'safari-18', 'chrome-146-ios', ...]
 ```
 
 ## Response Object
@@ -428,7 +428,7 @@ stream.close();
 ```javascript
 const { Session } = require("httpcloak");
 
-const session = new Session({ preset: "chrome-145" });
+const session = new Session({ preset: "chrome-latest" });
 
 // GET
 const response = await session.get("https://example.com");
@@ -488,7 +488,7 @@ HTTPCloak includes TypeScript definitions out of the box:
 ```typescript
 import { Session, Response, StreamResponse, HTTPCloakError } from "httpcloak";
 
-const session = new Session({ preset: "chrome-145" });
+const session = new Session({ preset: "chrome-latest" });
 
 async function fetchData(): Promise<Response> {
   return session.get("https://example.com");
@@ -517,7 +517,7 @@ const { LocalProxy } = require("httpcloak");
 const axios = require("axios");
 
 // Start local proxy with Chrome fingerprint
-const proxy = new LocalProxy({ preset: "chrome-145" });
+const proxy = new LocalProxy({ preset: "chrome-latest" });
 console.log(`Proxy running on ${proxy.proxyUrl}`);
 
 // Use X-HTTPCloak-Scheme header for HTTPS with fingerprinting + streaming
@@ -556,7 +556,7 @@ const { LocalProxy } = require("httpcloak");
 const axios = require("axios");
 
 // Start local proxy with Chrome fingerprint
-const proxy = new LocalProxy({ preset: "chrome-145" });
+const proxy = new LocalProxy({ preset: "chrome-latest" });
 
 // Standard HTTPS (uses CONNECT tunnel - fingerprinting via upstream proxy only)
 const response = await axios.get("https://example.com", {
@@ -588,7 +588,7 @@ When your client already provides authentic browser headers, use TLS-only mode:
 const { LocalProxy } = require("httpcloak");
 
 // Only apply TLS fingerprint, pass headers through
-const proxy = new LocalProxy({ preset: "chrome-145", tlsOnly: true });
+const proxy = new LocalProxy({ preset: "chrome-latest", tlsOnly: true });
 
 // Your client's headers are preserved
 const response = await fetch("https://example.com", {
@@ -606,10 +606,10 @@ Route different requests through different browser fingerprints:
 ```javascript
 const { LocalProxy, Session } = require("httpcloak");
 
-const proxy = new LocalProxy({ preset: "chrome-145" });
+const proxy = new LocalProxy({ preset: "chrome-latest" });
 
 // Create sessions with different fingerprints
-const chromeSession = new Session({ preset: "chrome-145" });
+const chromeSession = new Session({ preset: "chrome-latest" });
 const firefoxSession = new Session({ preset: "firefox-133" });
 
 // Register sessions with the proxy
@@ -636,7 +636,7 @@ proxy.close();
 ```javascript
 const proxy = new LocalProxy({
   port: 0,              // Port (0 = auto-select)
-  preset: "chrome-145", // Browser fingerprint
+  preset: "chrome-latest", // Browser fingerprint
   timeout: 30,          // Request timeout in seconds
   maxConnections: 1000, // Max concurrent connections
   tcpProxy: null,       // Default upstream TCP proxy

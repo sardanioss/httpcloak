@@ -38,7 +38,7 @@ func main() {
 	fmt.Println("\n[1] Simple GET Request")
 	fmt.Println(strings.Repeat("-", 50))
 
-	c := client.NewClient("chrome-145")
+	c := client.NewClient("chrome-latest")
 	defer c.Close()
 
 	resp, err := c.Get(ctx, "https://httpbin.org/get", nil)
@@ -89,7 +89,7 @@ func main() {
 	fmt.Println("\n[4] Request with Timeout")
 	fmt.Println(strings.Repeat("-", 50))
 
-	clientWithTimeout := client.NewClient("chrome-145",
+	clientWithTimeout := client.NewClient("chrome-latest",
 		client.WithTimeout(5*time.Second),
 	)
 	defer clientWithTimeout.Close()
@@ -107,7 +107,7 @@ func main() {
 	fmt.Println("\n[5] Disable Redirect Following")
 	fmt.Println(strings.Repeat("-", 50))
 
-	clientNoRedirect := client.NewClient("chrome-145",
+	clientNoRedirect := client.NewClient("chrome-latest",
 		client.WithoutRedirects(),
 	)
 	defer clientNoRedirect.Close()
@@ -126,7 +126,7 @@ func main() {
 	fmt.Println("\n[6] Retry Configuration")
 	fmt.Println(strings.Repeat("-", 50))
 
-	clientWithRetry := client.NewClient("chrome-145",
+	clientWithRetry := client.NewClient("chrome-latest",
 		client.WithRetry(3), // Retry up to 3 times on 429, 500, 502, 503, 504
 	)
 	defer clientWithRetry.Close()
@@ -145,7 +145,7 @@ func main() {
 	fmt.Println("\n[7] Advanced Retry Configuration")
 	fmt.Println(strings.Repeat("-", 50))
 
-	clientAdvancedRetry := client.NewClient("chrome-145",
+	clientAdvancedRetry := client.NewClient("chrome-latest",
 		client.WithRetryConfig(
 			5,                    // Max 5 retries
 			500*time.Millisecond, // Min wait 500ms
@@ -163,7 +163,7 @@ func main() {
 	fmt.Println("\n[8] Skip SSL Verification (testing only!)")
 	fmt.Println(strings.Repeat("-", 50))
 
-	clientInsecure := client.NewClient("chrome-145",
+	clientInsecure := client.NewClient("chrome-latest",
 		client.WithInsecureSkipVerify(),
 	)
 	defer clientInsecure.Close()
@@ -279,7 +279,7 @@ func main() {
 	fmt.Println("\n[14] Different Browser Presets")
 	fmt.Println(strings.Repeat("-", 50))
 
-	presets := []string{"chrome-145", "chrome-143", "firefox-133", "safari-18"}
+	presets := []string{"chrome-latest", "chrome-143", "firefox-133", "safari-18"}
 	for _, preset := range presets {
 		pc := client.NewClient(preset)
 		resp, err := pc.Get(ctx, "https://httpbin.org/user-agent", nil)

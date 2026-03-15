@@ -14,7 +14,7 @@ func main() {
 
 	echConfig, _ := base64.StdEncoding.DecodeString("AFb+DQBSCQAgACCv9VgyhBjSIX5QZS44OkBQC8H5c4+b2u20pF/4sbkEUgAMAAEAAQABAAIAAQADABtxdWljLW91dGVyLmJyb3dzZXJsZWFrcy5jb20AAA==")
 
-	c := client.NewClient("chrome-145",
+	c := client.NewClient("chrome-latest",
 		client.WithTimeout(30*time.Second),
 		client.WithECHConfig(echConfig),
 	)

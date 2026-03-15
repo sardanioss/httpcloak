@@ -31,7 +31,7 @@ async function main() {
   console.log("-".repeat(60));
 
   // Create session without proxy (direct connection)
-  const session = new httpcloak.Session({ preset: "chrome-145" });
+  const session = new httpcloak.Session({ preset: "chrome-latest" });
 
   // Make request with direct connection
   let r = await session.get(TEST_URL);
@@ -57,7 +57,7 @@ async function main() {
   console.log("Example 2: Getting Current Proxy Configuration");
   console.log("-".repeat(60));
 
-  const session2 = new httpcloak.Session({ preset: "chrome-145" });
+  const session2 = new httpcloak.Session({ preset: "chrome-latest" });
 
   console.log(`Initial proxy: '${session2.getProxy()}' (empty = direct)`);
   console.log(`TCP proxy: '${session2.getTcpProxy()}'`);
@@ -76,7 +76,7 @@ async function main() {
   console.log(`
 // Use different proxies for HTTP/1.1+HTTP/2 (TCP) and HTTP/3 (UDP):
 
-const session = new httpcloak.Session({ preset: "chrome-145" });
+const session = new httpcloak.Session({ preset: "chrome-latest" });
 
 // Set TCP proxy for HTTP/1.1 and HTTP/2
 session.setTcpProxy("http://tcp-proxy.example.com:8080");
@@ -101,7 +101,7 @@ console.log(\`UDP proxy: \${session.getUdpProxy()}\`);
 // - SOCKS5 with UDP ASSOCIATE (most residential proxies)
 // - MASQUE (CONNECT-UDP) - premium providers like Bright Data, Oxylabs
 
-const session = new httpcloak.Session({ preset: "chrome-145", httpVersion: "h3" });
+const session = new httpcloak.Session({ preset: "chrome-latest", httpVersion: "h3" });
 
 // Direct H3 connection
 let r = await session.get("https://example.com");
@@ -132,7 +132,7 @@ const proxies = [
   "http://proxy3.example.com:8080",
 ];
 
-const session = new httpcloak.Session({ preset: "chrome-145" });
+const session = new httpcloak.Session({ preset: "chrome-latest" });
 
 for (let i = 0; i < proxies.length; i++) {
   session.setProxy(proxies[i]);

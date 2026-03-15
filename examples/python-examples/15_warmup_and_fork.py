@@ -30,7 +30,7 @@ print("=" * 60)
 print("Example 1: Warmup (Browser Page Load)")
 print("-" * 60)
 
-session = httpcloak.Session(preset="chrome-145", timeout=30)
+session = httpcloak.Session(preset="chrome-latest", timeout=30)
 
 # Warmup fetches the page + its CSS, JS, images with realistic
 # headers, priorities, and timing. After this, the session has:
@@ -56,7 +56,7 @@ print("Example 2: Fork (Parallel Browser Tabs)")
 print("-" * 60)
 
 # Create a session, warm it up, then fork into parallel tabs
-session = httpcloak.Session(preset="chrome-145", timeout=30)
+session = httpcloak.Session(preset="chrome-latest", timeout=30)
 
 # Warmup once to populate TLS tickets and cookies
 session.warmup("https://www.cloudflare.com")
@@ -113,7 +113,7 @@ The recommended pattern for parallel scraping:
 3. Fork into N parallel sessions
 4. Use each fork for independent requests
 
-    session = httpcloak.Session(preset="chrome-145")
+    session = httpcloak.Session(preset="chrome-latest")
     session.warmup("https://example.com")
 
     tabs = session.fork(10)

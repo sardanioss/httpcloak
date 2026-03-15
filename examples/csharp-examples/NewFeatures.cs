@@ -39,7 +39,7 @@ class NewFeatures
         Console.WriteLine("Example 1: Refresh (Browser Page Refresh)");
         Console.WriteLine(new string('-', 60));
 
-        using (var session = new Session(preset: "chrome-145", timeout: 30))
+        using (var session = new Session(preset: "chrome-latest", timeout: 30))
         {
             // Make initial request - establishes TLS session
             var resp = session.Get(TEST_URL);
@@ -75,7 +75,7 @@ class NewFeatures
 
         // Create session with key logging enabled
         using (var session = new Session(
-            preset: "chrome-145",
+            preset: "chrome-latest",
             timeout: 30,
             keyLogFile: keylogPath))
         {
@@ -112,13 +112,13 @@ Usage:
 
 // Bind to specific IPv6 address
 using var session = new Session(
-    preset: ""chrome-145"",
+    preset: ""chrome-latest"",
     localAddress: ""2001:db8::1""
 );
 
 // Bind to specific IPv4 address
 using var session = new Session(
-    preset: ""chrome-145"",
+    preset: ""chrome-latest"",
     localAddress: ""192.168.1.100""
 );
 
@@ -132,7 +132,7 @@ Example with your machine's IPs:
         // Uncomment to test with your real IPv6/IPv4:
         //
         // using var session3 = new Session(
-        //     preset: "chrome-145",
+        //     preset: "chrome-latest",
         //     localAddress: "YOUR_LOCAL_IP_HERE",
         //     timeout: 30
         // );

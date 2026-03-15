@@ -11,7 +11,7 @@ namespace HttpCloak;
 /// <example>
 /// <code>
 /// // Start local proxy
-/// using var proxy = new LocalProxy(preset: "chrome-145");
+/// using var proxy = new LocalProxy(preset: "chrome-latest");
 ///
 /// // Configure HttpClient to use the proxy
 /// var handler = new HttpClientHandler
@@ -169,8 +169,8 @@ public sealed class LocalProxy : IDisposable
     /// <exception cref="HttpCloakException">If sessionId already exists</exception>
     /// <example>
     /// <code>
-    /// var proxy = new LocalProxy(preset: "chrome-145");
-    /// var session1 = new Session(preset: "chrome-145");
+    /// var proxy = new LocalProxy(preset: "chrome-latest");
+    /// var session1 = new Session(preset: "chrome-latest");
     /// var session2 = new Session(preset: "firefox-133");
     ///
     /// proxy.RegisterSession("user-1", session1);

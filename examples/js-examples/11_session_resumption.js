@@ -34,7 +34,7 @@ async function main() {
     console.log("Session loaded with TLS tickets!");
   } else {
     console.log("Creating new session...");
-    session = new httpcloak.Session({ preset: "chrome-145" });
+    session = new httpcloak.Session({ preset: "chrome-latest" });
 
     // Warm up - this acquires TLS session tickets
     console.log("Warming up session...");
@@ -59,7 +59,7 @@ async function main() {
   console.log("-".repeat(60));
 
   // Create and warm up session
-  session = new httpcloak.Session({ preset: "chrome-145" });
+  session = new httpcloak.Session({ preset: "chrome-latest" });
   await session.get("https://cloudflare.com/");
 
   // Export to JSON string (store in Redis, database, etc.)
@@ -80,7 +80,7 @@ async function main() {
   console.log("Example 3: Cross-Domain Warming");
   console.log("-".repeat(60));
 
-  session = new httpcloak.Session({ preset: "chrome-145" });
+  session = new httpcloak.Session({ preset: "chrome-latest" });
 
   // Warm up on cloudflare.com (safe, no bot detection)
   console.log("Warming up on cloudflare.com...");
@@ -104,7 +104,7 @@ async function main() {
   console.log("Example 4: Sync Operations");
   console.log("-".repeat(60));
 
-  session = new httpcloak.Session({ preset: "chrome-145" });
+  session = new httpcloak.Session({ preset: "chrome-latest" });
 
   // Sync warmup
   session.getSync("https://cloudflare.com/cdn-cgi/trace");

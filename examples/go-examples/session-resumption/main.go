@@ -69,13 +69,13 @@ func example1SaveLoad(ctx context.Context) {
 		session, err = httpcloak.LoadSession(sessionFile)
 		if err != nil {
 			fmt.Printf("Failed to load: %v, creating new\n", err)
-			session = httpcloak.NewSession("chrome-145")
+			session = httpcloak.NewSession("chrome-latest")
 		} else {
 			fmt.Println("Session loaded with TLS tickets!")
 		}
 	} else {
 		fmt.Println("Creating new session...")
-		session = httpcloak.NewSession("chrome-145")
+		session = httpcloak.NewSession("chrome-latest")
 
 		// Warm up - this acquires TLS session tickets
 		fmt.Println("Warming up session...")
@@ -112,7 +112,7 @@ func example2MarshalUnmarshal(ctx context.Context) {
 	fmt.Println(strings.Repeat("-", 50))
 
 	// Create and warm up session
-	session := httpcloak.NewSession("chrome-145")
+	session := httpcloak.NewSession("chrome-latest")
 	resp, _ := session.Get(ctx, "https://cloudflare.com/")
 	if resp != nil {
 		io.Copy(io.Discard, resp.Body)
@@ -152,7 +152,7 @@ func example3CrossDomainWarming(ctx context.Context) {
 	fmt.Println("\n[3] Cross-Domain Warming")
 	fmt.Println(strings.Repeat("-", 50))
 
-	session := httpcloak.NewSession("chrome-145")
+	session := httpcloak.NewSession("chrome-latest")
 	defer session.Close()
 
 	// Warm up on cloudflare.com (safe, no bot detection)
@@ -212,7 +212,7 @@ func getOrCreateSession(ctx context.Context, sessionKey string) *httpcloak.Sessi
 	}
 
 	// Create new session and warm it up
-	session := httpcloak.NewSession("chrome-145")
+	session := httpcloak.NewSession("chrome-latest")
 
 	// Warm up on a neutral Cloudflare endpoint
 	resp, _ := session.Get(ctx, "https://cloudflare.com/cdn-cgi/trace")

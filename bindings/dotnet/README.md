@@ -21,7 +21,7 @@ Install-Package HttpCloak
 using HttpCloak;
 
 // Create a session with Chrome fingerprint
-using var session = new Session(preset: "chrome-145");
+using var session = new Session(preset: "chrome-latest");
 
 // GET request
 var response = session.Get("https://www.cloudflare.com/cdn-cgi/trace");
@@ -45,7 +45,7 @@ Use `HttpCloakHandler` for seamless integration with existing `HttpClient` code:
 using HttpCloak;
 
 // Create handler with Chrome fingerprint
-using var handler = new HttpCloakHandler(preset: "chrome-145");
+using var handler = new HttpCloakHandler(preset: "chrome-latest");
 using var client = new HttpClient(handler);
 
 // All HttpClient requests now go through httpcloak with TLS fingerprinting
@@ -73,7 +73,7 @@ For large downloads, use streaming to avoid loading entire response into memory:
 using HttpCloak;
 
 // HttpCloakHandler streams by default (UseStreaming = true)
-using var handler = new HttpCloakHandler(preset: "chrome-145");
+using var handler = new HttpCloakHandler(preset: "chrome-latest");
 using var client = new HttpClient(handler);
 
 var response = await client.GetAsync("https://example.com/large-file.zip");
@@ -100,7 +100,7 @@ var bytes = await smallResponse.Content.ReadAsByteArrayAsync();
 ```csharp
 using HttpCloak;
 
-using var session = new Session(preset: "chrome-145");
+using var session = new Session(preset: "chrome-latest");
 
 // Stream response in chunks
 using var streamResponse = session.GetStream("https://example.com/large-file");
@@ -125,7 +125,7 @@ contentStream.CopyTo(fileStream);
 ```csharp
 using HttpCloak;
 
-using var session = new Session(preset: "chrome-145");
+using var session = new Session(preset: "chrome-latest");
 
 // Async GET
 var response = await session.GetAsync("https://example.com");
@@ -154,16 +154,16 @@ HTTPCloak supports HTTP, SOCKS5, and HTTP/3 (MASQUE) proxies with full fingerpri
 using HttpCloak;
 
 // Basic HTTP proxy
-using var session = new Session(preset: "chrome-145", proxy: "http://host:port");
+using var session = new Session(preset: "chrome-latest", proxy: "http://host:port");
 
 // With authentication
-using var sessionAuth = new Session(preset: "chrome-145", proxy: "http://user:pass@host:port");
+using var sessionAuth = new Session(preset: "chrome-latest", proxy: "http://user:pass@host:port");
 
 // HTTPS proxy
-using var sessionHttps = new Session(preset: "chrome-145", proxy: "https://user:pass@host:port");
+using var sessionHttps = new Session(preset: "chrome-latest", proxy: "https://user:pass@host:port");
 
 // With HttpCloakHandler
-using var handler = new HttpCloakHandler(preset: "chrome-145", proxy: "http://user:pass@host:port");
+using var handler = new HttpCloakHandler(preset: "chrome-latest", proxy: "http://user:pass@host:port");
 using var client = new HttpClient(handler);
 ```
 
@@ -173,10 +173,10 @@ using var client = new HttpClient(handler);
 using HttpCloak;
 
 // SOCKS5 proxy (with DNS resolution on proxy)
-using var session = new Session(preset: "chrome-145", proxy: "socks5h://host:port");
+using var session = new Session(preset: "chrome-latest", proxy: "socks5h://host:port");
 
 // With authentication
-using var sessionAuth = new Session(preset: "chrome-145", proxy: "socks5h://user:pass@host:port");
+using var sessionAuth = new Session(preset: "chrome-latest", proxy: "socks5h://user:pass@host:port");
 
 var response = session.Get("https://www.cloudflare.com/cdn-cgi/trace");
 Console.WriteLine(response.Protocol);  // h3 (HTTP/3 through SOCKS5!)
@@ -191,7 +191,7 @@ using HttpCloak;
 
 // MASQUE proxy (auto-detected for known providers like Bright Data)
 using var session = new Session(
-    preset: "chrome-145",
+    preset: "chrome-latest",
     proxy: "https://user:pass@brd.superproxy.io:10001"
 );
 
@@ -207,7 +207,7 @@ Use different proxies for TCP (HTTP/1.1, HTTP/2) and UDP (HTTP/3) traffic:
 using HttpCloak;
 
 using var session = new Session(
-    preset: "chrome-145",
+    preset: "chrome-latest",
     tcpProxy: "http://tcp-proxy:port",      // For HTTP/1.1, HTTP/2
     udpProxy: "https://masque-proxy:port"   // For HTTP/3
 );
@@ -224,7 +224,7 @@ using HttpCloak;
 
 // Enable ECH for Cloudflare domains
 using var session = new Session(
-    preset: "chrome-145",
+    preset: "chrome-latest",
     echConfigDomain: "cloudflare-ech.com"
 );
 
@@ -234,7 +234,7 @@ Console.WriteLine(response.Text);
 
 // With HttpCloakHandler
 using var handler = new HttpCloakHandler(
-    preset: "chrome-145",
+    preset: "chrome-latest",
     echConfigDomain: "cloudflare-ech.com"
 );
 ```
@@ -247,7 +247,7 @@ Connect to one server while requesting a different domain:
 using HttpCloak;
 
 using var session = new Session(
-    preset: "chrome-145",
+    preset: "chrome-latest",
     connectTo: new Dictionary<string, string>
     {
         ["www.cloudflare.com"] = "example.com"
@@ -265,7 +265,7 @@ Get HTTP/3 with encrypted SNI through a SOCKS5 proxy:
 using HttpCloak;
 
 using var session = new Session(
-    preset: "chrome-145",
+    preset: "chrome-latest",
     proxy: "socks5h://user:pass@host:port",
     echConfigDomain: "cloudflare-ech.com"
 );
@@ -298,7 +298,7 @@ session.DeleteCookie("session_id");
 session.ClearCookies();
 
 // Access cookies via HttpCloakHandler
-using var handler = new HttpCloakHandler(preset: "chrome-145");
+using var handler = new HttpCloakHandler(preset: "chrome-latest");
 handler.Session.SetCookie("auth_token", "xyz789");
 ```
 
@@ -357,7 +357,7 @@ using var stream = streamResponse.GetContentStream();
 
 ```csharp
 var handler = new HttpCloakHandler(
-    preset: "chrome-145",           // Browser fingerprint preset
+    preset: "chrome-latest",           // Browser fingerprint preset
     proxy: "http://host:port",      // Proxy URL
     tcpProxy: null,                 // Separate TCP proxy
     udpProxy: null,                 // Separate UDP proxy (MASQUE)
@@ -388,8 +388,8 @@ foreach (var preset in presets)
 {
     Console.WriteLine(preset);
 }
-// chrome-145, chrome-144, chrome-143, chrome-141, chrome-133,
-// firefox-133, safari-18, chrome-145-ios, ...
+// chrome-146, chrome-145, chrome-144, chrome-143, chrome-141, chrome-133,
+// firefox-133, safari-18, chrome-146-ios, ...
 ```
 
 ## Error Handling
@@ -434,7 +434,7 @@ For HTTPS requests with full fingerprinting AND true streaming (request/response
 using HttpCloak;
 
 // Start local proxy with Chrome fingerprint
-using var proxy = new LocalProxy(preset: "chrome-145");
+using var proxy = new LocalProxy(preset: "chrome-latest");
 Console.WriteLine($"Proxy running on {proxy.ProxyUrl}");
 
 // Configure HttpClient to use the proxy
@@ -470,7 +470,7 @@ Standard HTTP proxy clients (like .NET HttpClient) use CONNECT tunneling for HTT
 using HttpCloak;
 
 // Start local proxy with Chrome fingerprint
-using var proxy = new LocalProxy(preset: "chrome-145");
+using var proxy = new LocalProxy(preset: "chrome-latest");
 
 var handler = new HttpClientHandler
 {
@@ -495,7 +495,7 @@ When your client already provides authentic browser headers, use TLS-only mode:
 using HttpCloak;
 
 // Only apply TLS fingerprint, pass headers through
-using var proxy = new LocalProxy(preset: "chrome-145", tlsOnly: true);
+using var proxy = new LocalProxy(preset: "chrome-latest", tlsOnly: true);
 
 var handler = new HttpClientHandler
 {
@@ -515,10 +515,10 @@ Route different requests through different browser fingerprints:
 ```csharp
 using HttpCloak;
 
-using var proxy = new LocalProxy(preset: "chrome-145");
+using var proxy = new LocalProxy(preset: "chrome-latest");
 
 // Create sessions with different fingerprints
-using var chromeSession = new Session(preset: "chrome-145");
+using var chromeSession = new Session(preset: "chrome-latest");
 using var firefoxSession = new Session(preset: "firefox-133");
 
 // Register sessions with the proxy
@@ -543,7 +543,7 @@ proxy.UnregisterSession("firefox-user");
 ```csharp
 var proxy = new LocalProxy(
     port: 0,               // Port (0 = auto-select)
-    preset: "chrome-145",  // Browser fingerprint
+    preset: "chrome-latest",  // Browser fingerprint
     timeout: 30,           // Request timeout in seconds
     maxConnections: 1000,  // Max concurrent connections
     tcpProxy: null,        // Default upstream TCP proxy

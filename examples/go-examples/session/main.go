@@ -37,7 +37,7 @@ func main() {
 	fmt.Println(strings.Repeat("-", 50))
 
 	// NewSession creates a client with cookie jar enabled
-	session := client.NewSession("chrome-145")
+	session := client.NewSession("chrome-latest")
 	defer session.Close()
 
 	// First request - server sets cookies
@@ -69,7 +69,7 @@ func main() {
 	fmt.Println("\n[2] Login Flow Simulation")
 	fmt.Println(strings.Repeat("-", 50))
 
-	loginSession := client.NewSession("chrome-145",
+	loginSession := client.NewSession("chrome-latest",
 		client.WithTimeout(30*time.Second),
 	)
 	defer loginSession.Close()
@@ -110,7 +110,7 @@ func main() {
 	fmt.Println("\n[3] Manual Cookie Management")
 	fmt.Println(strings.Repeat("-", 50))
 
-	manualSession := client.NewSession("chrome-145")
+	manualSession := client.NewSession("chrome-latest")
 	defer manualSession.Close()
 
 	// Get the cookie jar and URL for the domain
@@ -137,7 +137,7 @@ func main() {
 	fmt.Println("\n[4] Cookie Inspection")
 	fmt.Println(strings.Repeat("-", 50))
 
-	inspectSession := client.NewSession("chrome-145")
+	inspectSession := client.NewSession("chrome-latest")
 	defer inspectSession.Close()
 
 	// Set multiple cookies
@@ -163,7 +163,7 @@ func main() {
 	fmt.Println("\n[5] Clear Cookies")
 	fmt.Println(strings.Repeat("-", 50))
 
-	clearSession := client.NewSession("chrome-145")
+	clearSession := client.NewSession("chrome-latest")
 	defer clearSession.Close()
 
 	// Set some cookies
@@ -181,7 +181,7 @@ func main() {
 	fmt.Println(strings.Repeat("-", 50))
 
 	// Start with regular client (no cookies)
-	regularClient := client.NewClient("chrome-145")
+	regularClient := client.NewClient("chrome-latest")
 	defer regularClient.Close()
 
 	fmt.Printf("Cookies enabled: %v\n", regularClient.Cookies() != nil)
@@ -200,7 +200,7 @@ func main() {
 	fmt.Println("\n[7] Session with All Options")
 	fmt.Println(strings.Repeat("-", 50))
 
-	fullSession := client.NewSession("chrome-145",
+	fullSession := client.NewSession("chrome-latest",
 		client.WithTimeout(60*time.Second),
 		client.WithRetry(3),
 		client.WithRedirects(true, 5),
@@ -220,8 +220,8 @@ func main() {
 	fmt.Println("\n[8] Multiple Isolated Sessions")
 	fmt.Println(strings.Repeat("-", 50))
 
-	session1 := client.NewSession("chrome-145")
-	session2 := client.NewSession("chrome-145")
+	session1 := client.NewSession("chrome-latest")
+	session2 := client.NewSession("chrome-latest")
 	defer session1.Close()
 	defer session2.Close()
 
@@ -244,7 +244,7 @@ func main() {
 	fmt.Println("\n[9] Header Order Customization")
 	fmt.Println(strings.Repeat("-", 50))
 
-	headerSession := client.NewClient("chrome-145")
+	headerSession := client.NewClient("chrome-latest")
 	defer headerSession.Close()
 
 	// Get default header order from preset

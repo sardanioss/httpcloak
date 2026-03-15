@@ -39,7 +39,7 @@ func main() {
 	fmt.Println("Example 1: Warmup (Browser Page Load)")
 	fmt.Println(strings.Repeat("-", 60))
 
-	session := httpcloak.NewSession("chrome-145", httpcloak.WithSessionTimeout(30*time.Second))
+	session := httpcloak.NewSession("chrome-latest", httpcloak.WithSessionTimeout(30*time.Second))
 
 	// Warmup fetches the page + its CSS, JS, images with realistic
 	// headers, priorities, and timing. After this, the session has:
@@ -72,7 +72,7 @@ func main() {
 	fmt.Println(strings.Repeat("-", 60))
 
 	// Create a session, warm it up, then fork into parallel tabs
-	session = httpcloak.NewSession("chrome-145", httpcloak.WithSessionTimeout(30*time.Second))
+	session = httpcloak.NewSession("chrome-latest", httpcloak.WithSessionTimeout(30*time.Second))
 
 	// Warmup once to populate TLS tickets and cookies
 	if err := session.Warmup(ctx, "https://www.cloudflare.com"); err != nil {
@@ -136,7 +136,7 @@ The recommended pattern for parallel scraping:
 3. Fork into N parallel sessions
 4. Use each fork for independent requests
 
-    session := httpcloak.NewSession("chrome-145")
+    session := httpcloak.NewSession("chrome-latest")
     session.Warmup(ctx, "https://example.com")
 
     tabs := session.Fork(10)
