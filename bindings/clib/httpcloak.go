@@ -1672,19 +1672,82 @@ func httpcloak_get_cookies(handle C.int64_t) *C.char {
 		return makeErrorJSON(ErrInvalidSession)
 	}
 
-	cookies := session.GetCookies()
+	cookieStates := session.GetCookies()
+	// Convert to clib Cookie format with RFC1123 expires string
+	var cookies []Cookie
+	for _, c := range cookieStates {
+		cookie := Cookie{
+			Name:     c.Name,
+			Value:    c.Value,
+			Domain:   c.Domain,
+			Path:     c.Path,
+			MaxAge:   c.MaxAge,
+			Secure:   c.Secure,
+			HttpOnly: c.HttpOnly,
+			SameSite: c.SameSite,
+		}
+		if c.Expires != nil {
+			cookie.Expires = c.Expires.UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT")
+		}
+		cookies = append(cookies, cookie)
+	}
+	if cookies == nil {
+		cookies = []Cookie{}
+	}
 	data, _ := json.Marshal(cookies)
 	return C.CString(string(data))
 }
 
 //export httpcloak_set_cookie
-func httpcloak_set_cookie(handle C.int64_t, name *C.char, value *C.char) {
+func httpcloak_set_cookie(handle C.int64_t, cookieJSON *C.char) {
 	session := getSession(handle)
 	if session == nil {
 		return
 	}
 
-	session.SetCookie(C.GoString(name), C.GoString(value))
+	var cookie Cookie
+	if err := json.Unmarshal([]byte(C.GoString(cookieJSON)), &cookie); err != nil {
+		return
+	}
+
+	var expires *time.Time
+	if cookie.Expires != "" {
+		if t, err := time.Parse("Mon, 02 Jan 2006 15:04:05 GMT", cookie.Expires); err == nil {
+			expires = &t
+		}
+	}
+
+	session.SetCookie(httpcloak.CookieInfo{
+		Name:     cookie.Name,
+		Value:    cookie.Value,
+		Domain:   cookie.Domain,
+		Path:     cookie.Path,
+		MaxAge:   cookie.MaxAge,
+		Secure:   cookie.Secure,
+		HttpOnly: cookie.HttpOnly,
+		SameSite: cookie.SameSite,
+		Expires:  expires,
+	})
+}
+
+//export httpcloak_delete_cookie
+func httpcloak_delete_cookie(handle C.int64_t, name *C.char, domain *C.char) {
+	session := getSession(handle)
+	if session == nil {
+		return
+	}
+
+	session.DeleteCookie(C.GoString(name), C.GoString(domain))
+}
+
+//export httpcloak_clear_cookies
+func httpcloak_clear_cookies(handle C.int64_t) {
+	session := getSession(handle)
+	if session == nil {
+		return
+	}
+
+	session.ClearCookies()
 }
 
 // ============================================================================

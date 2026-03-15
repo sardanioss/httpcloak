@@ -9,11 +9,11 @@ require (
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/miekg/dns v1.1.69 // indirect
 	github.com/sardanioss/http v1.2.0 // indirect
-	github.com/sardanioss/net v1.2.2 // indirect
+	github.com/sardanioss/net v1.2.5 // indirect
 	github.com/sardanioss/qpack v0.6.3 // indirect
-	github.com/sardanioss/quic-go v1.2.21 // indirect
+	github.com/sardanioss/quic-go v1.2.23 // indirect
 	github.com/sardanioss/udpbara v1.1.0 // indirect
-	github.com/sardanioss/utls v1.10.2 // indirect
+	github.com/sardanioss/utls v1.10.3 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
