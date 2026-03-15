@@ -1888,10 +1888,10 @@ class Session {
   // ===========================================================================
 
   /**
-   * Get all cookies from the session with full metadata
+   * Get all cookies with full metadata (domain, path, expiry, flags).
    * @returns {Cookie[]} Array of Cookie objects
    */
-  getCookies() {
+  getCookiesDetailed() {
     const resultPtr = this._lib.httpcloak_get_cookies(this._handle);
     const result = resultToString(resultPtr);
     if (result) {
@@ -1902,13 +1902,54 @@ class Session {
   }
 
   /**
-   * Get a specific cookie by name
+   * Get all cookies as a flat name-value object.
+   * @deprecated Use getCookiesDetailed() instead, which returns Cookie[] with full metadata.
+   *             This method will be changed to return Cookie[] in a future release.
+   * @returns {Object} Cookies as key-value pairs
+   */
+  getCookies() {
+    if (!Session._getCookiesDeprecated) {
+      Session._getCookiesDeprecated = true;
+      process.emitWarning(
+        'getCookies() returning a flat object is deprecated. Use getCookiesDetailed() which returns Cookie[] with full metadata (domain, path, expiry, etc.). getCookies() will return Cookie[] in a future release.',
+        'DeprecationWarning'
+      );
+    }
+    const cookies = this.getCookiesDetailed();
+    const result = {};
+    for (const c of cookies) {
+      result[c.name] = c.value;
+    }
+    return result;
+  }
+
+  /**
+   * Get a specific cookie by name with full metadata.
    * @param {string} name - Cookie name
    * @returns {Cookie|null} Cookie object or null if not found
    */
-  getCookie(name) {
-    const cookies = this.getCookies();
+  getCookieDetailed(name) {
+    const cookies = this.getCookiesDetailed();
     return cookies.find(c => c.name === name) || null;
+  }
+
+  /**
+   * Get a specific cookie value by name.
+   * @deprecated Use getCookieDetailed() instead, which returns a Cookie object with full metadata.
+   *             This method will be changed to return Cookie|null in a future release.
+   * @param {string} name - Cookie name
+   * @returns {string|null} Cookie value or null if not found
+   */
+  getCookie(name) {
+    if (!Session._getCookieDeprecated) {
+      Session._getCookieDeprecated = true;
+      process.emitWarning(
+        'getCookie() returning a string is deprecated. Use getCookieDetailed() which returns a Cookie object with full metadata. getCookie() will return Cookie|null in a future release.',
+        'DeprecationWarning'
+      );
+    }
+    const cookie = this.getCookieDetailed(name);
+    return cookie ? cookie.value : null;
   }
 
   /**
@@ -1956,8 +1997,9 @@ class Session {
   }
 
   /**
-   * Get cookies as a property
-   * @returns {Cookie[]} Array of Cookie objects
+   * Get cookies as a property.
+   * @deprecated Use getCookiesDetailed() instead. This property will return Cookie[] in a future release.
+   * @returns {Object} Cookies as key-value pairs
    */
   get cookies() {
     return this.getCookies();

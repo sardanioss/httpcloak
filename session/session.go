@@ -1023,6 +1023,11 @@ func (s *Session) GetCookies() []CookieState {
 	return s.cookies.GetAll()
 }
 
+// GetCookiesDetailed is an alias for GetCookies, returning full cookie metadata.
+func (s *Session) GetCookiesDetailed() []CookieState {
+	return s.cookies.GetAll()
+}
+
 // SetCookie sets a cookie with full metadata.
 // If domain is empty, creates a global cookie (sent to all domains).
 func (s *Session) SetCookie(name, value, domain, path string, secure, httpOnly bool, sameSite string, maxAge int, expires *time.Time) {

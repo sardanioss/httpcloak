@@ -896,9 +896,9 @@ public sealed class Session : IDisposable
     // =========================================================================
 
     /// <summary>
-    /// Get all cookies from the session with full metadata.
+    /// Get all cookies with full metadata (domain, path, expiry, flags).
     /// </summary>
-    public List<Cookie> GetCookies()
+    public List<Cookie> GetCookiesDetailed()
     {
         ThrowIfDisposed();
 
@@ -915,6 +915,23 @@ public sealed class Session : IDisposable
             c.Name ?? "", c.Value ?? "", c.Domain ?? "", c.Path ?? "",
             c.Expires ?? "", c.MaxAge, c.Secure, c.HttpOnly, c.SameSite ?? ""))
             .ToList();
+    }
+
+    /// <summary>
+    /// Get all cookies as a flat name-value dictionary.
+    /// </summary>
+    /// <remarks>
+    /// Deprecated: Use <see cref="GetCookiesDetailed"/> instead, which returns List&lt;Cookie&gt; with full metadata.
+    /// This method will be changed to return List&lt;Cookie&gt; in a future release.
+    /// </remarks>
+    [Obsolete("Use GetCookiesDetailed() instead, which returns List<Cookie> with full metadata. GetCookies() will return List<Cookie> in a future release.")]
+    public Dictionary<string, string> GetCookies()
+    {
+        var cookies = GetCookiesDetailed();
+        var result = new Dictionary<string, string>();
+        foreach (var c in cookies)
+            result[c.Name] = c.Value;
+        return result;
     }
 
     /// <summary>
@@ -950,15 +967,30 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
-    /// Get a specific cookie by name.
+    /// Get a specific cookie by name with full metadata.
     /// </summary>
     /// <param name="name">Cookie name</param>
     /// <returns>Cookie object, or null if not found</returns>
-    public Cookie? GetCookie(string name)
+    public Cookie? GetCookieDetailed(string name)
     {
         ThrowIfDisposed();
-        var cookies = GetCookies();
+        var cookies = GetCookiesDetailed();
         return cookies.FirstOrDefault(c => c.Name == name);
+    }
+
+    /// <summary>
+    /// Get a specific cookie value by name.
+    /// </summary>
+    /// <param name="name">Cookie name</param>
+    /// <returns>Cookie value, or null if not found</returns>
+    /// <remarks>
+    /// Deprecated: Use <see cref="GetCookieDetailed"/> instead. This method will return Cookie? in a future release.
+    /// </remarks>
+    [Obsolete("Use GetCookieDetailed() instead, which returns a Cookie object with full metadata. GetCookie() will return Cookie? in a future release.")]
+    public string? GetCookie(string name)
+    {
+        var cookie = GetCookieDetailed(name);
+        return cookie?.Value;
     }
 
     /// <summary>

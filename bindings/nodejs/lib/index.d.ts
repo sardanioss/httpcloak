@@ -337,11 +337,24 @@ export class Session {
   options(url: string, options?: RequestOptions): Promise<Response>;
 
   // Cookie management
-  /** Get all cookies from the session with full metadata */
-  getCookies(): Cookie[];
 
-  /** Get a specific cookie by name */
-  getCookie(name: string): Cookie | null;
+  /** Get all cookies with full metadata (domain, path, expiry, flags) */
+  getCookiesDetailed(): Cookie[];
+
+  /** Get a specific cookie by name with full metadata */
+  getCookieDetailed(name: string): Cookie | null;
+
+  /**
+   * Get all cookies as a flat name-value object.
+   * @deprecated Use getCookiesDetailed() instead. Will return Cookie[] in a future release.
+   */
+  getCookies(): Record<string, string>;
+
+  /**
+   * Get a specific cookie value by name.
+   * @deprecated Use getCookieDetailed() instead. Will return Cookie|null in a future release.
+   */
+  getCookie(name: string): string | null;
 
   /** Set a cookie in the session */
   setCookie(
@@ -364,8 +377,11 @@ export class Session {
   /** Clear all cookies from the session */
   clearCookies(): void;
 
-  /** Get cookies as a property */
-  readonly cookies: Cookie[];
+  /**
+   * Get cookies as a property.
+   * @deprecated Use getCookiesDetailed() instead. Will return Cookie[] in a future release.
+   */
+  readonly cookies: Record<string, string>;
 
   // Proxy management
 

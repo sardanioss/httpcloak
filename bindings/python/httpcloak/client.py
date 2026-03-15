@@ -2229,8 +2229,8 @@ class Session:
     # Cookie Management
     # =========================================================================
 
-    def get_cookies(self) -> "List[Cookie]":
-        """Get all cookies from the session with full metadata."""
+    def get_cookies_detailed(self) -> "List[Cookie]":
+        """Get all cookies from the session with full metadata (domain, path, expiry, flags)."""
         result_ptr = self._lib.httpcloak_get_cookies(self._handle)
         result = _ptr_to_string(result_ptr)
         if result:
@@ -2251,9 +2251,30 @@ class Session:
             ]
         return []
 
-    def get_cookie(self, name: str) -> "Optional[Cookie]":
+    def get_cookies(self) -> Dict[str, str]:
         """
-        Get a specific cookie by name.
+        Get all cookies as a flat name-value dict.
+
+        .. deprecated::
+            Use :meth:`get_cookies_detailed` instead, which returns ``List[Cookie]``
+            with full metadata. This method will return ``List[Cookie]`` in a future release.
+        """
+        if not getattr(Session, "_get_cookies_warned", False):
+            Session._get_cookies_warned = True
+            import warnings
+            warnings.warn(
+                "get_cookies() returning a flat dict is deprecated. "
+                "Use get_cookies_detailed() which returns List[Cookie] with full metadata "
+                "(domain, path, expiry, etc.). get_cookies() will return List[Cookie] in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        cookies = self.get_cookies_detailed()
+        return {c.name: c.value for c in cookies}
+
+    def get_cookie_detailed(self, name: str) -> "Optional[Cookie]":
+        """
+        Get a specific cookie by name with full metadata.
 
         Args:
             name: Cookie name
@@ -2261,11 +2282,38 @@ class Session:
         Returns:
             Cookie object or None if not found
         """
-        cookies = self.get_cookies()
+        cookies = self.get_cookies_detailed()
         for c in cookies:
             if c.name == name:
                 return c
         return None
+
+    def get_cookie(self, name: str) -> Optional[str]:
+        """
+        Get a specific cookie value by name.
+
+        .. deprecated::
+            Use :meth:`get_cookie_detailed` instead, which returns a ``Cookie`` object
+            with full metadata. This method will return ``Optional[Cookie]`` in a future release.
+
+        Args:
+            name: Cookie name
+
+        Returns:
+            Cookie value or None if not found
+        """
+        if not getattr(Session, "_get_cookie_warned", False):
+            Session._get_cookie_warned = True
+            import warnings
+            warnings.warn(
+                "get_cookie() returning a string is deprecated. "
+                "Use get_cookie_detailed() which returns a Cookie object with full metadata. "
+                "get_cookie() will return Optional[Cookie] in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        cookie = self.get_cookie_detailed(name)
+        return cookie.value if cookie else None
 
     def set_cookie(
         self,
@@ -2329,8 +2377,13 @@ class Session:
         self._lib.httpcloak_clear_cookies(self._handle)
 
     @property
-    def cookies(self) -> "List[Cookie]":
-        """Get cookies as a property."""
+    def cookies(self) -> Dict[str, str]:
+        """
+        Get cookies as a flat name-value dict.
+
+        .. deprecated::
+            Use :meth:`get_cookies_detailed` instead. Will return ``List[Cookie]`` in a future release.
+        """
         return self.get_cookies()
 
     # =========================================================================
