@@ -1018,26 +1018,27 @@ func (s *Session) Touch() {
 	s.LastUsed = time.Now()
 }
 
-// GetCookies returns all cookies for this session (name -> value)
-// Note: This returns a flat map for backward compatibility. Multiple cookies
-// with the same name from different domains will only show the last one.
-func (s *Session) GetCookies() map[string]string {
+// GetCookies returns all cookies with full metadata
+func (s *Session) GetCookies() []CookieState {
 	return s.cookies.GetAll()
 }
 
-// SetCookie sets a cookie for this session
-// Note: This sets a "global" cookie that will be sent to all domains.
-// For domain-specific cookies, use Set-Cookie headers from responses.
-func (s *Session) SetCookie(name, value string) {
-	s.cookies.SetSimple(name, value)
+// SetCookie sets a cookie with full metadata.
+// If domain is empty, creates a global cookie (sent to all domains).
+func (s *Session) SetCookie(name, value, domain, path string, secure, httpOnly bool, sameSite string, maxAge int, expires *time.Time) {
+	s.cookies.SetSimple(name, value, domain, path, secure, httpOnly, sameSite, maxAge, expires)
 }
 
-// SetCookies sets multiple cookies for this session
-// Note: These are "global" cookies that will be sent to all domains.
-func (s *Session) SetCookies(cookies map[string]string) {
-	for k, v := range cookies {
-		s.cookies.SetSimple(k, v)
+// SetCookies sets multiple cookies from CookieState entries
+func (s *Session) SetCookies(cookies []CookieState) {
+	for _, c := range cookies {
+		s.cookies.SetSimple(c.Name, c.Value, c.Domain, c.Path, c.Secure, c.HttpOnly, c.SameSite, c.MaxAge, c.Expires)
 	}
+}
+
+// DeleteCookie removes cookies by name. If domain is empty, removes from all domains.
+func (s *Session) DeleteCookie(name, domain string) {
+	s.cookies.Delete(name, domain)
 }
 
 // ClearCookies removes all cookies from this session

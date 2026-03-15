@@ -183,39 +183,125 @@ func (j *CookieJar) Get(requestHost, requestPath string, requestSecure bool) []*
 	return matches
 }
 
-// GetAll returns all cookies (for inspection/debugging)
-func (j *CookieJar) GetAll() map[string]string {
+// GetAll returns all non-expired cookies with full metadata
+func (j *CookieJar) GetAll() []CookieState {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 
-	result := make(map[string]string)
+	now := time.Now()
+	var result []CookieState
+
 	for _, domainCookies := range j.cookies {
-		for _, cookie := range domainCookies {
-			// Return latest value for each name (for backward compat)
-			result[cookie.Name] = cookie.Value
+		for _, c := range domainCookies {
+			// Skip expired cookies
+			if c.Expires != nil && c.Expires.Before(now) {
+				continue
+			}
+
+			createdAt := c.CreatedAt
+			result = append(result, CookieState{
+				Name:      c.Name,
+				Value:     c.Value,
+				Domain:    c.Domain,
+				Path:      c.Path,
+				Expires:   c.Expires,
+				MaxAge:    c.MaxAge,
+				Secure:    c.Secure,
+				HttpOnly:  c.HttpOnly,
+				SameSite:  c.SameSite,
+				CreatedAt: &createdAt,
+			})
 		}
 	}
+
+	// Sort by domain, then path, then name for deterministic output
+	sort.Slice(result, func(i, k int) bool {
+		if result[i].Domain != result[k].Domain {
+			return result[i].Domain < result[k].Domain
+		}
+		if result[i].Path != result[k].Path {
+			return result[i].Path < result[k].Path
+		}
+		return result[i].Name < result[k].Name
+	})
+
 	return result
 }
 
-// SetSimple sets a cookie with just name and value (for backward compatibility)
-func (j *CookieJar) SetSimple(name, value string) {
+// SetSimple sets a cookie with full metadata.
+// If domain is empty, creates a global cookie (sent to all domains).
+// If domain is provided, normalizes it and stores as a domain-scoped cookie.
+func (j *CookieJar) SetSimple(name, value, domain, path string, secure, httpOnly bool, sameSite string, maxAge int, expires *time.Time) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	// Store as a generic cookie that matches all domains
-	// Use empty string as domain key for "global" cookies set via API
-	domain := ""
+	hostOnly := false
+	if domain == "" {
+		// Global cookie — matches all domains
+	} else {
+		// Normalize domain
+		domain = strings.ToLower(domain)
+		if !strings.HasPrefix(domain, ".") {
+			// Bare domain → host-only cookie
+			hostOnly = true
+		}
+	}
+
+	if path == "" {
+		path = "/"
+	}
+
 	if j.cookies[domain] == nil {
 		j.cookies[domain] = make(map[string]*CookieData)
 	}
-	j.cookies[domain][cookieKey("/", name)] = &CookieData{
+	j.cookies[domain][cookieKey(path, name)] = &CookieData{
 		Name:      name,
 		Value:     value,
 		Domain:    domain,
-		HostOnly:  false,
-		Path:      "/",
+		HostOnly:  hostOnly,
+		Path:      path,
+		Expires:   expires,
+		MaxAge:    maxAge,
+		Secure:    secure,
+		HttpOnly:  httpOnly,
+		SameSite:  sameSite,
 		CreatedAt: time.Now(),
+	}
+}
+
+// Delete removes cookies by name. If domain is empty, removes ALL cookies with
+// that name across all domains. If domain is provided, removes only from that domain.
+func (j *CookieJar) Delete(name, domain string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	if domain == "" {
+		// Delete from all domains
+		for d, domainCookies := range j.cookies {
+			for key, cookie := range domainCookies {
+				if cookie.Name == name {
+					delete(domainCookies, key)
+				}
+			}
+			if len(domainCookies) == 0 {
+				delete(j.cookies, d)
+			}
+		}
+	} else {
+		// Normalize and delete from specific domain
+		domain = strings.ToLower(domain)
+		domainCookies, ok := j.cookies[domain]
+		if !ok {
+			return
+		}
+		for key, cookie := range domainCookies {
+			if cookie.Name == name {
+				delete(domainCookies, key)
+			}
+		}
+		if len(domainCookies) == 0 {
+			delete(j.cookies, domain)
+		}
 	}
 }
 
