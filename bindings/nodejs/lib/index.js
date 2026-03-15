@@ -800,7 +800,9 @@ function getLib() {
       httpcloak_post: nativeLibHandle.func("httpcloak_post", "str", ["int64", "str", "str", "str"]),
       httpcloak_request: nativeLibHandle.func("httpcloak_request", "str", ["int64", "str"]),
       httpcloak_get_cookies: nativeLibHandle.func("httpcloak_get_cookies", "str", ["int64"]),
-      httpcloak_set_cookie: nativeLibHandle.func("httpcloak_set_cookie", "void", ["int64", "str", "str"]),
+      httpcloak_set_cookie: nativeLibHandle.func("httpcloak_set_cookie", "void", ["int64", "str"]),
+      httpcloak_delete_cookie: nativeLibHandle.func("httpcloak_delete_cookie", "void", ["int64", "str", "str"]),
+      httpcloak_clear_cookies: nativeLibHandle.func("httpcloak_clear_cookies", "void", ["int64"]),
       httpcloak_free_string: nativeLibHandle.func("httpcloak_free_string", "void", ["void*"]),
       httpcloak_version: nativeLibHandle.func("httpcloak_version", "str", []),
       httpcloak_available_presets: nativeLibHandle.func("httpcloak_available_presets", "str", []),
@@ -1886,58 +1888,76 @@ class Session {
   // ===========================================================================
 
   /**
-   * Get all cookies from the session
-   * @returns {Object} Cookies as key-value pairs
+   * Get all cookies from the session with full metadata
+   * @returns {Cookie[]} Array of Cookie objects
    */
   getCookies() {
     const resultPtr = this._lib.httpcloak_get_cookies(this._handle);
     const result = resultToString(resultPtr);
     if (result) {
-      return JSON.parse(result);
+      const parsed = JSON.parse(result);
+      return parsed.map(c => new Cookie(c));
     }
-    return {};
+    return [];
   }
 
   /**
    * Get a specific cookie by name
    * @param {string} name - Cookie name
-   * @returns {string|null} Cookie value or null if not found
+   * @returns {Cookie|null} Cookie object or null if not found
    */
   getCookie(name) {
     const cookies = this.getCookies();
-    return cookies[name] || null;
+    return cookies.find(c => c.name === name) || null;
   }
 
   /**
    * Set a cookie in the session
    * @param {string} name - Cookie name
    * @param {string} value - Cookie value
+   * @param {Object} [options] - Cookie options
+   * @param {string} [options.domain] - Cookie domain
+   * @param {string} [options.path] - Cookie path (default: "/")
+   * @param {boolean} [options.secure] - Secure flag
+   * @param {boolean} [options.httpOnly] - HttpOnly flag
+   * @param {string} [options.sameSite] - SameSite attribute (Strict, Lax, None)
+   * @param {number} [options.maxAge] - Max age in seconds (0 means not set)
+   * @param {string} [options.expires] - Expiration date (RFC1123 format)
    */
-  setCookie(name, value) {
-    this._lib.httpcloak_set_cookie(this._handle, name, value);
+  setCookie(name, value, options = {}) {
+    const cookie = {
+      name,
+      value,
+      domain: options.domain || "",
+      path: options.path || "/",
+      secure: options.secure || false,
+      http_only: options.httpOnly || false,
+      same_site: options.sameSite || "",
+      max_age: options.maxAge || 0,
+      expires: options.expires || "",
+    };
+    this._lib.httpcloak_set_cookie(this._handle, JSON.stringify(cookie));
   }
 
   /**
    * Delete a specific cookie by name
    * @param {string} name - Cookie name to delete
+   * @param {string} [domain] - Domain to delete from (omit to delete from all domains)
    */
-  deleteCookie(name) {
-    // Set cookie to empty value - effectively deletes it
-    this._lib.httpcloak_set_cookie(this._handle, name, "");
+  deleteCookie(name, domain = "") {
+    this._lib.httpcloak_delete_cookie(this._handle, name, domain);
   }
 
   /**
    * Clear all cookies from the session
    */
   clearCookies() {
-    const cookies = this.getCookies();
-    for (const name of Object.keys(cookies)) {
-      this.deleteCookie(name);
-    }
+    this._lib.httpcloak_clear_cookies(this._handle);
   }
 
   /**
    * Get cookies as a property
+   * @returns {Cookie[]} Array of Cookie objects
    */
   get cookies() {
     return this.getCookies();

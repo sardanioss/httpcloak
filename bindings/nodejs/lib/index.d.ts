@@ -337,23 +337,35 @@ export class Session {
   options(url: string, options?: RequestOptions): Promise<Response>;
 
   // Cookie management
-  /** Get all cookies from the session */
-  getCookies(): Record<string, string>;
+  /** Get all cookies from the session with full metadata */
+  getCookies(): Cookie[];
 
   /** Get a specific cookie by name */
-  getCookie(name: string): string | null;
+  getCookie(name: string): Cookie | null;
 
   /** Set a cookie in the session */
-  setCookie(name: string, value: string): void;
+  setCookie(
+    name: string,
+    value: string,
+    options?: {
+      domain?: string;
+      path?: string;
+      secure?: boolean;
+      httpOnly?: boolean;
+      sameSite?: string;
+      maxAge?: number;
+      expires?: string;
+    }
+  ): void;
 
-  /** Delete a specific cookie by name */
-  deleteCookie(name: string): void;
+  /** Delete a specific cookie by name. If domain is omitted, deletes from all domains. */
+  deleteCookie(name: string, domain?: string): void;
 
   /** Clear all cookies from the session */
   clearCookies(): void;
 
   /** Get cookies as a property */
-  readonly cookies: Record<string, string>;
+  readonly cookies: Cookie[];
 
   // Proxy management
 

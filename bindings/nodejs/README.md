@@ -324,18 +324,31 @@ const { Session } = require("httpcloak");
 
 const session = new Session();
 
-// Set a cookie
+// Set a simple cookie (global, sent to all domains)
 session.setCookie("session_id", "abc123");
 
-// Get all cookies
+// Set a domain-scoped cookie with full metadata
+session.setCookie("auth", "token", {
+  domain: ".example.com",
+  path: "/",
+  secure: true,
+  httpOnly: true,
+  sameSite: "Lax",
+});
+
+// Get all cookies (returns Cookie[] with full metadata)
 const cookies = session.getCookies();
-console.log(cookies);
+for (const cookie of cookies) {
+  console.log(`${cookie.name}=${cookie.value} (domain: ${cookie.domain})`);
+}
 
-// Access cookies as property
-console.log(session.cookies);
+// Get a specific cookie by name (returns Cookie or null)
+const cookie = session.getCookie("session_id");
+if (cookie) console.log(cookie.value);
 
-// Delete a cookie
+// Delete a cookie (omit domain to delete from all domains)
 session.deleteCookie("session_id");
+session.deleteCookie("auth", ".example.com"); // delete from specific domain
 
 // Clear all cookies
 session.clearCookies();
