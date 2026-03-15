@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Chrome 146 preset** — New default preset with updated `sec-ch-ua` brand rotation (`"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"`) and User-Agent version bump. TLS and HTTP/2 fingerprints are identical to Chrome 145/144/143. All `-latest` aliases now resolve to Chrome 146. All code examples updated to use `chrome-latest` to avoid version-specific churn.
 - **Userspace UDP receive buffering** — On platforms where the kernel limits UDP socket buffer size (Azure Container Apps: 416 KiB), a dedicated drain goroutine now keeps the kernel buffer permanently drained by buffering packets in userspace (256–4096 slots). Prevents silent packet drops, retransmissions, and connection failures for HTTP/3. Activates automatically when the kernel buffer is below 7 MB; zero overhead on systems with proper buffers.
 - **`google_connection_options` QUIC transport parameter** — Chrome sends `google_connection_options` (0x3128) with value "B2ON" in QUIC handshakes. This was the last missing Chrome-specific transport parameter identified in a full fingerprint audit against azuretls-client.
 - **HPACK never-indexed representation for sensitive headers** — `cookie`, `authorization`, and `proxy-authorization` now use the HPACK "Never Indexed" wire encoding (0x10 prefix) matching Chrome's behavior. Previously used "Without Indexing" (0x00 prefix) which anti-bot systems like Akamai can distinguish.
@@ -26,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Dependencies
 
+- sardanioss/utls v1.10.2 → v1.10.3
 - sardanioss/quic-go v1.2.21 → v1.2.23
 - sardanioss/net v1.2.4 → v1.2.5
 
