@@ -837,14 +837,27 @@ func (s *Session) Get(ctx context.Context, url string) (*Response, error) {
 	return s.Do(ctx, &Request{Method: "GET", URL: url})
 }
 
-// GetCookies returns all cookies stored in the session
-func (s *Session) GetCookies() map[string]string {
+// CookieInfo represents a cookie with full metadata (domain, path, expiry, etc.)
+type CookieInfo = session.CookieState
+
+// GetCookies returns all cookies stored in the session with full metadata
+func (s *Session) GetCookies() []CookieInfo {
 	return s.inner.GetCookies()
 }
 
-// SetCookie sets a cookie in the session
-func (s *Session) SetCookie(name, value string) {
-	s.inner.SetCookie(name, value)
+// SetCookie sets a cookie in the session with full metadata
+func (s *Session) SetCookie(cookie CookieInfo) {
+	s.inner.SetCookie(cookie.Name, cookie.Value, cookie.Domain, cookie.Path, cookie.Secure, cookie.HttpOnly, cookie.SameSite, cookie.MaxAge, cookie.Expires)
+}
+
+// DeleteCookie removes cookies by name. If domain is empty, removes from all domains.
+func (s *Session) DeleteCookie(name, domain string) {
+	s.inner.DeleteCookie(name, domain)
+}
+
+// ClearCookies removes all cookies from the session
+func (s *Session) ClearCookies() {
+	s.inner.ClearCookies()
 }
 
 // SetProxy sets or updates the proxy for all protocols (HTTP/1.1, HTTP/2, HTTP/3)
