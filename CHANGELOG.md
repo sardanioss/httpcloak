@@ -7,13 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **Fix Cookie API losing domain/path/expiry metadata** — `getCookies()` returned a flat `map[string]string` (name→value), losing domain/path/expiry metadata and causing last-write-wins collisions when two domains set a cookie with the same name. Now returns an array of Cookie objects with full metadata (domain, path, expires, maxAge, secure, httpOnly, sameSite). `setCookie()` accepts domain/path/flags for domain-scoped cookies — `setCookie("name", "value")` still works as a global cookie (backward compatible). `deleteCookie()` properly removes cookies from the jar (was setting to empty string) and accepts an optional domain parameter for targeted deletion. `clearCookies()` calls the Go core directly (was doing a broken client-side loop of get-then-delete that missed domain-scoped cookies). Affects all bindings: Node.js, Python, .NET, and the Go public API. Wire behavior, session serialization, and per-request `cookies` parameter are unchanged.
+## [1.6.1] - 2026-03-16
 
 ### Added
 
 - **Chrome 146 preset** — New default preset with updated `sec-ch-ua` brand rotation (`"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"`) and User-Agent version bump. TLS and HTTP/2 fingerprints are identical to Chrome 145/144/143. All `-latest` aliases now resolve to Chrome 146. All code examples updated to use `chrome-latest` to avoid version-specific churn.
+- **`getCookiesDetailed()` / `getCookieDetailed()`** — New methods that return Cookie objects with full metadata (domain, path, expires, maxAge, secure, httpOnly, sameSite). Available in all bindings. The existing `getCookies()` / `getCookie()` methods continue to return the old flat format (name→value dict / string) with a deprecation notice — in a future release they will return the same format as the detailed methods.
 - **Userspace UDP receive buffering** — On platforms where the kernel limits UDP socket buffer size (Azure Container Apps: 416 KiB), a dedicated drain goroutine now keeps the kernel buffer permanently drained by buffering packets in userspace (256–4096 slots). Prevents silent packet drops, retransmissions, and connection failures for HTTP/3. Activates automatically when the kernel buffer is below 7 MB; zero overhead on systems with proper buffers.
 - **`google_connection_options` QUIC transport parameter** — Chrome sends `google_connection_options` (0x3128) with value "B2ON" in QUIC handshakes. This was the last missing Chrome-specific transport parameter identified in a full fingerprint audit against azuretls-client.
 - **HPACK never-indexed representation for sensitive headers** — `cookie`, `authorization`, and `proxy-authorization` now use the HPACK "Never Indexed" wire encoding (0x10 prefix) matching Chrome's behavior. Previously used "Without Indexing" (0x00 prefix) which anti-bot systems like Akamai can distinguish.
@@ -22,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fix Cookie API losing domain/path/expiry metadata** — The internal cookie jar stored full metadata correctly, but `getCookies()` flattened it to a name→value dict, losing domain/path/expiry and causing last-write-wins collisions when two domains set a cookie with the same name. `setCookie()` now accepts domain/path/flags for domain-scoped cookies — `setCookie("name", "value")` still works unchanged. `deleteCookie()` properly removes cookies (was setting to empty string) and accepts an optional domain parameter. `clearCookies()` calls the Go core directly (was doing a broken client-side loop). All existing scripts continue to work — `getCookies()` still returns a flat dict, `getCookie()` still returns a string. Wire behavior, session serialization, and per-request `cookies` parameter are unchanged.
 - **Fix pool H2 path splitting cookies per RFC 9113** — The pool `http2.Transport` was missing `DisableCookieSplit: true`, causing cookies to be sent as separate HPACK entries instead of a single entry like real Chrome. Detectable by Akamai's H2 fingerprinter.
 
 ### Changed
