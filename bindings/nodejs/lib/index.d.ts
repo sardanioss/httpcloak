@@ -195,7 +195,7 @@ export class StreamResponse {
 }
 
 export interface SessionOptions {
-  /** Browser preset to use (default: "chrome-145") */
+  /** Browser preset to use (default: "chrome-146") */
   preset?: string;
   /** Proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port") */
   proxy?: string;
@@ -619,7 +619,7 @@ export class Session {
 export interface LocalProxyOptions {
   /** Port to listen on (default: 0 for auto-assign) */
   port?: number;
-  /** Browser preset to use (default: "chrome-145") */
+  /** Browser preset to use (default: "chrome-146") */
   preset?: string;
   /** Request timeout in seconds (default: 30) */
   timeout?: number;
@@ -659,7 +659,7 @@ export interface LocalProxyStats {
  *
  * @example
  * // Basic usage
- * const proxy = new LocalProxy({ preset: "chrome-145", tlsOnly: true });
+ * const proxy = new LocalProxy({ preset: "chrome-146", tlsOnly: true });
  * console.log(`Proxy running on ${proxy.proxyUrl}`);
  * // Use with any HTTP client pointing to the proxy
  * proxy.close();
@@ -816,6 +816,10 @@ export function request(method: string, url: string, options?: RequestOptions): 
 
 /** Available browser presets */
 export const Preset: {
+  CHROME_146: string;
+  CHROME_146_WINDOWS: string;
+  CHROME_146_LINUX: string;
+  CHROME_146_MACOS: string;
   CHROME_145: string;
   CHROME_145_WINDOWS: string;
   CHROME_145_LINUX: string;
@@ -833,9 +837,11 @@ export const Preset: {
   CHROME_143_IOS: string;
   CHROME_144_IOS: string;
   CHROME_145_IOS: string;
+  CHROME_146_IOS: string;
   CHROME_143_ANDROID: string;
   CHROME_144_ANDROID: string;
   CHROME_145_ANDROID: string;
+  CHROME_146_ANDROID: string;
   FIREFOX_133: string;
   SAFARI_18: string;
   SAFARI_17_IOS: string;
@@ -844,9 +850,11 @@ export const Preset: {
   IOS_CHROME_143: string;
   IOS_CHROME_144: string;
   IOS_CHROME_145: string;
+  IOS_CHROME_146: string;
   ANDROID_CHROME_143: string;
   ANDROID_CHROME_144: string;
   ANDROID_CHROME_145: string;
+  ANDROID_CHROME_146: string;
   IOS_SAFARI_17: string;
   IOS_SAFARI_18: string;
   all(): string[];

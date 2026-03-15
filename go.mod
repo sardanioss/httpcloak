@@ -16,7 +16,7 @@ require (
 	github.com/sardanioss/net v1.2.5
 	github.com/sardanioss/quic-go v1.2.23
 	github.com/sardanioss/udpbara v1.1.0
-	github.com/sardanioss/utls v1.10.2
+	github.com/sardanioss/utls v1.10.3
 	golang.org/x/net v0.48.0
 )
 

@@ -59,7 +59,7 @@ const (
 //
 // Usage with C# HttpClient:
 //
-//	proxy := httpcloak.StartLocalProxy(8080, "chrome-145")
+//	proxy := httpcloak.StartLocalProxy(8080, "chrome-146")
 //	defer proxy.Stop()
 //	// Configure HttpClient to use http://localhost:8080 as proxy
 type LocalProxy struct {
@@ -104,7 +104,7 @@ type LocalProxyConfig struct {
 	// Port to listen on (0 = auto-select)
 	Port int
 
-	// Browser fingerprint preset (default: chrome-145)
+	// Browser fingerprint preset (default: chrome-146)
 	Preset string
 
 	// Request timeout
@@ -184,7 +184,7 @@ func WithProxySessionCache(backend transport.SessionCacheBackend, errorCallback 
 //
 // Example:
 //
-//	proxy, err := httpcloak.StartLocalProxy(8080, httpcloak.WithProxyPreset("chrome-145"))
+//	proxy, err := httpcloak.StartLocalProxy(8080, httpcloak.WithProxyPreset("chrome-146"))
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -193,7 +193,7 @@ func WithProxySessionCache(backend transport.SessionCacheBackend, errorCallback 
 func StartLocalProxy(port int, opts ...LocalProxyOption) (*LocalProxy, error) {
 	config := &LocalProxyConfig{
 		Port:           port,
-		Preset:         "chrome-145",
+		Preset:         "chrome-146",
 		Timeout:        30 * time.Second,
 		MaxConnections: 1000,
 	}
@@ -363,7 +363,7 @@ func (p *LocalProxy) Stats() map[string]interface{} {
 //
 // Example:
 //
-//	session := httpcloak.NewSession("chrome-145", httpcloak.WithSessionProxy("..."))
+//	session := httpcloak.NewSession("chrome-146", httpcloak.WithSessionProxy("..."))
 //	proxy.RegisterSession("session-1", session)
 //	// Client can now use: X-HTTPCloak-Session: session-1
 func (p *LocalProxy) RegisterSession(sessionID string, session *Session) error {

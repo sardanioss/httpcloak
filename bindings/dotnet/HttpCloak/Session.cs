@@ -150,7 +150,7 @@ public sealed class Session : IDisposable
     /// <summary>
     /// Create a new session with the specified options.
     /// </summary>
-    /// <param name="preset">Browser preset (default: "chrome-145")</param>
+    /// <param name="preset">Browser preset (default: "chrome-146")</param>
     /// <param name="proxy">Proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port")</param>
     /// <param name="tcpProxy">Proxy URL for TCP protocols (HTTP/1.1, HTTP/2) - use with udpProxy for split config</param>
     /// <param name="udpProxy">Proxy URL for UDP protocols (HTTP/3 via MASQUE) - use with tcpProxy for split config</param>
@@ -176,7 +176,7 @@ public sealed class Session : IDisposable
     /// <param name="tcpWindowScale">TCP Window Scale override: 8=Windows, 7=Linux, 6=macOS (default: null)</param>
     /// <param name="tcpDf">IP Don't Fragment bit override (default: null)</param>
     public Session(
-        string preset = "chrome-145",
+        string preset = "chrome-146",
         string? proxy = null,
         string? tcpProxy = null,
         string? udpProxy = null,
@@ -2352,6 +2352,10 @@ public sealed class HttpCloakContentStream : Stream
 /// </summary>
 public static class Presets
 {
+    public const string Chrome146 = "chrome-146";
+    public const string Chrome146Windows = "chrome-146-windows";
+    public const string Chrome146Linux = "chrome-146-linux";
+    public const string Chrome146MacOS = "chrome-146-macos";
     public const string Chrome145 = "chrome-145";
     public const string Chrome145Windows = "chrome-145-windows";
     public const string Chrome145Linux = "chrome-145-linux";
@@ -2371,21 +2375,25 @@ public static class Presets
     public const string Chrome143Ios = "chrome-143-ios";
     public const string Chrome144Ios = "chrome-144-ios";
     public const string Chrome145Ios = "chrome-145-ios";
+    public const string Chrome146Ios = "chrome-146-ios";
     public const string Safari17Ios = "safari-17-ios";
     public const string Safari18Ios = "safari-18-ios";
     public const string Chrome143Android = "chrome-143-android";
     public const string Chrome144Android = "chrome-144-android";
     public const string Chrome145Android = "chrome-145-android";
+    public const string Chrome146Android = "chrome-146-android";
 
     // Backwards compatibility aliases (old naming convention)
     public const string IosChrome143 = Chrome143Ios;
     public const string IosChrome144 = Chrome144Ios;
     public const string IosChrome145 = Chrome145Ios;
+    public const string IosChrome146 = Chrome146Ios;
     public const string IosSafari17 = Safari17Ios;
     public const string IosSafari18 = Safari18Ios;
     public const string AndroidChrome143 = Chrome143Android;
     public const string AndroidChrome144 = Chrome144Android;
     public const string AndroidChrome145 = Chrome145Android;
+    public const string AndroidChrome146 = Chrome146Android;
 }
 
 /// <summary>
@@ -2483,7 +2491,7 @@ public class MultipartFile
 internal class SessionConfig
 {
     [JsonPropertyName("preset")]
-    public string Preset { get; set; } = "chrome-145";
+    public string Preset { get; set; } = "chrome-146";
 
     [JsonPropertyName("proxy")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -2783,14 +2791,14 @@ public sealed class HttpCloakHandler : DelegatingHandler
     /// Create a new HttpCloakHandler with the specified options.
     /// Uses LocalProxy internally for true streaming support.
     /// </summary>
-    /// <param name="preset">Browser preset (default: "chrome-145")</param>
+    /// <param name="preset">Browser preset (default: "chrome-146")</param>
     /// <param name="proxy">Upstream proxy URL (e.g., "http://user:pass@host:port" or "socks5://host:port")</param>
     /// <param name="tcpProxy">Upstream proxy URL for TCP protocols (HTTP/1.1, HTTP/2)</param>
     /// <param name="udpProxy">Upstream proxy URL for UDP protocols (HTTP/3 via MASQUE)</param>
     /// <param name="timeout">Request timeout in seconds (default: 30)</param>
     /// <param name="maxConnections">Maximum concurrent connections (default: 1000)</param>
     public HttpCloakHandler(
-        string preset = "chrome-145",
+        string preset = "chrome-146",
         string? proxy = null,
         string? tcpProxy = null,
         string? udpProxy = null,

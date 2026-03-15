@@ -5,7 +5,7 @@
 //
 // Basic usage:
 //
-//	client := httpcloak.New("chrome-145")
+//	client := httpcloak.New("chrome-146")
 //	defer client.Close()
 //
 //	resp, err := client.Get(ctx, "https://example.com")
@@ -16,7 +16,7 @@
 //
 // With options:
 //
-//	client := httpcloak.New("chrome-145",
+//	client := httpcloak.New("chrome-146",
 //	    httpcloak.WithTimeout(30*time.Second),
 //	    httpcloak.WithProxy("http://user:pass@proxy:8080"),
 //	)
@@ -84,7 +84,7 @@ func WithProxy(proxyURL string) Option {
 //
 // Available presets:
 //   - "chrome-latest" (recommended), "chrome-latest-windows", "chrome-latest-linux", "chrome-latest-macos"
-//   - "chrome-145", "chrome-144", "chrome-143", "chrome-141", "chrome-133"
+//   - "chrome-146", "chrome-145", "chrome-144", "chrome-143", "chrome-141", "chrome-133"
 //   - "firefox-latest", "firefox-133"
 //   - "safari-latest", "safari-18"
 //   - "chrome-latest-ios", "safari-latest-ios"

@@ -33,7 +33,7 @@ public sealed class LocalProxy : IDisposable
     /// Creates and starts a local HTTP proxy with the specified configuration.
     /// </summary>
     /// <param name="port">Port to listen on (0 = auto-select)</param>
-    /// <param name="preset">Browser fingerprint preset (default: chrome-145)</param>
+    /// <param name="preset">Browser fingerprint preset (default: chrome-146)</param>
     /// <param name="timeout">Request timeout in seconds (default: 30)</param>
     /// <param name="maxConnections">Maximum concurrent connections (default: 1000)</param>
     /// <param name="tcpProxy">Upstream TCP proxy URL (optional)</param>
@@ -41,7 +41,7 @@ public sealed class LocalProxy : IDisposable
     /// <param name="tlsOnly">TLS-only mode: skip preset HTTP headers, only apply TLS fingerprint (default: false)</param>
     public LocalProxy(
         int port = 0,
-        string preset = "chrome-145",
+        string preset = "chrome-146",
         int timeout = 30,
         int maxConnections = 1000,
         string? tcpProxy = null,
@@ -250,7 +250,7 @@ internal class LocalProxyConfig
     public int Port { get; set; }
 
     [JsonPropertyName("preset")]
-    public string Preset { get; set; } = "chrome-145";
+    public string Preset { get; set; } = "chrome-146";
 
     [JsonPropertyName("timeout")]
     public int Timeout { get; set; } = 30;
