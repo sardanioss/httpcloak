@@ -281,18 +281,26 @@ using HttpCloak;
 
 using var session = new Session();
 
-// Set a cookie
+// Set a simple cookie (global, sent to all domains)
 session.SetCookie("session_id", "abc123");
 
-// Get all cookies
+// Set a domain-scoped cookie with full metadata
+session.SetCookie("auth", "token", domain: ".example.com", secure: true, httpOnly: true);
+
+// Get all cookies (returns List<Cookie> with full metadata)
 var cookies = session.GetCookies();
 foreach (var cookie in cookies)
 {
-    Console.WriteLine($"{cookie.Name}={cookie.Value}");
+    Console.WriteLine($"{cookie.Name}={cookie.Value} (domain: {cookie.Domain})");
 }
 
-// Delete a cookie
+// Get a specific cookie by name
+var cookie = session.GetCookie("session_id");
+if (cookie != null) Console.WriteLine(cookie.Value);
+
+// Delete a cookie (empty domain = delete from all domains)
 session.DeleteCookie("session_id");
+session.DeleteCookie("auth", ".example.com"); // delete from specific domain
 
 // Clear all cookies
 session.ClearCookies();

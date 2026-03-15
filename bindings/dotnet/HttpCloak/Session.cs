@@ -896,9 +896,9 @@ public sealed class Session : IDisposable
     // =========================================================================
 
     /// <summary>
-    /// Get all cookies from the session.
+    /// Get all cookies from the session with full metadata.
     /// </summary>
-    public Dictionary<string, string> GetCookies()
+    public List<Cookie> GetCookies()
     {
         ThrowIfDisposed();
 
@@ -906,42 +906,70 @@ public sealed class Session : IDisposable
         string? json = Native.PtrToStringAndFree(resultPtr);
 
         if (string.IsNullOrEmpty(json))
-            return new Dictionary<string, string>();
+            return new List<Cookie>();
 
-        return JsonSerializer.Deserialize(json, JsonContext.Default.DictionaryStringString)
-            ?? new Dictionary<string, string>();
+        var cookieDataList = JsonSerializer.Deserialize(json, JsonContext.Default.ListCookieData)
+            ?? new List<CookieData>();
+
+        return cookieDataList.Select(c => new Cookie(
+            c.Name ?? "", c.Value ?? "", c.Domain ?? "", c.Path ?? "",
+            c.Expires ?? "", c.MaxAge, c.Secure, c.HttpOnly, c.SameSite ?? ""))
+            .ToList();
     }
 
     /// <summary>
     /// Set a cookie in the session.
     /// </summary>
-    public void SetCookie(string name, string value)
+    /// <param name="name">Cookie name</param>
+    /// <param name="value">Cookie value</param>
+    /// <param name="domain">Cookie domain (null/empty = global cookie sent to all domains)</param>
+    /// <param name="path">Cookie path (default: "/")</param>
+    /// <param name="secure">Secure flag</param>
+    /// <param name="httpOnly">HttpOnly flag</param>
+    /// <param name="sameSite">SameSite attribute (Strict, Lax, None)</param>
+    /// <param name="maxAge">Max age in seconds (0 means not set)</param>
+    /// <param name="expires">Expiration date in RFC1123 format</param>
+    public void SetCookie(string name, string value, string? domain = null, string? path = null,
+        bool secure = false, bool httpOnly = false, string? sameSite = null, int maxAge = 0, string? expires = null)
     {
         ThrowIfDisposed();
-        Native.SetCookie(_handle, name, value);
+        var cookie = new CookieData
+        {
+            Name = name,
+            Value = value,
+            Domain = domain ?? "",
+            Path = path ?? "/",
+            Secure = secure,
+            HttpOnly = httpOnly,
+            SameSite = sameSite ?? "",
+            MaxAge = maxAge,
+            Expires = expires ?? "",
+        };
+        string cookieJson = JsonSerializer.Serialize(cookie, JsonContext.Default.CookieData);
+        Native.SetCookie(_handle, cookieJson);
     }
 
     /// <summary>
     /// Get a specific cookie by name.
     /// </summary>
     /// <param name="name">Cookie name</param>
-    /// <returns>Cookie value, or null if not found</returns>
-    public string? GetCookie(string name)
+    /// <returns>Cookie object, or null if not found</returns>
+    public Cookie? GetCookie(string name)
     {
         ThrowIfDisposed();
         var cookies = GetCookies();
-        return cookies.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value) ? value : null;
+        return cookies.FirstOrDefault(c => c.Name == name);
     }
 
     /// <summary>
     /// Delete a specific cookie by name.
     /// </summary>
     /// <param name="name">Cookie name to delete</param>
-    public void DeleteCookie(string name)
+    /// <param name="domain">Domain to delete from (empty = delete from all domains)</param>
+    public void DeleteCookie(string name, string domain = "")
     {
         ThrowIfDisposed();
-        // Set cookie to empty string to delete it
-        Native.SetCookie(_handle, name, "");
+        Native.DeleteCookie(_handle, name, domain);
     }
 
     /// <summary>
@@ -950,11 +978,7 @@ public sealed class Session : IDisposable
     public void ClearCookies()
     {
         ThrowIfDisposed();
-        var cookies = GetCookies();
-        foreach (var name in cookies.Keys)
-        {
-            Native.SetCookie(_handle, name, "");
-        }
+        Native.ClearCookies(_handle);
     }
 
     // =========================================================================
@@ -1696,7 +1720,7 @@ public sealed class Session : IDisposable
 }
 
 /// <summary>
-/// Cookie from Set-Cookie header.
+/// Cookie with full metadata (domain, path, expiry, etc.).
 /// </summary>
 public sealed class Cookie
 {
@@ -1706,13 +1730,42 @@ public sealed class Cookie
     /// <summary>Cookie value.</summary>
     public string Value { get; }
 
-    internal Cookie(string name, string value)
+    /// <summary>Cookie domain.</summary>
+    public string Domain { get; }
+
+    /// <summary>Cookie path.</summary>
+    public string Path { get; }
+
+    /// <summary>Expiration date (RFC1123 format) or empty for session cookies.</summary>
+    public string Expires { get; }
+
+    /// <summary>Max age in seconds (0 means not set).</summary>
+    public int MaxAge { get; }
+
+    /// <summary>Secure flag.</summary>
+    public bool Secure { get; }
+
+    /// <summary>HttpOnly flag.</summary>
+    public bool HttpOnly { get; }
+
+    /// <summary>SameSite attribute (Strict, Lax, None).</summary>
+    public string SameSite { get; }
+
+    internal Cookie(string name, string value, string domain = "", string path = "",
+        string expires = "", int maxAge = 0, bool secure = false, bool httpOnly = false, string sameSite = "")
     {
         Name = name;
         Value = value;
+        Domain = domain ?? "";
+        Path = path ?? "";
+        Expires = expires ?? "";
+        MaxAge = maxAge;
+        Secure = secure;
+        HttpOnly = httpOnly;
+        SameSite = sameSite ?? "";
     }
 
-    public override string ToString() => $"Cookie(Name={Name}, Value={Value})";
+    public override string ToString() => $"Cookie(Name={Name}, Value={Value}, Domain={Domain})";
 }
 
 /// <summary>
@@ -1788,7 +1841,7 @@ public sealed class Response
         Elapsed = elapsed;
 
         // Parse cookies from response
-        Cookies = data.Cookies?.Select(c => new Cookie(c.Name ?? "", c.Value ?? "")).ToList()
+        Cookies = data.Cookies?.Select(c => new Cookie(c.Name ?? "", c.Value ?? "", c.Domain ?? "", c.Path ?? "", c.Expires ?? "", c.MaxAge, c.Secure, c.HttpOnly, c.SameSite ?? "")).ToList()
             ?? new List<Cookie>();
 
         // Parse redirect history
@@ -1943,7 +1996,7 @@ public sealed class FastResponse
         Elapsed = elapsed;
 
         // Parse cookies from response
-        Cookies = metadata.Cookies?.Select(c => new Cookie(c.Name ?? "", c.Value ?? "")).ToList()
+        Cookies = metadata.Cookies?.Select(c => new Cookie(c.Name ?? "", c.Value ?? "", c.Domain ?? "", c.Path ?? "", c.Expires ?? "", c.MaxAge, c.Secure, c.HttpOnly, c.SameSite ?? "")).ToList()
             ?? new List<Cookie>();
 
         // Parse redirect history
@@ -2096,7 +2149,7 @@ public sealed class StreamResponse : IDisposable
         Url = metadata.FinalUrl ?? "";
         Protocol = metadata.Protocol ?? "";
         ContentLength = metadata.ContentLength;
-        Cookies = metadata.Cookies?.Select(c => new Cookie(c.Name ?? "", c.Value ?? "")).ToList()
+        Cookies = metadata.Cookies?.Select(c => new Cookie(c.Name ?? "", c.Value ?? "", c.Domain ?? "", c.Path ?? "", c.Expires ?? "", c.MaxAge, c.Secure, c.HttpOnly, c.SameSite ?? "")).ToList()
             ?? new List<Cookie>();
     }
 
@@ -2636,6 +2689,27 @@ internal class CookieData
 
     [JsonPropertyName("value")]
     public string? Value { get; set; }
+
+    [JsonPropertyName("domain")]
+    public string? Domain { get; set; }
+
+    [JsonPropertyName("path")]
+    public string? Path { get; set; }
+
+    [JsonPropertyName("expires")]
+    public string? Expires { get; set; }
+
+    [JsonPropertyName("max_age")]
+    public int MaxAge { get; set; }
+
+    [JsonPropertyName("secure")]
+    public bool Secure { get; set; }
+
+    [JsonPropertyName("http_only")]
+    public bool HttpOnly { get; set; }
+
+    [JsonPropertyName("same_site")]
+    public string? SameSite { get; set; }
 }
 
 internal class RedirectInfoData

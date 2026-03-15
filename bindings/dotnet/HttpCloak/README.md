@@ -67,15 +67,24 @@ using var session = new Session(
 ## Cookie Management
 
 ```csharp
-// Set a cookie
+// Set a simple cookie (global, sent to all domains)
 session.SetCookie("session_id", "abc123");
 
-// Get all cookies
+// Set a domain-scoped cookie with full metadata
+session.SetCookie("auth", "token", domain: ".example.com", secure: true);
+
+// Get all cookies (returns List<Cookie> with full metadata)
 var cookies = session.GetCookies();
-foreach (var (name, value) in cookies)
+foreach (var cookie in cookies)
 {
-    Console.WriteLine($"{name}: {value}");
+    Console.WriteLine($"{cookie.Name}={cookie.Value} (domain: {cookie.Domain})");
 }
+
+// Delete a cookie
+session.DeleteCookie("session_id");
+
+// Clear all cookies
+session.ClearCookies();
 ```
 
 ## License

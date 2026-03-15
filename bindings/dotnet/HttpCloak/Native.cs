@@ -105,7 +105,13 @@ internal static class Native
     public static extern IntPtr GetCookies(long handle);
 
     [DllImport(LibraryName, EntryPoint = "httpcloak_set_cookie", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void SetCookie(long handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
+    public static extern void SetCookie(long handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string cookieJson);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_delete_cookie", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void DeleteCookie(long handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string domain);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_clear_cookies", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void ClearCookies(long handle);
 
     [DllImport(LibraryName, EntryPoint = "httpcloak_free_string", CallingConvention = CallingConvention.Cdecl)]
     public static extern void FreeString(IntPtr str);
