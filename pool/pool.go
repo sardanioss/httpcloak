@@ -410,7 +410,7 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 		// Native fingerprinting via sardanioss/net
 		ConnectionFlow: settings.ConnectionWindowUpdate,
 		Settings:       buildHTTP2Settings(settings),
-		SettingsOrder:  buildHTTP2SettingsOrder(settings),
+		SettingsOrder:  buildHTTP2SettingsOrder(settings, p.preset),
 		PseudoHeaderOrder: func() []string {
 			// Safari/iOS uses m,s,p,a order; Chrome uses m,a,s,p
 			if settings.NoRFC7540Priorities {
@@ -430,23 +430,12 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 			}
 			return nil
 		}(),
-		HeaderOrder: []string{
-			// Chrome 143 header order (verified via tls.peet.ws)
-			"cache-control", // appears on reload/session resumption
-			"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
-			"upgrade-insecure-requests", "user-agent",
-			"content-type", "content-length", // for POST requests
-			"accept", "origin", // origin for CORS
-			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
-			"referer",
-			"accept-encoding", "accept-language",
-			"cookie", "priority",
-		},
+		HeaderOrder:         p.preset.H2HeaderOrder(),
 		UserAgent:           p.preset.UserAgent,
-		StreamPriorityMode:  http2.StreamPriorityChrome,
-		HPACKIndexingPolicy: hpack.IndexingChrome,
-		HPACKNeverIndex:     []string{"cookie", "authorization", "proxy-authorization"},
-		DisableCookieSplit:  true, // Chrome sends cookies as one HPACK entry, not split per RFC 9113
+		StreamPriorityMode:  resolveStreamPriorityMode(p.preset.H2StreamPriorityMode()),
+		HPACKIndexingPolicy: resolveHPACKIndexingPolicy(p.preset.H2HPACKIndexingPolicy()),
+		HPACKNeverIndex:     p.preset.H2HPACKNeverIndex(),
+		DisableCookieSplit:  p.preset.H2DisableCookieSplit(),
 	}
 
 	h2Conn, err := h2Transport.NewClientConn(tlsConn)
@@ -1305,6 +1294,43 @@ func (m *Manager) Stats() map[string]struct {
 	return stats
 }
 
+// resolveStreamPriorityMode converts a string mode to the http2 constant.
+func resolveStreamPriorityMode(mode string) http2.StreamPriorityMode {
+	switch mode {
+	case "chrome":
+		return http2.StreamPriorityChrome
+	case "default":
+		return http2.StreamPriorityDefault
+	default:
+		return http2.StreamPriorityChrome
+	}
+}
+
+// resolveHPACKIndexingPolicy converts a string policy to the hpack constant.
+func resolveHPACKIndexingPolicy(policy string) hpack.IndexingPolicy {
+	switch policy {
+	case "chrome":
+		return hpack.IndexingChrome
+	case "never":
+		return hpack.IndexingNever
+	case "always":
+		return hpack.IndexingAlways
+	case "default":
+		return hpack.IndexingDefault
+	default:
+		return hpack.IndexingChrome
+	}
+}
+
+// uint16sToSettingIDs converts uint16 slice to http2.SettingID slice.
+func uint16sToSettingIDs(ids []uint16) []http2.SettingID {
+	result := make([]http2.SettingID, len(ids))
+	for i, id := range ids {
+		result[i] = http2.SettingID(id)
+	}
+	return result
+}
+
 // boolToUint32 converts a bool to uint32 (for HTTP/2 SETTINGS)
 func boolToUint32(b bool) uint32 {
 	if b {
@@ -1334,8 +1360,12 @@ func buildHTTP2Settings(settings fingerprint.HTTP2Settings) map[http2.SettingID]
 	}
 }
 
-// buildHTTP2SettingsOrder creates the settings order based on preset configuration
-func buildHTTP2SettingsOrder(settings fingerprint.HTTP2Settings) []http2.SettingID {
+// buildHTTP2SettingsOrder creates the settings order based on preset configuration.
+// If the preset has an explicit SettingsOrder, it takes precedence over the heuristic.
+func buildHTTP2SettingsOrder(settings fingerprint.HTTP2Settings, preset *fingerprint.Preset) []http2.SettingID {
+	if order := preset.H2SettingsOrder(); order != nil {
+		return uint16sToSettingIDs(order)
+	}
 	// Safari/iOS uses different order than Chrome
 	if settings.NoRFC7540Priorities {
 		// Safari/iOS order: 2, 4, 3, 9
