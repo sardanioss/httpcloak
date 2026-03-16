@@ -352,21 +352,21 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		}
 	}
 
-	// QUIC config with Chrome-like settings
+	// QUIC config from preset getters
 	quicConfig := &quic.Config{
-		MaxIdleTimeout:               30 * time.Second, // Chrome uses 30s
-		KeepAlivePeriod:              15 * time.Second, // Send keepalives before idle timeout
-		MaxIncomingStreams:           100,
-		MaxIncomingUniStreams:        103, // Chrome uses 103
-		Allow0RTT:                    true,
-		EnableDatagrams:              true,  // Chrome enables QUIC datagrams
-		InitialPacketSize:            1250,  // Chrome uses ~1250
-		DisableClientHelloScrambling: true,  // Chrome doesn't scramble SNI, sends fewer packets
-		ChromeStyleInitialPackets:    true,  // Chrome-like frame patterns in Initial packets
-		ClientHelloID:                 clientHelloID,   // Fallback if cached spec fails
-		CachedClientHelloSpec:         selectedSpec,    // Selected spec (regular or PSK) for fingerprint
-		TransportParameterOrder:       quic.TransportParameterOrderChrome, // Chrome transport param ordering
-		TransportParameterShuffleSeed: p.shuffleSeed, // Consistent transport param shuffle per session
+		MaxIdleTimeout:                30 * time.Second, // Chrome uses 30s
+		KeepAlivePeriod:               15 * time.Second, // Send keepalives before idle timeout
+		MaxIncomingStreams:            p.preset.H3QUICMaxIncomingStreams(),
+		MaxIncomingUniStreams:         p.preset.H3QUICMaxIncomingUniStreams(),
+		Allow0RTT:                     p.preset.H3QUICAllow0RTT(),
+		EnableDatagrams:               true, // Always true at QUIC level (original behavior); H3 SETTINGS controls per-browser advertisement
+		InitialPacketSize:             p.preset.H3QUICInitialPacketSize(),
+		DisableClientHelloScrambling:  p.preset.H3QUICDisableHelloScramble(),
+		ChromeStyleInitialPackets:     p.preset.H3QUICChromeStyleInitial(),
+		ClientHelloID:                 clientHelloID,
+		CachedClientHelloSpec:         selectedSpec,
+		TransportParameterOrder:       resolveTransportParamOrder(p.preset.H3QUICTransportParamOrder()),
+		TransportParameterShuffleSeed: p.shuffleSeed,
 	}
 	// Only set ECHConfigList if we have a config - matches proxy path behavior
 	// Setting nil explicitly vs not setting at all triggers different behavior in quic-go
@@ -402,26 +402,19 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	// Generate non-zero random 32-bit value (Chrome never sends 0)
 	greaseSettingValue := uint64(1 + rand.Uint32()%(1<<32-1))
 
-	// HTTP/3 QPACK settings - Safari/iOS uses different values than Chrome
-	// Safari/iOS: QPACK_MAX_TABLE_CAPACITY=16383 (0x3fff)
-	// Chrome: QPACK_MAX_TABLE_CAPACITY=65536 (0x10000)
-	qpackMaxTableCapacity := uint64(65536) // Chrome default
-	if p.preset != nil && p.preset.HTTP2Settings.NoRFC7540Priorities {
-		// Safari/iOS uses smaller QPACK table
-		qpackMaxTableCapacity = 16383
-	}
-
-	// HTTP/3 additional settings
+	// HTTP/3 additional settings from preset getters
 	additionalSettings := map[uint64]uint64{
-		settingQPACKMaxTableCapacity: qpackMaxTableCapacity, // Browser-specific QPACK table capacity
-		settingQPACKBlockedStreams:   100,                   // Both Chrome and Safari use 100
-		greaseSettingID:              greaseSettingValue,    // Random non-zero GREASE value
+		settingQPACKMaxTableCapacity: p.preset.H3QPACKMaxTableCapacity(),
+		settingQPACKBlockedStreams:   p.preset.H3QPACKBlockedStreams(),
+		greaseSettingID:              greaseSettingValue,
 	}
 
-	// Add Chrome-specific settings (not sent by Safari/iOS)
-	if p.preset == nil || !p.preset.HTTP2Settings.NoRFC7540Priorities {
-		additionalSettings[settingMaxFieldSectionSize] = 262144 // Chrome's MAX_FIELD_SECTION_SIZE
-		additionalSettings[settingH3Datagram] = 1               // Chrome enables H3_DATAGRAM
+	// Conditionally add settings based on preset
+	if maxField := p.preset.H3MaxFieldSectionSize(); maxField > 0 {
+		additionalSettings[settingMaxFieldSectionSize] = maxField
+	}
+	if p.preset.H3EnableDatagrams() {
+		additionalSettings[settingH3Datagram] = 1
 	}
 
 	// Order IPs based on preference
@@ -441,10 +434,10 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	h3Transport := &http3.Transport{
 		TLSClientConfig:        tlsConfig,
 		QUICConfig:             quicConfig,
-		EnableDatagrams:        true,       // Chrome enables H3_DATAGRAM
+		EnableDatagrams:        true, // Always true at HTTP/3 level (original behavior); H3 SETTINGS controls per-browser advertisement
 		AdditionalSettings:     additionalSettings,
-		MaxResponseHeaderBytes: 262144,     // Chrome's MAX_FIELD_SECTION_SIZE (256KB)
-		SendGreaseFrames:       true,       // Chrome sends GREASE frames
+		MaxResponseHeaderBytes: int(p.preset.H3MaxResponseHeaderBytes()),
+		SendGreaseFrames:       p.preset.H3SendGreaseFrames(),
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
 			// Combine all IPs, preferred first
 			allIPs := append(preferredIPs, fallbackIPs...)
@@ -868,6 +861,18 @@ func (m *QUICManager) Stats() map[string]struct {
 	}
 
 	return stats
+}
+
+// resolveTransportParamOrder converts a string order to the quic constant.
+func resolveTransportParamOrder(order string) quic.TransportParameterOrderMode {
+	switch order {
+	case "chrome":
+		return quic.TransportParameterOrderChrome
+	case "random":
+		return quic.TransportParameterOrderDefault
+	default:
+		return quic.TransportParameterOrderChrome
+	}
 }
 
 // generateGREASESettingID generates a valid GREASE setting ID
