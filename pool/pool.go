@@ -1365,25 +1365,37 @@ func buildHTTP2Settings(settings fingerprint.HTTP2Settings) map[http2.SettingID]
 
 // buildHTTP2SettingsOrder creates the settings order based on preset configuration.
 // If the preset has an explicit SettingsOrder, it takes precedence over the heuristic.
+// The fallback dynamically appends conditional settings to match buildHTTP2Settings().
 func buildHTTP2SettingsOrder(settings fingerprint.HTTP2Settings, preset *fingerprint.Preset) []http2.SettingID {
 	if order := preset.H2SettingsOrder(); order != nil {
 		return uint16sToSettingIDs(order)
 	}
-	// Safari/iOS uses different order than Chrome
+	// Build order dynamically to stay consistent with buildHTTP2Settings() map.
+	// Base order depends on browser type, then conditional settings are appended.
+	var order []http2.SettingID
 	if settings.NoRFC7540Priorities {
-		// Safari/iOS order: 2, 4, 3, 9
-		return []http2.SettingID{
+		// Safari/iOS base order: 2, 4
+		order = []http2.SettingID{
 			http2.SettingEnablePush,
 			http2.SettingInitialWindowSize,
-			http2.SettingMaxConcurrentStreams,
-			http2.SettingNoRFC7540Priorities,
+		}
+	} else {
+		// Chrome base order: 1, 2, 4, 6
+		order = []http2.SettingID{
+			http2.SettingHeaderTableSize,
+			http2.SettingEnablePush,
+			http2.SettingInitialWindowSize,
+			http2.SettingMaxHeaderListSize,
 		}
 	}
-	// Chrome order: 1, 2, 4, 6
-	return []http2.SettingID{
-		http2.SettingHeaderTableSize,
-		http2.SettingEnablePush,
-		http2.SettingInitialWindowSize,
-		http2.SettingMaxHeaderListSize,
+	if settings.MaxConcurrentStreams > 0 {
+		order = append(order, http2.SettingMaxConcurrentStreams)
 	}
+	if settings.MaxFrameSize > 0 {
+		order = append(order, http2.SettingMaxFrameSize)
+	}
+	if settings.NoRFC7540Priorities {
+		order = append(order, http2.SettingNoRFC7540Priorities)
+	}
+	return order
 }
