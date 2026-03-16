@@ -611,10 +611,12 @@ alpnCheck:
 		h2Settings[http2.SettingNoRFC7540Priorities] = 1
 	}
 
-	// Pseudo-header order: use custom (Akamai), or browser-type heuristic
+	// Pseudo-header order: custom (Akamai) > preset H2Config > Safari/Chrome heuristic
 	pseudoOrder := []string{":method", ":authority", ":scheme", ":path"} // Chrome default
 	if t.config != nil && len(t.config.CustomPseudoOrder) > 0 {
 		pseudoOrder = t.config.CustomPseudoOrder
+	} else if order := t.preset.H2PseudoHeaderOrder(); order != nil {
+		pseudoOrder = order
 	} else if settings.NoRFC7540Priorities {
 		pseudoOrder = []string{":method", ":scheme", ":path", ":authority"} // Safari order
 	}

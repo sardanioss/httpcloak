@@ -64,6 +64,8 @@ type Preset struct {
 	HTTP2Settings     HTTP2Settings
 	TCPFingerprint    TCPFingerprint
 	SupportHTTP3      bool
+	H2Config          *H2FingerprintConfig // nil = Chrome defaults for all H2 fingerprinting
+	H3Config          *H3FingerprintConfig // nil = Chrome defaults for all H3/QUIC fingerprinting
 }
 
 // TCPFingerprint contains TCP/IP stack parameters that identify the OS.
@@ -131,6 +133,7 @@ type H2FingerprintConfig struct {
 	StreamPriorityMode  string   // "chrome"/"default". "" = "chrome".
 	DisableCookieSplit  *bool    // nil = true (Chrome sends single cookie entry).
 	SettingsOrder       []uint16 // H2 SETTINGS frame ID order. nil = dynamic from HTTP2Settings.
+	PseudoHeaderOrder   []string // Pseudo-header order. nil = heuristic (Chrome m,a,s,p / Safari m,s,p,a).
 }
 
 // H3FingerprintConfig controls HTTP/3 and QUIC fingerprinting behavior.
@@ -213,6 +216,15 @@ func (p *Preset) H2DisableCookieSplit() bool {
 func (p *Preset) H2SettingsOrder() []uint16 {
 	if p.H2Config != nil && p.H2Config.SettingsOrder != nil {
 		return p.H2Config.SettingsOrder
+	}
+	return nil
+}
+
+// H2PseudoHeaderOrder returns the pseudo-header order for HTTP/2.
+// nil signals "use heuristic" (Chrome m,a,s,p / Safari m,s,p,a).
+func (p *Preset) H2PseudoHeaderOrder() []string {
+	if p.H2Config != nil && p.H2Config.PseudoHeaderOrder != nil {
+		return p.H2Config.PseudoHeaderOrder
 	}
 	return nil
 }
