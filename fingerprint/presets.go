@@ -66,6 +66,8 @@ type Preset struct {
 	SupportHTTP3      bool
 	H2Config          *H2FingerprintConfig // nil = Chrome defaults for all H2 fingerprinting
 	H3Config          *H3FingerprintConfig // nil = Chrome defaults for all H3/QUIC fingerprinting
+	JA3               string               // JA3 fingerprint string. When set, parsed fresh per connection instead of using ClientHelloID.
+	JA3Extras         *JA3Extras           // Supplements JA3 parsing. nil = Chrome defaults.
 }
 
 // TCPFingerprint contains TCP/IP stack parameters that identify the OS.
@@ -2056,8 +2058,12 @@ var presets = map[string]func() *Preset{
 	"android-chrome-latest": AndroidChrome146,
 }
 
-// Get returns a preset by name, or chrome-latest as default
+// Get returns a preset by name. Checks custom registry first, then built-in
+// presets. Falls back to Chrome146 if not found.
 func Get(name string) *Preset {
+	if p := LookupCustom(name); p != nil {
+		return p
+	}
 	if fn, ok := presets[name]; ok {
 		return fn()
 	}
