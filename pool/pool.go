@@ -412,7 +412,10 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 		Settings:       buildHTTP2Settings(settings),
 		SettingsOrder:  buildHTTP2SettingsOrder(settings, p.preset),
 		PseudoHeaderOrder: func() []string {
-			// Safari/iOS uses m,s,p,a order; Chrome uses m,a,s,p
+			// Preset H2Config > Safari/Chrome heuristic
+			if order := p.preset.H2PseudoHeaderOrder(); order != nil {
+				return order
+			}
 			if settings.NoRFC7540Priorities {
 				return []string{":method", ":scheme", ":path", ":authority"} // Safari order (m,s,p,a)
 			}
@@ -1339,25 +1342,25 @@ func boolToUint32(b bool) uint32 {
 	return 0
 }
 
-// buildHTTP2Settings creates the settings map based on preset configuration
+// buildHTTP2Settings creates the settings map dynamically based on preset configuration.
+// Mirrors http2_transport.go's approach: base settings + conditional additions.
 func buildHTTP2Settings(settings fingerprint.HTTP2Settings) map[http2.SettingID]uint32 {
-	// Safari/iOS uses different settings than Chrome
-	if settings.NoRFC7540Priorities {
-		// Safari/iOS settings: ENABLE_PUSH, INITIAL_WINDOW_SIZE, MAX_CONCURRENT_STREAMS, NO_RFC7540_PRIORITIES
-		return map[http2.SettingID]uint32{
-			http2.SettingEnablePush:           boolToUint32(settings.EnablePush),
-			http2.SettingInitialWindowSize:    settings.InitialWindowSize,
-			http2.SettingMaxConcurrentStreams: settings.MaxConcurrentStreams,
-			http2.SettingNoRFC7540Priorities:  1,
-		}
-	}
-	// Chrome settings: HEADER_TABLE_SIZE, ENABLE_PUSH, INITIAL_WINDOW_SIZE, MAX_HEADER_LIST_SIZE
-	return map[http2.SettingID]uint32{
+	h2Settings := map[http2.SettingID]uint32{
 		http2.SettingHeaderTableSize:   settings.HeaderTableSize,
 		http2.SettingEnablePush:        boolToUint32(settings.EnablePush),
 		http2.SettingInitialWindowSize: settings.InitialWindowSize,
 		http2.SettingMaxHeaderListSize: settings.MaxHeaderListSize,
 	}
+	if settings.MaxConcurrentStreams > 0 {
+		h2Settings[http2.SettingMaxConcurrentStreams] = settings.MaxConcurrentStreams
+	}
+	if settings.MaxFrameSize > 0 {
+		h2Settings[http2.SettingMaxFrameSize] = settings.MaxFrameSize
+	}
+	if settings.NoRFC7540Priorities {
+		h2Settings[http2.SettingNoRFC7540Priorities] = 1
+	}
+	return h2Settings
 }
 
 // buildHTTP2SettingsOrder creates the settings order based on preset configuration.
