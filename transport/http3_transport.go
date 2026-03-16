@@ -752,18 +752,18 @@ func (t *HTTP3Transport) dialQUICWithMASQUE(ctx context.Context, addr string, tl
 	cfgCopy := &quic.Config{
 		MaxIdleTimeout:                  quicIdleTimeout,
 		KeepAlivePeriod:                 keepAlivePeriod,
-		MaxIncomingStreams:              100,
-		MaxIncomingUniStreams:           103,
-		Allow0RTT:                       true,
-		EnableDatagrams:                 true,
-		InitialPacketSize:               1200,
-		DisablePathMTUDiscovery:         true, // Disable PMTUD through tunnel
-		DisableClientHelloScrambling:    true, // Chrome doesn't scramble, simplifies tunnel handshake
-		InitialStreamReceiveWindow:      512 * 1024,
-		MaxStreamReceiveWindow:          6 * 1024 * 1024,
-		InitialConnectionReceiveWindow:  15 * 1024 * 1024 / 2,
-		MaxConnectionReceiveWindow:      15 * 1024 * 1024,
-		TransportParameterOrder:         quic.TransportParameterOrderChrome,
+		MaxIncomingStreams:              t.preset.H3QUICMaxIncomingStreams(),
+		MaxIncomingUniStreams:           t.preset.H3QUICMaxIncomingUniStreams(),
+		Allow0RTT:                       t.preset.H3QUICAllow0RTT(),
+		EnableDatagrams:                 true,  // Always true at QUIC level
+		InitialPacketSize:               1200,  // MASQUE inner constraint (not fingerprint)
+		DisablePathMTUDiscovery:         true,  // MASQUE tunnel constraint
+		DisableClientHelloScrambling:    t.preset.H3QUICDisableHelloScramble(),
+		InitialStreamReceiveWindow:      512 * 1024,            // MASQUE flow control
+		MaxStreamReceiveWindow:          6 * 1024 * 1024,       // MASQUE flow control
+		InitialConnectionReceiveWindow:  15 * 1024 * 1024 / 2,  // MASQUE flow control
+		MaxConnectionReceiveWindow:      15 * 1024 * 1024,      // MASQUE flow control
+		TransportParameterOrder:         resolveTransportParamOrder(t.preset.H3QUICTransportParamOrder()),
 		TransportParameterShuffleSeed:   t.shuffleSeed,
 		ClientHelloID:                   clientHelloID,
 		CachedClientHelloSpec:           innerSpec, // Separate spec for consistent JA4, uses PSK for resumed
