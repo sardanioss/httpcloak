@@ -1,11 +1,12 @@
 package fingerprint
 
 import (
+	crand "crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // PoolStrategy determines how presets are selected from a pool.
@@ -23,18 +24,28 @@ type PresetPool struct {
 	name     string
 	presets  []*Preset
 	strategy PoolStrategy
-	index    atomic.Int64  // lock-free round-robin counter
+	index    atomic.Int64 // lock-free round-robin counter
 	rng      *rand.Rand
-	rngMu    sync.Mutex    // protects rng only
+	rngMu    sync.Mutex // protects rng only
+}
+
+func cryptoSeed() int64 {
+	var b [8]byte
+	crand.Read(b[:])
+	return int64(binary.LittleEndian.Uint64(b[:]))
 }
 
 // NewPresetPool creates a pool from pre-built presets.
+// Panics if presets is empty.
 func NewPresetPool(name string, strategy PoolStrategy, presets []*Preset) *PresetPool {
+	if len(presets) == 0 {
+		panic("fingerprint: NewPresetPool requires at least 1 preset")
+	}
 	return &PresetPool{
 		name:     name,
 		presets:  presets,
 		strategy: strategy,
-		rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
+		rng:      rand.New(rand.NewSource(cryptoSeed())),
 	}
 }
 
@@ -68,7 +79,9 @@ func buildPool(pf *PresetFile) (*PresetPool, error) {
 		if err != nil {
 			return nil, err
 		}
-		Register(p.Name, p)
+		if p.Name != "" {
+			Register(p.Name, p)
+		}
 		return NewPresetPool(p.Name, PoolRandom, []*Preset{p}), nil
 	}
 	return nil, fmt.Errorf("preset file has neither 'preset' nor 'pool' field")
@@ -89,6 +102,7 @@ func buildPoolFromPoolSpec(spec *PoolSpec) (*PresetPool, error) {
 		return nil, fmt.Errorf("unknown pool strategy: %q", spec.Strategy)
 	}
 
+	// Build all presets first — only register after all succeed
 	presets := make([]*Preset, 0, len(spec.Presets))
 	for i := range spec.Presets {
 		p, err := BuildPreset(&spec.Presets[i])
@@ -96,13 +110,26 @@ func buildPoolFromPoolSpec(spec *PoolSpec) (*PresetPool, error) {
 			return nil, fmt.Errorf("preset %d (%q): %w", i, spec.Presets[i].Name, err)
 		}
 		presets = append(presets, p)
-		// Auto-register each preset
+	}
+
+	// All built successfully — now register
+	for _, p := range presets {
 		if p.Name != "" {
 			Register(p.Name, p)
 		}
 	}
 
 	return NewPresetPool(spec.Name, strategy, presets), nil
+}
+
+// Pick returns a preset using the pool's configured strategy.
+func (p *PresetPool) Pick() *Preset {
+	switch p.strategy {
+	case PoolRoundRobin:
+		return p.Next()
+	default:
+		return p.Random()
+	}
 }
 
 // Random returns a random preset from the pool. Thread-safe.
@@ -121,8 +148,9 @@ func (p *PresetPool) Next() *Preset {
 	if len(p.presets) == 1 {
 		return p.presets[0]
 	}
+	n := int64(len(p.presets))
 	idx := p.index.Add(1) - 1
-	return p.presets[idx%int64(len(p.presets))]
+	return p.presets[((idx%n)+n)%n]
 }
 
 // Get returns a preset by index. Panics if index is out of range.
