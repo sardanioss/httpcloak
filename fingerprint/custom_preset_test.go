@@ -1937,3 +1937,52 @@ func TestPresetPoolSinglePresetNext(t *testing.T) {
 		}
 	}
 }
+
+// --- Final Audit Fix Tests ---
+
+func TestValidateJA3ExtrasWithoutJA3Error(t *testing.T) {
+	spec := &PresetSpec{
+		Name: "orphaned-extras",
+		TLS: &TLSSpec{
+			JA3ExtrasSpec: &JA3ExtrasSpec{
+				ALPN: []string{"h2"},
+			},
+		},
+	}
+	_, err := BuildPreset(spec)
+	if err == nil {
+		t.Fatal("expected error for ja3_extras without ja3")
+	}
+}
+
+func TestValidateExtFieldsWithClientHelloError(t *testing.T) {
+	spec := &PresetSpec{
+		Name: "ext-with-ch",
+		TLS: &TLSSpec{
+			ClientHello: "chrome-146-windows",
+			ALPN:        []string{"h2", "http/1.1"},
+		},
+	}
+	_, err := BuildPreset(spec)
+	if err == nil {
+		t.Fatal("expected error for TLS extension fields with client_hello")
+	}
+}
+
+func TestValidateExtFieldsWithJA3Allowed(t *testing.T) {
+	permute := true
+	spec := &PresetSpec{
+		Name: "ext-with-ja3",
+		TLS: &TLSSpec{
+			JA3:               "771,4865-4866-4867,0-23-65281-10-11,29-23-24,0",
+			PermuteExtensions: &permute,
+		},
+	}
+	p, err := BuildPreset(spec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.JA3Extras == nil || !p.JA3Extras.PermuteExtensions {
+		t.Fatal("expected ext fields to be applied with ja3")
+	}
+}

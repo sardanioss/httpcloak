@@ -338,16 +338,26 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 	// Wrap with uTLS for fingerprinting
 	// Enable session tickets for PSK resumption (Chrome does this)
 	// Use sniHost (original request host) for TLS ServerName, not p.host (which may be connectTo target)
+	// Only set session cache on tlsConfig when PSK is available (via cached PSK spec
+	// or JA3 with extension 41). Prevents the TLS library from attempting session
+	// resumption on specs without PSK extension.
+	hasPSK := p.cachedPSKSpec != nil || (p.preset.JA3 != "" && fingerprint.JA3HasExtension(p.preset.JA3, "41"))
+	var sessionCache utls.ClientSessionCache
+	if hasPSK {
+		sessionCache = p.sessionCache
+	}
+
 	tlsConfig := &utls.Config{
-		ServerName:                     p.sniHost,
-		InsecureSkipVerify:             p.insecureSkipVerify,
-		MinVersion:                     minVersion,
-		MaxVersion:                     tls.VersionTLS13,
-		SessionTicketsDisabled:         false,          // Enable session tickets
-		ClientSessionCache:             p.sessionCache, // Use per-host session cache
-		OmitEmptyPsk:                   true,           // Chrome doesn't send empty PSK on first connection
-		EncryptedClientHelloConfigList: echConfigList,  // ECH configuration (if available)
-		KeyLogWriter:                   keyLogWriter,
+		ServerName:                          p.sniHost,
+		InsecureSkipVerify:                  p.insecureSkipVerify,
+		MinVersion:                          minVersion,
+		MaxVersion:                          tls.VersionTLS13,
+		SessionTicketsDisabled:              false,         // Enable session tickets
+		ClientSessionCache:                  sessionCache,  // Only set when PSK is available
+		OmitEmptyPsk:                        true,          // Chrome doesn't send empty PSK on first connection
+		PreferSkipResumptionOnNilExtension:  true,          // Safety net: skip resumption if spec lacks PSK extension
+		EncryptedClientHelloConfigList:      echConfigList, // ECH configuration (if available)
+		KeyLogWriter:                        keyLogWriter,
 	}
 
 	// Generate fresh spec for this connection to avoid race condition
