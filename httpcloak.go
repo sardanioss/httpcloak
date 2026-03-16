@@ -358,6 +358,7 @@ type sessionConfig struct {
 	forceHTTP1         bool
 	forceHTTP2         bool
 	forceHTTP3         bool
+	disableHTTP3       bool
 	insecureSkipVerify bool
 	disableRedirects   bool
 	maxRedirects       int
@@ -438,6 +439,15 @@ func WithForceHTTP2() SessionOption {
 func WithForceHTTP3() SessionOption {
 	return func(c *sessionConfig) {
 		c.forceHTTP3 = true
+	}
+}
+
+// WithDisableHTTP3 disables HTTP/3 (QUIC) while keeping H1/H2 auto-negotiation.
+// Use this when QUIC is unreliable on your network or when binding to a local
+// address that doesn't support UDP.
+func WithDisableHTTP3() SessionOption {
+	return func(c *sessionConfig) {
+		c.disableHTTP3 = true
 	}
 }
 
@@ -728,6 +738,9 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 	}
 	if cfg.forceHTTP3 {
 		sessionCfg.ForceHTTP3 = true
+	}
+	if cfg.disableHTTP3 {
+		sessionCfg.DisableHTTP3 = true
 	}
 
 	// Create session with optional distributed cache and custom fingerprint

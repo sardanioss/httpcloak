@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`WithDisableHTTP3()` session option** — Disables HTTP/3 (QUIC) while keeping H1/H2 auto-negotiation. Useful when binding to a local address that doesn't support UDP or when QUIC is unreliable on the network. Previously the only way to avoid H3 was `WithForceHTTP2()` which locked out H1.
+
 ## [1.6.1] - 2026-03-16
 
 ### Added
