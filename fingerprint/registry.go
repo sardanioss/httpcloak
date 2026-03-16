@@ -6,7 +6,11 @@ import "sync"
 var customPresets sync.Map
 
 // Register adds a custom preset to the registry. It will be found by Get().
+// Nil presets are ignored.
 func Register(name string, preset *Preset) {
+	if preset == nil {
+		return
+	}
 	customPresets.Store(name, preset)
 }
 
@@ -18,7 +22,8 @@ func Unregister(name string) {
 // LookupCustom returns a registered custom preset by name, or nil if not found.
 func LookupCustom(name string) *Preset {
 	if v, ok := customPresets.Load(name); ok {
-		return v.(*Preset)
+		p, _ := v.(*Preset)
+		return p
 	}
 	return nil
 }

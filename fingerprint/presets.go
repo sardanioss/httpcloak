@@ -2070,6 +2070,17 @@ func Get(name string) *Preset {
 	return Chrome146()
 }
 
+// GetStrict returns a preset by name, returning nil if not found (no fallback).
+func GetStrict(name string) *Preset {
+	if p := LookupCustom(name); p != nil {
+		return p
+	}
+	if fn, ok := presets[name]; ok {
+		return fn()
+	}
+	return nil
+}
+
 // Available returns a list of available preset names
 func Available() []string {
 	names := make([]string, 0, len(presets))
