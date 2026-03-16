@@ -1519,19 +1519,19 @@ func (t *HTTP3Transport) Connect(ctx context.Context, host, port string) error {
 	if t.config != nil && t.config.QuicIdleTimeout > 0 {
 		quicIdleTimeout = t.config.QuicIdleTimeout
 	}
-	keepAlivePeriod := quicIdleTimeout / 2
 
-	// QUIC config with Chrome-like settings and ECH
-	quicCfg := &quic.Config{
-		MaxIdleTimeout:                  quicIdleTimeout,
-		KeepAlivePeriod:                 keepAlivePeriod,
-		InitialStreamReceiveWindow:     512 * 1024,
-		MaxStreamReceiveWindow:         6 * 1024 * 1024,
-		InitialConnectionReceiveWindow: 15 * 1024 * 1024 / 2,
-		MaxConnectionReceiveWindow:     15 * 1024 * 1024,
-		ECHConfigList:                  echConfigList,
-		TransportParameterOrder:        quic.TransportParameterOrderChrome, // Chrome transport param ordering
-		TransportParameterShuffleSeed:  t.shuffleSeed, // Consistent transport param shuffle per session
+	// Get ClientHelloID for the probe connection
+	var clientHelloID *utls.ClientHelloID
+	if t.preset.QUICClientHelloID.Client != "" {
+		clientHelloID = &t.preset.QUICClientHelloID
+	} else if t.preset.ClientHelloID.Client != "" {
+		clientHelloID = &t.preset.ClientHelloID
+	}
+
+	// Build QUIC config from preset getters (same fingerprint as real connections)
+	quicCfg := t.buildQUICConfig(clientHelloID, quicIdleTimeout, 0)
+	if len(echConfigList) > 0 {
+		quicCfg.ECHConfigList = echConfigList
 	}
 
 	// Try to establish QUIC connection
