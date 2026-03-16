@@ -151,10 +151,14 @@ func NewHostPool(host, port string, preset *fingerprint.Preset, dnsCache *dns.Ca
 
 	// Generate specs for standalone usage (backward compatibility)
 	var cachedSpec, cachedPSKSpec *utls.ClientHelloSpec
-	if spec, err := utls.UTLSIdToSpecWithSeed(preset.ClientHelloID, shuffleSeed); err == nil {
+	if preset.JA3 != "" {
+		if spec, err := fingerprint.ParseJA3(preset.JA3, preset.JA3Extras); err == nil {
+			cachedSpec = spec
+		}
+	} else if spec, err := utls.UTLSIdToSpecWithSeed(preset.ClientHelloID, shuffleSeed); err == nil {
 		cachedSpec = &spec
 	}
-	if preset.PSKClientHelloID.Client != "" {
+	if preset.JA3 == "" && preset.PSKClientHelloID.Client != "" {
 		if spec, err := utls.UTLSIdToSpecWithSeed(preset.PSKClientHelloID, shuffleSeed); err == nil {
 			cachedPSKSpec = &spec
 		}
@@ -352,14 +356,19 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 	var specToUse *utls.ClientHelloSpec
 	var tlsConn *utls.UConn
 
-	// Prefer PSK spec when available - Chrome always includes PSK extension structure
-	if p.cachedPSKSpec != nil && p.preset.PSKClientHelloID.Client != "" {
+	// JA3 preset: parse fresh per connection (ApplyPreset mutates the spec)
+	if p.preset.JA3 != "" {
+		if spec, err := fingerprint.ParseJA3(p.preset.JA3, p.preset.JA3Extras); err == nil {
+			specToUse = spec
+		}
+	} else if p.cachedPSKSpec != nil && p.preset.PSKClientHelloID.Client != "" {
+		// Prefer PSK spec when available - Chrome always includes PSK extension structure
 		// Generate fresh PSK spec for this connection
 		if spec, err := utls.UTLSIdToSpecWithSeed(p.preset.PSKClientHelloID, p.shuffleSeed); err == nil {
 			specToUse = &spec
 		}
 	}
-	if specToUse == nil && p.cachedSpec != nil {
+	if specToUse == nil && p.cachedSpec != nil && p.preset.JA3 == "" {
 		// Generate fresh regular spec
 		if spec, err := utls.UTLSIdToSpecWithSeed(p.preset.ClientHelloID, p.shuffleSeed); err == nil {
 			specToUse = &spec
@@ -1011,12 +1020,16 @@ func NewManagerWithTLSConfig(preset *fingerprint.Preset, insecureSkipVerify bool
 
 	// Generate and cache ClientHelloSpec with shuffled extensions
 	// Chrome shuffles extensions once per session, not per connection
-	if spec, err := utls.UTLSIdToSpecWithSeed(preset.ClientHelloID, shuffleSeed); err == nil {
+	if preset.JA3 != "" {
+		if spec, err := fingerprint.ParseJA3(preset.JA3, preset.JA3Extras); err == nil {
+			m.cachedSpec = spec
+		}
+	} else if spec, err := utls.UTLSIdToSpecWithSeed(preset.ClientHelloID, shuffleSeed); err == nil {
 		m.cachedSpec = &spec
 	}
 
-	// Also cache PSK variant if available
-	if preset.PSKClientHelloID.Client != "" {
+	// Also cache PSK variant if available (not applicable for JA3 presets)
+	if preset.JA3 == "" && preset.PSKClientHelloID.Client != "" {
 		if spec, err := utls.UTLSIdToSpecWithSeed(preset.PSKClientHelloID, shuffleSeed); err == nil {
 			m.cachedPSKSpec = &spec
 		}
@@ -1048,12 +1061,16 @@ func NewManagerWithProxy(preset *fingerprint.Preset, proxyURL string, insecureSk
 	}
 
 	// Generate and cache ClientHelloSpec with shuffled extensions
-	if spec, err := utls.UTLSIdToSpecWithSeed(preset.ClientHelloID, shuffleSeed); err == nil {
+	if preset.JA3 != "" {
+		if spec, err := fingerprint.ParseJA3(preset.JA3, preset.JA3Extras); err == nil {
+			m.cachedSpec = spec
+		}
+	} else if spec, err := utls.UTLSIdToSpecWithSeed(preset.ClientHelloID, shuffleSeed); err == nil {
 		m.cachedSpec = &spec
 	}
 
-	// Also cache PSK variant if available
-	if preset.PSKClientHelloID.Client != "" {
+	// Also cache PSK variant if available (not applicable for JA3 presets)
+	if preset.JA3 == "" && preset.PSKClientHelloID.Client != "" {
 		if spec, err := utls.UTLSIdToSpecWithSeed(preset.PSKClientHelloID, shuffleSeed); err == nil {
 			m.cachedPSKSpec = &spec
 		}

@@ -107,10 +107,13 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 	crand.Read(seedBytes[:])
 	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
 
-	// Check if PSK spec is available for this preset or custom JA3
+	// Check if PSK spec is available for this preset, custom JA3, or preset JA3
 	hasPSKSpec := preset.PSKClientHelloID.Client != ""
 	if !hasPSKSpec && config != nil && config.CustomJA3 != "" {
 		hasPSKSpec = ja3HasExtension(config.CustomJA3, "41")
+	}
+	if !hasPSKSpec && preset.JA3 != "" {
+		hasPSKSpec = ja3HasExtension(preset.JA3, "41")
 	}
 
 	t := &HTTP2Transport{
@@ -401,12 +404,22 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 	// utls's ApplyPreset mutates the spec (clears KeyShares.Data, etc.), so each
 	// connection needs its own copy. Use same shuffleSeed for consistent ordering.
 	var specToUse *utls.ClientHelloSpec
+	// Determine JA3 source: config.CustomJA3 takes priority, then preset.JA3
+	ja3String := ""
+	var ja3Extras *fingerprint.JA3Extras
 	if t.config != nil && t.config.CustomJA3 != "" {
-		// Custom JA3: parse to fresh spec each connection (ApplyPreset mutates)
-		spec, parseErr := fingerprint.ParseJA3(t.config.CustomJA3, t.config.CustomJA3Extras)
+		ja3String = t.config.CustomJA3
+		ja3Extras = t.config.CustomJA3Extras
+	} else if t.preset.JA3 != "" {
+		ja3String = t.preset.JA3
+		ja3Extras = t.preset.JA3Extras
+	}
+	if ja3String != "" {
+		// JA3: parse to fresh spec each connection (ApplyPreset mutates)
+		spec, parseErr := fingerprint.ParseJA3(ja3String, ja3Extras)
 		if parseErr != nil {
 			rawConn.Close()
-			return nil, fmt.Errorf("failed to parse custom JA3: %w", parseErr)
+			return nil, fmt.Errorf("failed to parse JA3: %w", parseErr)
 		}
 		specToUse = spec
 	} else if t.hasPSKSpec {
@@ -506,11 +519,21 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 
 			// Regenerate fresh TLS spec (the previous one was consumed)
 			var fallbackSpec *utls.ClientHelloSpec
+			// Reuse same JA3 resolution logic as primary path
+			fallbackJA3 := ""
+			var fallbackJA3Extras *fingerprint.JA3Extras
 			if t.config != nil && t.config.CustomJA3 != "" {
-				spec, parseErr := fingerprint.ParseJA3(t.config.CustomJA3, t.config.CustomJA3Extras)
+				fallbackJA3 = t.config.CustomJA3
+				fallbackJA3Extras = t.config.CustomJA3Extras
+			} else if t.preset.JA3 != "" {
+				fallbackJA3 = t.preset.JA3
+				fallbackJA3Extras = t.preset.JA3Extras
+			}
+			if fallbackJA3 != "" {
+				spec, parseErr := fingerprint.ParseJA3(fallbackJA3, fallbackJA3Extras)
 				if parseErr != nil {
 					rawConn.Close()
-					return nil, fmt.Errorf("speculative TLS fallback: failed to parse custom JA3: %w", parseErr)
+					return nil, fmt.Errorf("speculative TLS fallback: failed to parse JA3: %w", parseErr)
 				}
 				fallbackSpec = spec
 			} else if t.hasPSKSpec {
