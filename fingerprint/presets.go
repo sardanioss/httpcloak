@@ -121,6 +121,223 @@ type HTTP2Settings struct {
 	NoRFC7540Priorities bool
 }
 
+// H2FingerprintConfig controls HTTP/2 fingerprinting behavior beyond SETTINGS frame values.
+// When nil on a Preset, all getters return Chrome defaults. Individual nil/zero fields
+// also fall back to Chrome defaults, so you can override just the fields you need.
+type H2FingerprintConfig struct {
+	HPACKHeaderOrder    []string // HPACK wire encoding order. nil = Chrome 143 default.
+	HPACKIndexingPolicy string   // "chrome"/"never"/"always"/"default". "" = "chrome".
+	HPACKNeverIndex     []string // Headers never HPACK-indexed. nil = Chrome default.
+	StreamPriorityMode  string   // "chrome"/"default". "" = "chrome".
+	DisableCookieSplit  *bool    // nil = true (Chrome sends single cookie entry).
+	SettingsOrder       []uint16 // H2 SETTINGS frame ID order. nil = dynamic from HTTP2Settings.
+}
+
+// H3FingerprintConfig controls HTTP/3 and QUIC fingerprinting behavior.
+// When nil on a Preset, all getters return Chrome defaults (with Safari fallback
+// for presets that have NoRFC7540Priorities set). Individual nil fields fall back
+// to Chrome defaults independently.
+type H3FingerprintConfig struct {
+	QPACKMaxTableCapacity    *uint64 // nil = 65536 (Chrome). Safari heuristic fallback.
+	QPACKBlockedStreams      *uint64 // nil = 100
+	MaxFieldSectionSize      *uint64 // nil = 262144 (Chrome). 0 to omit (Safari).
+	EnableDatagrams          *bool   // nil = true (Chrome). Safari heuristic fallback.
+	QUICInitialPacketSize    *uint16 // nil = 1250 (Chrome). MASQUE overrides to 1350.
+	QUICMaxIncomingStreams    *int64  // nil = 100
+	QUICMaxIncomingUniStreams *int64  // nil = 103
+	QUICAllow0RTT            *bool   // nil = true
+	QUICChromeStyleInitial   *bool   // nil = true
+	QUICDisableHelloScramble *bool   // nil = true
+	QUICTransportParamOrder  string  // "chrome"/"random". "" = "chrome".
+	MaxResponseHeaderBytes   *uint64 // nil = 262144
+	SendGreaseFrames         *bool   // nil = true
+}
+
+// --- H2 Preset Getters ---
+// Each getter checks H2Config first, then returns Chrome default.
+
+// H2HeaderOrder returns the HPACK wire encoding order for HTTP/2 headers.
+func (p *Preset) H2HeaderOrder() []string {
+	if p.H2Config != nil && p.H2Config.HPACKHeaderOrder != nil {
+		return p.H2Config.HPACKHeaderOrder
+	}
+	// Chrome 143 header order (verified via tls.peet.ws)
+	return []string{
+		"cache-control",
+		"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
+		"upgrade-insecure-requests", "user-agent",
+		"content-type", "content-length",
+		"accept", "origin",
+		"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
+		"referer",
+		"accept-encoding", "accept-language",
+		"cookie", "priority",
+	}
+}
+
+// H2HPACKIndexingPolicy returns the HPACK indexing policy name.
+func (p *Preset) H2HPACKIndexingPolicy() string {
+	if p.H2Config != nil && p.H2Config.HPACKIndexingPolicy != "" {
+		return p.H2Config.HPACKIndexingPolicy
+	}
+	return "chrome"
+}
+
+// H2HPACKNeverIndex returns headers that should never be HPACK-indexed.
+func (p *Preset) H2HPACKNeverIndex() []string {
+	if p.H2Config != nil && p.H2Config.HPACKNeverIndex != nil {
+		return p.H2Config.HPACKNeverIndex
+	}
+	return []string{"cookie", "authorization", "proxy-authorization"}
+}
+
+// H2StreamPriorityMode returns the stream priority mode name.
+func (p *Preset) H2StreamPriorityMode() string {
+	if p.H2Config != nil && p.H2Config.StreamPriorityMode != "" {
+		return p.H2Config.StreamPriorityMode
+	}
+	return "chrome"
+}
+
+// H2DisableCookieSplit returns whether to disable cookie splitting.
+// Chrome sends cookies as one HPACK entry (true), Firefox splits per RFC 9113 (false).
+func (p *Preset) H2DisableCookieSplit() bool {
+	if p.H2Config != nil && p.H2Config.DisableCookieSplit != nil {
+		return *p.H2Config.DisableCookieSplit
+	}
+	return true // Chrome default
+}
+
+// H2SettingsOrder returns the explicit H2 SETTINGS frame ID order.
+// nil signals "use dynamic builder" (existing behavior).
+func (p *Preset) H2SettingsOrder() []uint16 {
+	if p.H2Config != nil && p.H2Config.SettingsOrder != nil {
+		return p.H2Config.SettingsOrder
+	}
+	return nil
+}
+
+// --- H3 Preset Getters ---
+// Each getter checks H3Config first, then uses Safari heuristic (NoRFC7540Priorities)
+// where applicable, then returns Chrome default.
+
+// H3QPACKMaxTableCapacity returns the QPACK max dynamic table capacity.
+func (p *Preset) H3QPACKMaxTableCapacity() uint64 {
+	if p.H3Config != nil && p.H3Config.QPACKMaxTableCapacity != nil {
+		return *p.H3Config.QPACKMaxTableCapacity
+	}
+	// Safari heuristic fallback
+	if p.HTTP2Settings.NoRFC7540Priorities {
+		return 16383
+	}
+	return 65536 // Chrome default
+}
+
+// H3QPACKBlockedStreams returns the QPACK blocked streams limit.
+func (p *Preset) H3QPACKBlockedStreams() uint64 {
+	if p.H3Config != nil && p.H3Config.QPACKBlockedStreams != nil {
+		return *p.H3Config.QPACKBlockedStreams
+	}
+	return 100
+}
+
+// H3MaxFieldSectionSize returns the max field section size.
+// 0 means omit the setting (Safari behavior).
+func (p *Preset) H3MaxFieldSectionSize() uint64 {
+	if p.H3Config != nil && p.H3Config.MaxFieldSectionSize != nil {
+		return *p.H3Config.MaxFieldSectionSize
+	}
+	// Safari heuristic: omit MAX_FIELD_SECTION_SIZE
+	if p.HTTP2Settings.NoRFC7540Priorities {
+		return 0
+	}
+	return 262144 // Chrome default
+}
+
+// H3EnableDatagrams returns whether to enable H3 datagrams.
+func (p *Preset) H3EnableDatagrams() bool {
+	if p.H3Config != nil && p.H3Config.EnableDatagrams != nil {
+		return *p.H3Config.EnableDatagrams
+	}
+	// Safari heuristic: no datagrams
+	if p.HTTP2Settings.NoRFC7540Priorities {
+		return false
+	}
+	return true // Chrome default
+}
+
+// H3QUICInitialPacketSize returns the QUIC initial packet size.
+func (p *Preset) H3QUICInitialPacketSize() uint16 {
+	if p.H3Config != nil && p.H3Config.QUICInitialPacketSize != nil {
+		return *p.H3Config.QUICInitialPacketSize
+	}
+	return 1250 // Chrome default
+}
+
+// H3QUICMaxIncomingStreams returns the max incoming bidirectional streams.
+func (p *Preset) H3QUICMaxIncomingStreams() int64 {
+	if p.H3Config != nil && p.H3Config.QUICMaxIncomingStreams != nil {
+		return *p.H3Config.QUICMaxIncomingStreams
+	}
+	return 100
+}
+
+// H3QUICMaxIncomingUniStreams returns the max incoming unidirectional streams.
+func (p *Preset) H3QUICMaxIncomingUniStreams() int64 {
+	if p.H3Config != nil && p.H3Config.QUICMaxIncomingUniStreams != nil {
+		return *p.H3Config.QUICMaxIncomingUniStreams
+	}
+	return 103
+}
+
+// H3QUICAllow0RTT returns whether to allow 0-RTT.
+func (p *Preset) H3QUICAllow0RTT() bool {
+	if p.H3Config != nil && p.H3Config.QUICAllow0RTT != nil {
+		return *p.H3Config.QUICAllow0RTT
+	}
+	return true
+}
+
+// H3QUICChromeStyleInitial returns whether to use Chrome-style initial packets.
+func (p *Preset) H3QUICChromeStyleInitial() bool {
+	if p.H3Config != nil && p.H3Config.QUICChromeStyleInitial != nil {
+		return *p.H3Config.QUICChromeStyleInitial
+	}
+	return true
+}
+
+// H3QUICDisableHelloScramble returns whether to disable ClientHello scrambling.
+func (p *Preset) H3QUICDisableHelloScramble() bool {
+	if p.H3Config != nil && p.H3Config.QUICDisableHelloScramble != nil {
+		return *p.H3Config.QUICDisableHelloScramble
+	}
+	return true
+}
+
+// H3QUICTransportParamOrder returns the QUIC transport parameter order mode name.
+func (p *Preset) H3QUICTransportParamOrder() string {
+	if p.H3Config != nil && p.H3Config.QUICTransportParamOrder != "" {
+		return p.H3Config.QUICTransportParamOrder
+	}
+	return "chrome"
+}
+
+// H3MaxResponseHeaderBytes returns the max response header bytes.
+func (p *Preset) H3MaxResponseHeaderBytes() uint64 {
+	if p.H3Config != nil && p.H3Config.MaxResponseHeaderBytes != nil {
+		return *p.H3Config.MaxResponseHeaderBytes
+	}
+	return 262144
+}
+
+// H3SendGreaseFrames returns whether to send GREASE frames on the control stream.
+func (p *Preset) H3SendGreaseFrames() bool {
+	if p.H3Config != nil && p.H3Config.SendGreaseFrames != nil {
+		return *p.H3Config.SendGreaseFrames
+	}
+	return true
+}
+
 // Chrome133 returns the Chrome 133 fingerprint preset
 func Chrome133() *Preset {
 	p := GetPlatformInfo()
