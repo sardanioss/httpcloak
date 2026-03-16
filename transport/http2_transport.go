@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -110,10 +109,10 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 	// Check if PSK spec is available for this preset, custom JA3, or preset JA3
 	hasPSKSpec := preset.PSKClientHelloID.Client != ""
 	if !hasPSKSpec && config != nil && config.CustomJA3 != "" {
-		hasPSKSpec = ja3HasExtension(config.CustomJA3, "41")
+		hasPSKSpec = fingerprint.JA3HasExtension(config.CustomJA3, "41")
 	}
 	if !hasPSKSpec && preset.JA3 != "" {
-		hasPSKSpec = ja3HasExtension(preset.JA3, "41")
+		hasPSKSpec = fingerprint.JA3HasExtension(preset.JA3, "41")
 	}
 
 	t := &HTTP2Transport{
@@ -1252,16 +1251,3 @@ func uint16sToSettingIDs(ids []uint16) []http2.SettingID {
 	return result
 }
 
-// ja3HasExtension checks if a JA3 string contains a specific extension ID.
-func ja3HasExtension(ja3, extID string) bool {
-	parts := strings.Split(ja3, ",")
-	if len(parts) < 3 {
-		return false
-	}
-	for _, id := range strings.Split(parts[2], "-") {
-		if strings.TrimSpace(id) == extID {
-			return true
-		}
-	}
-	return false
-}

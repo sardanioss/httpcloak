@@ -358,3 +358,18 @@ func parseDashSeparatedUint8(s string) ([]uint8, error) {
 	}
 	return result, nil
 }
+
+// JA3HasExtension checks if a JA3 string contains a specific TLS extension ID.
+// The extensions field is the third comma-separated part, with dash-separated IDs.
+func JA3HasExtension(ja3, extID string) bool {
+	parts := strings.Split(ja3, ",")
+	if len(parts) < 3 {
+		return false
+	}
+	for _, id := range strings.Split(parts[2], "-") {
+		if strings.TrimSpace(id) == extID {
+			return true
+		}
+	}
+	return false
+}

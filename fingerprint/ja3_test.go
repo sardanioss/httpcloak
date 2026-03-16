@@ -464,3 +464,26 @@ func TestParseJA3_PartialExtrasDefaultsMerging(t *testing.T) {
 		}
 	}
 }
+
+func TestJA3HasExtension(t *testing.T) {
+	ja3 := "771,4865-4866-4867,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-41,29-23-24,0"
+
+	if !JA3HasExtension(ja3, "41") {
+		t.Fatal("expected to find extension 41 (pre_shared_key)")
+	}
+	if !JA3HasExtension(ja3, "0") {
+		t.Fatal("expected to find extension 0 (SNI)")
+	}
+	if !JA3HasExtension(ja3, "17513") {
+		t.Fatal("expected to find extension 17513")
+	}
+	if JA3HasExtension(ja3, "999") {
+		t.Fatal("did not expect to find extension 999")
+	}
+	if JA3HasExtension("short", "41") {
+		t.Fatal("expected false for malformed JA3 (too few fields)")
+	}
+	if JA3HasExtension("", "41") {
+		t.Fatal("expected false for empty JA3")
+	}
+}

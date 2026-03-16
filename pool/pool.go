@@ -358,9 +358,12 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 
 	// JA3 preset: parse fresh per connection (ApplyPreset mutates the spec)
 	if p.preset.JA3 != "" {
-		if spec, err := fingerprint.ParseJA3(p.preset.JA3, p.preset.JA3Extras); err == nil {
-			specToUse = spec
+		spec, err := fingerprint.ParseJA3(p.preset.JA3, p.preset.JA3Extras)
+		if err != nil {
+			rawConn.Close()
+			return nil, fmt.Errorf("failed to parse JA3: %w", err)
 		}
+		specToUse = spec
 	} else if p.cachedPSKSpec != nil && p.preset.PSKClientHelloID.Client != "" {
 		// Prefer PSK spec when available - Chrome always includes PSK extension structure
 		// Generate fresh PSK spec for this connection
@@ -391,9 +394,8 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 		tlsConn = utls.UClient(rawConn, tlsConfig, clientHelloID)
 	}
 
-	// Only enable session cache if we have PSK spec - prevents panic when session
-	// is cached but spec doesn't have PSK extension (TOCTOU race mitigation)
-	if p.cachedPSKSpec != nil {
+	// Enable session cache if PSK is available (either via cached PSK spec or JA3 with extension 41)
+	if p.cachedPSKSpec != nil || (p.preset.JA3 != "" && fingerprint.JA3HasExtension(p.preset.JA3, "41")) {
 		tlsConn.SetSessionCache(p.sessionCache)
 	}
 

@@ -493,7 +493,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			KeyLogWriter:                       keyLogWriter,
 		}
 		// Only set session cache when not using custom JA3 without PSK extension
-		if t.config == nil || t.config.CustomJA3 == "" || ja3HasExtension(t.config.CustomJA3, "41") {
+		if t.config == nil || t.config.CustomJA3 == "" || fingerprint.JA3HasExtension(t.config.CustomJA3, "41") {
 			tlsConfig.ClientSessionCache = t.sessionCache
 		}
 
@@ -541,7 +541,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 		}
 		// Only set session cache for preset path or custom JA3 with PSK extension.
 		// Setting session cache on a spec without PSK extension can cause handshake failures.
-		if t.config == nil || t.config.CustomJA3 == "" || ja3HasExtension(t.config.CustomJA3, "41") {
+		if t.config == nil || t.config.CustomJA3 == "" || fingerprint.JA3HasExtension(t.config.CustomJA3, "41") {
 			tlsConn.SetSessionCache(t.sessionCache)
 		}
 
@@ -590,7 +590,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 					}
 				}
 				// Only set session cache when not using custom JA3 without PSK extension
-				if t.config == nil || t.config.CustomJA3 == "" || ja3HasExtension(t.config.CustomJA3, "41") {
+				if t.config == nil || t.config.CustomJA3 == "" || fingerprint.JA3HasExtension(t.config.CustomJA3, "41") {
 					tlsConn.SetSessionCache(t.sessionCache)
 				}
 				if hsErr := tlsConn.HandshakeContext(ctx); hsErr != nil {
