@@ -1,0 +1,45 @@
+{
+    "version": 1,
+    "pool": {
+        "name": "chrome-rotation",
+        "strategy": "round-robin",
+        "presets": [
+            {
+                "name": "pool-chrome-win",
+                "based_on": "chrome-146-windows",
+                "headers": {
+                    "values": {
+                        "Accept-Language": "en-US,en;q=0.9"
+                    }
+                },
+                "tcp": {
+                    "platform": "Windows"
+                }
+            },
+            {
+                "name": "pool-chrome-linux",
+                "based_on": "chrome-146-linux",
+                "headers": {
+                    "values": {
+                        "Accept-Language": "en-US,en;q=0.9"
+                    }
+                },
+                "tcp": {
+                    "platform": "Linux"
+                }
+            },
+            {
+                "name": "pool-chrome-mac",
+                "based_on": "chrome-146-macos",
+                "headers": {
+                    "values": {
+                        "Accept-Language": "en-US,en;q=0.9"
+                    }
+                },
+                "tcp": {
+                    "platform": "macOS"
+                }
+            }
+        ]
+    }
+}

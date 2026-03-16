@@ -1,0 +1,36 @@
+{
+    "version": 1,
+    "preset": {
+        "name": "firefox-134-custom",
+        "based_on": "firefox-133",
+        "tls": {
+            "client_hello": "firefox-120"
+        },
+        "headers": {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
+            "order": [
+                {"key": "user-agent", "value": ""},
+                {"key": "accept", "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"},
+                {"key": "accept-language", "value": "en-US,en;q=0.5"},
+                {"key": "accept-encoding", "value": "gzip, deflate, br, zstd"},
+                {"key": "sec-fetch-dest", "value": "document"},
+                {"key": "sec-fetch-mode", "value": "navigate"},
+                {"key": "sec-fetch-site", "value": "none"},
+                {"key": "sec-fetch-user", "value": "?1"}
+            ]
+        },
+        "http2": {
+            "header_table_size": 65536,
+            "enable_push": true,
+            "initial_window_size": 131072,
+            "max_frame_size": 16384,
+            "connection_window_update": 12517377,
+            "stream_weight": 42,
+            "stream_exclusive": false,
+            "pseudo_order": [":method", ":path", ":authority", ":scheme"]
+        },
+        "tcp": {
+            "platform": "Windows"
+        }
+    }
+}
