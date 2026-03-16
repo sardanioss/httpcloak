@@ -581,23 +581,34 @@ alpnCheck:
 		http2.SettingInitialWindowSize: settings.InitialWindowSize,
 		http2.SettingMaxHeaderListSize: settings.MaxHeaderListSize,
 	}
-	h2SettingsOrder := []http2.SettingID{
-		http2.SettingHeaderTableSize,
-		http2.SettingEnablePush,
-		http2.SettingInitialWindowSize,
-		http2.SettingMaxHeaderListSize,
+	var h2SettingsOrder []http2.SettingID
+	if order := t.preset.H2SettingsOrder(); order != nil {
+		h2SettingsOrder = uint16sToSettingIDs(order)
+	} else {
+		h2SettingsOrder = []http2.SettingID{
+			http2.SettingHeaderTableSize,
+			http2.SettingEnablePush,
+			http2.SettingInitialWindowSize,
+			http2.SettingMaxHeaderListSize,
+		}
+		if settings.MaxConcurrentStreams > 0 {
+			h2SettingsOrder = append(h2SettingsOrder, http2.SettingMaxConcurrentStreams)
+		}
+		if settings.MaxFrameSize > 0 {
+			h2SettingsOrder = append(h2SettingsOrder, http2.SettingMaxFrameSize)
+		}
+		if settings.NoRFC7540Priorities {
+			h2SettingsOrder = append(h2SettingsOrder, http2.SettingNoRFC7540Priorities)
+		}
 	}
 	if settings.MaxConcurrentStreams > 0 {
 		h2Settings[http2.SettingMaxConcurrentStreams] = settings.MaxConcurrentStreams
-		h2SettingsOrder = append(h2SettingsOrder, http2.SettingMaxConcurrentStreams)
 	}
 	if settings.MaxFrameSize > 0 {
 		h2Settings[http2.SettingMaxFrameSize] = settings.MaxFrameSize
-		h2SettingsOrder = append(h2SettingsOrder, http2.SettingMaxFrameSize)
 	}
 	if settings.NoRFC7540Priorities {
 		h2Settings[http2.SettingNoRFC7540Priorities] = 1
-		h2SettingsOrder = append(h2SettingsOrder, http2.SettingNoRFC7540Priorities)
 	}
 
 	// Pseudo-header order: use custom (Akamai), or browser-type heuristic
@@ -620,7 +631,7 @@ alpnCheck:
 		ConnectionFlow:     settings.ConnectionWindowUpdate,
 		Settings:           h2Settings,
 		SettingsOrder:      h2SettingsOrder,
-		DisableCookieSplit: true, // Chrome sends cookies as one HPACK entry, not split per RFC 9113
+		DisableCookieSplit: t.preset.H2DisableCookieSplit(),
 		PseudoHeaderOrder: pseudoOrder,
 		HeaderPriority: func() *http2.PriorityParam {
 			// Chrome 120+ uses RFC 9218 extensible priorities (priority: header)
@@ -634,22 +645,11 @@ alpnCheck:
 			}
 			return nil
 		}(),
-		HeaderOrder: []string{
-			// Chrome 143 header order (verified via tls.peet.ws)
-			"cache-control", // appears on reload/session resumption
-			"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
-			"upgrade-insecure-requests", "user-agent",
-			"content-type", "content-length", // for POST requests
-			"accept", "origin", // origin for CORS
-			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
-			"referer",
-			"accept-encoding", "accept-language",
-			"cookie", "priority",
-		},
+		HeaderOrder:         t.preset.H2HeaderOrder(),
 		UserAgent:           userAgent,
-		StreamPriorityMode:  http2.StreamPriorityChrome,
-		HPACKIndexingPolicy: hpack.IndexingChrome,
-		HPACKNeverIndex:     []string{"cookie", "authorization", "proxy-authorization"},
+		StreamPriorityMode:  resolveStreamPriorityMode(t.preset.H2StreamPriorityMode()),
+		HPACKIndexingPolicy: resolveHPACKIndexingPolicy(t.preset.H2HPACKIndexingPolicy()),
+		HPACKNeverIndex:     t.preset.H2HPACKNeverIndex(),
 	}
 
 	h2Conn, err := h2Transport.NewClientConn(tlsConn)
@@ -1188,6 +1188,43 @@ func boolToUint32(b bool) uint32 {
 		return 1
 	}
 	return 0
+}
+
+// resolveStreamPriorityMode converts a string mode to the http2 constant.
+func resolveStreamPriorityMode(mode string) http2.StreamPriorityMode {
+	switch mode {
+	case "chrome":
+		return http2.StreamPriorityChrome
+	case "default":
+		return http2.StreamPriorityDefault
+	default:
+		return http2.StreamPriorityChrome
+	}
+}
+
+// resolveHPACKIndexingPolicy converts a string policy to the hpack constant.
+func resolveHPACKIndexingPolicy(policy string) hpack.IndexingPolicy {
+	switch policy {
+	case "chrome":
+		return hpack.IndexingChrome
+	case "never":
+		return hpack.IndexingNever
+	case "always":
+		return hpack.IndexingAlways
+	case "default":
+		return hpack.IndexingDefault
+	default:
+		return hpack.IndexingChrome
+	}
+}
+
+// uint16sToSettingIDs converts uint16 slice to http2.SettingID slice.
+func uint16sToSettingIDs(ids []uint16) []http2.SettingID {
+	result := make([]http2.SettingID, len(ids))
+	for i, id := range ids {
+		result[i] = http2.SettingID(id)
+	}
+	return result
 }
 
 // ja3HasExtension checks if a JA3 string contains a specific extension ID.
