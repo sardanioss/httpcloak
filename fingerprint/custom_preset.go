@@ -142,8 +142,6 @@ type TCPSpec struct {
 
 // ProtocolSpec defines protocol support.
 type ProtocolSpec struct {
-	HTTP1 *bool `json:"http1,omitempty"`
-	HTTP2 *bool `json:"http2,omitempty"`
 	HTTP3 *bool `json:"http3,omitempty"`
 }
 
@@ -196,11 +194,15 @@ func LoadAndBuildPresetFromJSON(data []byte) (*Preset, error) {
 // BuildPreset converts a PresetSpec (parsed from JSON) into a Preset.
 // If based_on is set, clones the base preset first and overlays changes.
 func BuildPreset(spec *PresetSpec) (*Preset, error) {
+	if spec == nil {
+		return nil, fmt.Errorf("preset spec is nil")
+	}
+
 	var p *Preset
 
 	// Start from base preset or empty
 	if spec.BasedOn != "" {
-		base := Get(spec.BasedOn)
+		base := GetStrict(spec.BasedOn)
 		if base == nil {
 			return nil, fmt.Errorf("unknown based_on preset: %q", spec.BasedOn)
 		}
@@ -232,7 +234,9 @@ func BuildPreset(spec *PresetSpec) (*Preset, error) {
 		applyHeaders(p, spec.Headers)
 	}
 	if spec.TCP != nil {
-		applyTCP(p, spec.TCP)
+		if err := applyTCP(p, spec.TCP); err != nil {
+			return nil, fmt.Errorf("tcp: %w", err)
+		}
 	}
 	if spec.Protocol != nil {
 		applyProtocols(p, spec.Protocol)
@@ -367,20 +371,36 @@ func clonePreset(src *Preset) *Preset {
 // --- Apply Functions ---
 
 func applyTLS(p *Preset, spec *TLSSpec) error {
-	// ja3 and client_hello are mutually exclusive (validated separately)
+	// ja3 and client_hello are mutually exclusive (validated catches both set)
 	if spec.JA3 != "" {
 		p.JA3 = spec.JA3
+		// Clear ClientHelloID fields — JA3 takes over TLS fingerprinting
+		p.ClientHelloID = tls.ClientHelloID{}
+		p.PSKClientHelloID = tls.ClientHelloID{}
+		p.QUICClientHelloID = tls.ClientHelloID{}
+		p.QUICPSKClientHelloID = tls.ClientHelloID{}
 		// Build JA3Extras from the spec
 		if spec.JA3ExtrasSpec != nil {
-			p.JA3Extras = buildJA3Extras(spec.JA3ExtrasSpec)
+			extras, err := buildJA3Extras(spec.JA3ExtrasSpec)
+			if err != nil {
+				return fmt.Errorf("ja3_extras: %w", err)
+			}
+			p.JA3Extras = extras
 		} else {
 			// Check if top-level TLS fields provide extras
-			extras := buildJA3ExtrasFromTLS(spec)
+			extras, err := buildJA3ExtrasFromTLS(spec)
+			if err != nil {
+				return fmt.Errorf("ja3 extras: %w", err)
+			}
 			if extras != nil {
 				p.JA3Extras = extras
 			}
 		}
 	} else if spec.ClientHello != "" {
+		// Clear JA3 fields — ClientHelloID takes over TLS fingerprinting
+		p.JA3 = ""
+		p.JA3Extras = nil
+
 		id, err := ResolveClientHelloID(spec.ClientHello)
 		if err != nil {
 			return err
@@ -413,7 +433,7 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 	return nil
 }
 
-func buildJA3Extras(spec *JA3ExtrasSpec) *JA3Extras {
+func buildJA3Extras(spec *JA3ExtrasSpec) (*JA3Extras, error) {
 	extras := &JA3Extras{}
 
 	if len(spec.SignatureAlgorithms) > 0 {
@@ -423,10 +443,15 @@ func buildJA3Extras(spec *JA3ExtrasSpec) *JA3Extras {
 		}
 	}
 	if len(spec.ALPN) > 0 {
-		extras.ALPN = spec.ALPN
+		extras.ALPN = make([]string, len(spec.ALPN))
+		copy(extras.ALPN, spec.ALPN)
 	}
 	if len(spec.CertCompression) > 0 {
-		extras.CertCompAlgs = parseCertCompAlgs(spec.CertCompression)
+		algs, err := parseCertCompAlgs(spec.CertCompression)
+		if err != nil {
+			return nil, err
+		}
+		extras.CertCompAlgs = algs
 	}
 	if spec.PermuteExtensions != nil {
 		extras.PermuteExtensions = *spec.PermuteExtensions
@@ -435,10 +460,10 @@ func buildJA3Extras(spec *JA3ExtrasSpec) *JA3Extras {
 		extras.RecordSizeLimit = *spec.RecordSizeLimit
 	}
 
-	return extras
+	return extras, nil
 }
 
-func buildJA3ExtrasFromTLS(spec *TLSSpec) *JA3Extras {
+func buildJA3ExtrasFromTLS(spec *TLSSpec) (*JA3Extras, error) {
 	// Check if any top-level TLS fields are set that would create extras
 	hasSigAlgs := len(spec.SignatureAlgorithms) > 0
 	hasALPN := len(spec.ALPN) > 0
@@ -447,7 +472,7 @@ func buildJA3ExtrasFromTLS(spec *TLSSpec) *JA3Extras {
 	hasRSL := spec.RecordSizeLimit != nil
 
 	if !hasSigAlgs && !hasALPN && !hasCertComp && !hasPermute && !hasRSL {
-		return nil
+		return nil, nil
 	}
 
 	extras := &JA3Extras{}
@@ -458,10 +483,15 @@ func buildJA3ExtrasFromTLS(spec *TLSSpec) *JA3Extras {
 		}
 	}
 	if hasALPN {
-		extras.ALPN = spec.ALPN
+		extras.ALPN = make([]string, len(spec.ALPN))
+		copy(extras.ALPN, spec.ALPN)
 	}
 	if hasCertComp {
-		extras.CertCompAlgs = parseCertCompAlgs(spec.CertCompression)
+		algs, err := parseCertCompAlgs(spec.CertCompression)
+		if err != nil {
+			return nil, err
+		}
+		extras.CertCompAlgs = algs
 	}
 	if hasPermute {
 		extras.PermuteExtensions = *spec.PermuteExtensions
@@ -470,11 +500,11 @@ func buildJA3ExtrasFromTLS(spec *TLSSpec) *JA3Extras {
 		extras.RecordSizeLimit = *spec.RecordSizeLimit
 	}
 
-	return extras
+	return extras, nil
 }
 
-func parseCertCompAlgs(names []string) []tls.CertCompressionAlgo {
-	var algs []tls.CertCompressionAlgo
+func parseCertCompAlgs(names []string) ([]tls.CertCompressionAlgo, error) {
+	algs := make([]tls.CertCompressionAlgo, 0, len(names))
 	for _, name := range names {
 		switch name {
 		case "brotli":
@@ -483,9 +513,11 @@ func parseCertCompAlgs(names []string) []tls.CertCompressionAlgo {
 			algs = append(algs, tls.CertCompressionZlib)
 		case "zstd":
 			algs = append(algs, tls.CertCompressionZstd)
+		default:
+			return nil, fmt.Errorf("unknown cert compression algorithm: %q (valid: brotli, zlib, zstd)", name)
 		}
 	}
-	return algs
+	return algs, nil
 }
 
 func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
@@ -568,25 +600,30 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 	}
 	if p.H2Config != nil {
 		if spec.SettingsOrder != nil {
-			p.H2Config.SettingsOrder = spec.SettingsOrder
+			p.H2Config.SettingsOrder = make([]uint16, len(spec.SettingsOrder))
+			copy(p.H2Config.SettingsOrder, spec.SettingsOrder)
 		}
 		if spec.PseudoOrder != nil {
-			p.H2Config.PseudoHeaderOrder = spec.PseudoOrder
+			p.H2Config.PseudoHeaderOrder = make([]string, len(spec.PseudoOrder))
+			copy(p.H2Config.PseudoHeaderOrder, spec.PseudoOrder)
 		}
 		if spec.HPACKHeaderOrder != nil {
-			p.H2Config.HPACKHeaderOrder = spec.HPACKHeaderOrder
+			p.H2Config.HPACKHeaderOrder = make([]string, len(spec.HPACKHeaderOrder))
+			copy(p.H2Config.HPACKHeaderOrder, spec.HPACKHeaderOrder)
 		}
 		if spec.HPACKIndexingPolicy != nil {
 			p.H2Config.HPACKIndexingPolicy = *spec.HPACKIndexingPolicy
 		}
 		if spec.HPACKNeverIndex != nil {
-			p.H2Config.HPACKNeverIndex = spec.HPACKNeverIndex
+			p.H2Config.HPACKNeverIndex = make([]string, len(spec.HPACKNeverIndex))
+			copy(p.H2Config.HPACKNeverIndex, spec.HPACKNeverIndex)
 		}
 		if spec.StreamPriorityMode != nil {
 			p.H2Config.StreamPriorityMode = *spec.StreamPriorityMode
 		}
 		if spec.DisableCookieSplit != nil {
-			p.H2Config.DisableCookieSplit = spec.DisableCookieSplit
+			v := *spec.DisableCookieSplit
+			p.H2Config.DisableCookieSplit = &v
 		}
 	}
 
@@ -600,43 +637,55 @@ func applyHTTP3(p *Preset, spec *HTTP3Spec) {
 	h3 := p.H3Config
 
 	if spec.QPACKMaxTableCapacity != nil {
-		h3.QPACKMaxTableCapacity = spec.QPACKMaxTableCapacity
+		v := *spec.QPACKMaxTableCapacity
+		h3.QPACKMaxTableCapacity = &v
 	}
 	if spec.QPACKBlockedStreams != nil {
-		h3.QPACKBlockedStreams = spec.QPACKBlockedStreams
+		v := *spec.QPACKBlockedStreams
+		h3.QPACKBlockedStreams = &v
 	}
 	if spec.MaxFieldSectionSize != nil {
-		h3.MaxFieldSectionSize = spec.MaxFieldSectionSize
+		v := *spec.MaxFieldSectionSize
+		h3.MaxFieldSectionSize = &v
 	}
 	if spec.EnableDatagrams != nil {
-		h3.EnableDatagrams = spec.EnableDatagrams
+		v := *spec.EnableDatagrams
+		h3.EnableDatagrams = &v
 	}
 	if spec.QUICInitialPacketSize != nil {
-		h3.QUICInitialPacketSize = spec.QUICInitialPacketSize
+		v := *spec.QUICInitialPacketSize
+		h3.QUICInitialPacketSize = &v
 	}
 	if spec.QUICMaxIncomingStreams != nil {
-		h3.QUICMaxIncomingStreams = spec.QUICMaxIncomingStreams
+		v := *spec.QUICMaxIncomingStreams
+		h3.QUICMaxIncomingStreams = &v
 	}
 	if spec.QUICMaxIncomingUniStreams != nil {
-		h3.QUICMaxIncomingUniStreams = spec.QUICMaxIncomingUniStreams
+		v := *spec.QUICMaxIncomingUniStreams
+		h3.QUICMaxIncomingUniStreams = &v
 	}
 	if spec.QUICAllow0RTT != nil {
-		h3.QUICAllow0RTT = spec.QUICAllow0RTT
+		v := *spec.QUICAllow0RTT
+		h3.QUICAllow0RTT = &v
 	}
 	if spec.QUICChromeStyleInitial != nil {
-		h3.QUICChromeStyleInitial = spec.QUICChromeStyleInitial
+		v := *spec.QUICChromeStyleInitial
+		h3.QUICChromeStyleInitial = &v
 	}
 	if spec.QUICDisableHelloScramble != nil {
-		h3.QUICDisableHelloScramble = spec.QUICDisableHelloScramble
+		v := *spec.QUICDisableHelloScramble
+		h3.QUICDisableHelloScramble = &v
 	}
 	if spec.QUICTransportParamOrder != nil {
 		h3.QUICTransportParamOrder = *spec.QUICTransportParamOrder
 	}
 	if spec.MaxResponseHeaderBytes != nil {
-		h3.MaxResponseHeaderBytes = spec.MaxResponseHeaderBytes
+		v := *spec.MaxResponseHeaderBytes
+		h3.MaxResponseHeaderBytes = &v
 	}
 	if spec.SendGreaseFrames != nil {
-		h3.SendGreaseFrames = spec.SendGreaseFrames
+		v := *spec.SendGreaseFrames
+		h3.SendGreaseFrames = &v
 	}
 }
 
@@ -664,10 +713,15 @@ func applyHeaders(p *Preset, spec *HeaderSpec) {
 	}
 }
 
-func applyTCP(p *Preset, spec *TCPSpec) {
+func applyTCP(p *Preset, spec *TCPSpec) error {
 	// Platform shorthand first
 	if spec.Platform != "" {
-		p.TCPFingerprint = PlatformTCPFingerprint(spec.Platform)
+		switch spec.Platform {
+		case "Windows", "macOS", "Linux":
+			p.TCPFingerprint = PlatformTCPFingerprint(spec.Platform)
+		default:
+			return fmt.Errorf("unknown TCP platform: %q (valid: Windows, macOS, Linux)", spec.Platform)
+		}
 	}
 
 	// Individual fields override platform
@@ -686,6 +740,7 @@ func applyTCP(p *Preset, spec *TCPSpec) {
 	if spec.DFBit != nil {
 		p.TCPFingerprint.DFBit = *spec.DFBit
 	}
+	return nil
 }
 
 func applyProtocols(p *Preset, spec *ProtocolSpec) {
@@ -701,6 +756,18 @@ func validatePreset(p *Preset, spec *PresetSpec) error {
 		// ja3 and client_hello are mutually exclusive
 		if spec.TLS.JA3 != "" && spec.TLS.ClientHello != "" {
 			return fmt.Errorf("ja3 and client_hello are mutually exclusive")
+		}
+		// PSK/QUIC hello IDs require a primary client_hello
+		if spec.TLS.ClientHello == "" && spec.TLS.JA3 == "" {
+			if spec.TLS.PSKClientHello != "" {
+				return fmt.Errorf("psk_client_hello requires client_hello to be set")
+			}
+			if spec.TLS.QUICClientHello != "" {
+				return fmt.Errorf("quic_client_hello requires client_hello to be set")
+			}
+			if spec.TLS.QUICPSKClientHello != "" {
+				return fmt.Errorf("quic_psk_client_hello requires client_hello to be set")
+			}
 		}
 	}
 
