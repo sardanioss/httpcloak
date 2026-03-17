@@ -53,6 +53,7 @@ type TLSSpec struct {
 	CertCompression    []string `json:"cert_compression,omitempty"` // "brotli", "zlib", "zstd"
 	PermuteExtensions  *bool    `json:"permute_extensions,omitempty"`
 	RecordSizeLimit    *uint16  `json:"record_size_limit,omitempty"`
+	KeyShareCurves     *int     `json:"key_share_curves,omitempty"` // number of curves to send key shares for; nil/0 = 1
 }
 
 // JA3ExtrasSpec is the JSON representation of JA3Extras.
@@ -62,6 +63,7 @@ type JA3ExtrasSpec struct {
 	CertCompression    []string `json:"cert_compression,omitempty"`
 	PermuteExtensions  *bool    `json:"permute_extensions,omitempty"`
 	RecordSizeLimit    *uint16  `json:"record_size_limit,omitempty"`
+	KeyShareCurves     *int     `json:"key_share_curves,omitempty"`
 }
 
 // HTTP2Spec defines HTTP/2 fingerprint configuration.
@@ -483,6 +485,9 @@ func buildJA3Extras(spec *JA3ExtrasSpec) (*JA3Extras, error) {
 	if spec.RecordSizeLimit != nil {
 		extras.RecordSizeLimit = *spec.RecordSizeLimit
 	}
+	if spec.KeyShareCurves != nil {
+		extras.KeyShareCurves = *spec.KeyShareCurves
+	}
 
 	return extras, nil
 }
@@ -494,8 +499,9 @@ func buildJA3ExtrasFromTLS(spec *TLSSpec) (*JA3Extras, error) {
 	hasCertComp := len(spec.CertCompression) > 0
 	hasPermute := spec.PermuteExtensions != nil
 	hasRSL := spec.RecordSizeLimit != nil
+	hasKSC := spec.KeyShareCurves != nil
 
-	if !hasSigAlgs && !hasALPN && !hasCertComp && !hasPermute && !hasRSL {
+	if !hasSigAlgs && !hasALPN && !hasCertComp && !hasPermute && !hasRSL && !hasKSC {
 		return nil, nil
 	}
 
@@ -522,6 +528,9 @@ func buildJA3ExtrasFromTLS(spec *TLSSpec) (*JA3Extras, error) {
 	}
 	if hasRSL {
 		extras.RecordSizeLimit = *spec.RecordSizeLimit
+	}
+	if hasKSC {
+		extras.KeyShareCurves = *spec.KeyShareCurves
 	}
 
 	return extras, nil

@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "preset": {
+    "name": "firefox-148-json",
+
+    "tls": {
+      "ja3": "771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-18-51-43-13-45-28-27-65037,4588-29-23-24-25-256-257,0",
+      "signature_algorithms": [1027, 1283, 1539, 2052, 2053, 2054, 1025, 1281, 1537, 515, 513],
+      "cert_compression": ["zlib", "brotli", "zstd"],
+      "record_size_limit": 16385,
+      "key_share_curves": 3
+    },
+
+    "http2": {
+      "akamai": "1:65536;2:0;4:131072;5:16384|12517377|0|m,p,a,s",
+      "stream_weight": 42,
+      "stream_exclusive": false,
+      "settings_order": [1, 2, 4, 5],
+      "pseudo_order": [":method", ":path", ":authority", ":scheme"],
+      "hpack_header_order": [
+        "user-agent",
+        "accept", "accept-language", "accept-encoding",
+        "upgrade-insecure-requests",
+        "sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
+        "priority", "te",
+        "referer", "cookie",
+        "content-type", "content-length", "origin"
+      ],
+      "hpack_indexing_policy": "default",
+      "stream_priority_mode": "default",
+      "disable_cookie_split": false
+    },
+
+    "headers": {
+      "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0",
+      "values": {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Priority": "u=0, i",
+        "TE": "trailers"
+      },
+      "order": [
+        {"key": "user-agent", "value": ""},
+        {"key": "accept", "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+        {"key": "accept-language", "value": "en-US,en;q=0.9"},
+        {"key": "accept-encoding", "value": "gzip, deflate, br, zstd"},
+        {"key": "upgrade-insecure-requests", "value": "1"},
+        {"key": "sec-fetch-dest", "value": "document"},
+        {"key": "sec-fetch-mode", "value": "navigate"},
+        {"key": "sec-fetch-site", "value": "none"},
+        {"key": "sec-fetch-user", "value": "?1"},
+        {"key": "priority", "value": "u=0, i"},
+        {"key": "te", "value": "trailers"}
+      ]
+    },
+
+    "tcp": {
+      "platform": "Linux"
+    },
+
+    "protocols": {
+      "h3": false
+    }
+  }
+}
