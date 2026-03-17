@@ -11,11 +11,13 @@ import (
 // JA3Extras provides extension data that JA3 cannot capture.
 // JA3 only encodes extension IDs, not the data within them.
 type JA3Extras struct {
-	SignatureAlgorithms []tls.SignatureScheme
-	ALPN               []string
-	CertCompAlgs       []tls.CertCompressionAlgo
-	PermuteExtensions  bool
-	RecordSizeLimit    uint16 // default: 0x4001
+	SignatureAlgorithms            []tls.SignatureScheme
+	DelegatedCredentialAlgorithms  []tls.SignatureScheme // for ext 34; nil = Chrome defaults
+	ALPN                           []string
+	CertCompAlgs                   []tls.CertCompressionAlgo
+	PermuteExtensions              bool
+	RecordSizeLimit                uint16 // default: 0x4001
+	KeyShareCurves                 int    // number of curves to send key shares for; 0 = 1 (default)
 }
 
 // defaultJA3Extras returns sensible defaults matching modern Chrome.
@@ -228,13 +230,18 @@ func extensionForID(id uint16, extras *JA3Extras, curves []tls.CurveID, pointFor
 		return &tls.FakeRecordSizeLimitExtension{Limit: limit}
 
 	case 34: // delegated_credentials
-		return &tls.DelegatedCredentialsExtension{
-			SupportedSignatureAlgorithms: []tls.SignatureScheme{
+		dcAlgs := extras.DelegatedCredentialAlgorithms
+		if dcAlgs == nil {
+			// Chrome default
+			dcAlgs = []tls.SignatureScheme{
 				tls.ECDSAWithP256AndSHA256,
 				tls.ECDSAWithP384AndSHA384,
 				tls.ECDSAWithP521AndSHA512,
 				tls.ECDSAWithSHA1,
-			},
+			}
+		}
+		return &tls.DelegatedCredentialsExtension{
+			SupportedSignatureAlgorithms: dcAlgs,
 		}
 
 	case 35: // session_ticket
@@ -281,14 +288,20 @@ func extensionForID(id uint16, extras *JA3Extras, curves []tls.CurveID, pointFor
 		}
 
 	case 51: // key_share
-		// Real browsers only generate a key share for the first (preferred) curve.
-		// Generating shares for all curves is a detectable fingerprinting signal.
-		// The server sends HelloRetryRequest if it prefers a different group.
+		// By default, send key share for the first non-GREASE curve only.
+		// Firefox 148 sends key shares for 3 curves (X25519MLKEM768, X25519, P-256).
+		// Use extras.KeyShareCurves to control how many key shares are sent.
+		maxShares := 1
+		if extras.KeyShareCurves > 0 {
+			maxShares = extras.KeyShareCurves
+		}
 		var keyShares []tls.KeyShare
 		for _, curve := range curves {
 			if !isGREASE(uint16(curve)) {
 				keyShares = append(keyShares, tls.KeyShare{Group: curve})
-				break
+				if len(keyShares) >= maxShares {
+					break
+				}
 			}
 		}
 		return &tls.KeyShareExtension{KeyShares: keyShares}

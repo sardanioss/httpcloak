@@ -468,6 +468,41 @@ func TestFirefoxH2Config(t *testing.T) {
 	if p.H2StreamPriorityMode() != "default" {
 		t.Fatalf("Firefox priority mode: expected 'default', got %q", p.H2StreamPriorityMode())
 	}
+	// Firefox pseudo-header order: m,p,a,s (verified via tls.peet.ws)
+	pseudo := p.H2PseudoHeaderOrder()
+	expectedPseudo := []string{":method", ":path", ":authority", ":scheme"}
+	if !reflect.DeepEqual(pseudo, expectedPseudo) {
+		t.Fatalf("Firefox pseudo order: expected %v, got %v", expectedPseudo, pseudo)
+	}
+}
+
+func TestFirefox148Preset(t *testing.T) {
+	p := Firefox148()
+	if p.JA3 == "" {
+		t.Fatal("Firefox148 should use JA3 string")
+	}
+	if p.JA3Extras == nil {
+		t.Fatal("Firefox148 should have JA3Extras")
+	}
+	if len(p.JA3Extras.SignatureAlgorithms) != 11 {
+		t.Fatalf("Firefox148 should have 11 sig algs, got %d", len(p.JA3Extras.SignatureAlgorithms))
+	}
+	if len(p.JA3Extras.CertCompAlgs) != 3 {
+		t.Fatalf("Firefox148 should have 3 cert comp algs (zlib, brotli, zstd), got %d", len(p.JA3Extras.CertCompAlgs))
+	}
+	if p.JA3Extras.KeyShareCurves != 3 {
+		t.Fatalf("Firefox148 should send 3 key shares, got %d", p.JA3Extras.KeyShareCurves)
+	}
+	if p.HTTP2Settings.EnablePush {
+		t.Fatal("Firefox148 should have ENABLE_PUSH=0")
+	}
+	if p.H2Config == nil {
+		t.Fatal("Firefox148 should have H2Config")
+	}
+	pseudo := p.H2PseudoHeaderOrder()
+	if !reflect.DeepEqual(pseudo, []string{":method", ":path", ":authority", ":scheme"}) {
+		t.Fatalf("Firefox148 pseudo order wrong: %v", pseudo)
+	}
 }
 
 func TestSafariH2Config(t *testing.T) {

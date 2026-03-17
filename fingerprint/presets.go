@@ -402,7 +402,9 @@ func firefoxH2Config() *H2FingerprintConfig {
 		HPACKHeaderOrder: []string{
 			"user-agent",
 			"accept", "accept-language", "accept-encoding",
+			"upgrade-insecure-requests",
 			"sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
+			"priority", "te",
 			"referer", "cookie",
 			"content-type", "content-length", "origin",
 		},
@@ -410,7 +412,7 @@ func firefoxH2Config() *H2FingerprintConfig {
 		StreamPriorityMode:  "default",
 		DisableCookieSplit:  &f,
 		SettingsOrder:       []uint16{1, 2, 4, 5},
-		PseudoHeaderOrder:   []string{":method", ":authority", ":scheme", ":path"},
+		PseudoHeaderOrder:   []string{":method", ":path", ":authority", ":scheme"},
 	}
 }
 
@@ -605,6 +607,96 @@ func Firefox133() *Preset {
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       firefoxH2Config(),
 		SupportHTTP3: false, // No Firefox QUIC fingerprint in utls
+	}
+}
+
+// Firefox148 returns the Firefox 148 fingerprint preset using JA3 for TLS.
+// Uses the exact JA3 fingerprint captured from real Firefox 148 on Linux.
+func Firefox148() *Preset {
+	p := GetPlatformInfo()
+	// Firefox 148 UA format
+	firefoxUA := "Mozilla/5.0 " + p.FirefoxUserAgentOS + " Gecko/20100101 Firefox/148.0"
+	// Override the rv: version in the UA OS string for Firefox 148
+	if p.Platform == "Windows" {
+		firefoxUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
+	} else if p.Platform == "macOS" {
+		firefoxUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
+	} else {
+		firefoxUA = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
+	}
+	return &Preset{
+		Name: "firefox-148",
+		// JA3 from real Firefox 148 capture (tls.peet.ws)
+		JA3: "771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-18-51-43-13-45-28-27-65037,4588-29-23-24-25-256-257,0",
+		JA3Extras: &JA3Extras{
+			SignatureAlgorithms: []tls.SignatureScheme{
+				tls.ECDSAWithP256AndSHA256,
+				tls.ECDSAWithP384AndSHA384,
+				tls.ECDSAWithP521AndSHA512,
+				tls.PSSWithSHA256,
+				tls.PSSWithSHA384,
+				tls.PSSWithSHA512,
+				tls.PKCS1WithSHA256,
+				tls.PKCS1WithSHA384,
+				tls.PKCS1WithSHA512,
+				tls.ECDSAWithSHA1,
+				tls.PKCS1WithSHA1,
+			},
+			DelegatedCredentialAlgorithms: []tls.SignatureScheme{
+				tls.ECDSAWithP256AndSHA256,
+				tls.ECDSAWithP384AndSHA384,
+				tls.ECDSAWithP521AndSHA512,
+				tls.ECDSAWithSHA1,
+			},
+			ALPN: []string{"h2", "http/1.1"},
+			CertCompAlgs: []tls.CertCompressionAlgo{
+				tls.CertCompressionZlib,
+				tls.CertCompressionBrotli,
+				tls.CertCompressionZstd,
+			},
+			RecordSizeLimit:  0x4001,
+			KeyShareCurves:   3, // Firefox sends key shares for X25519MLKEM768, X25519, P-256
+		},
+		UserAgent: firefoxUA,
+		Headers: map[string]string{
+			"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			"Accept-Language":           "en-US,en;q=0.9",
+			"Accept-Encoding":           "gzip, deflate, br, zstd",
+			"Upgrade-Insecure-Requests": "1",
+			"Sec-Fetch-Dest":            "document",
+			"Sec-Fetch-Mode":            "navigate",
+			"Sec-Fetch-Site":            "none",
+			"Sec-Fetch-User":            "?1",
+			"Priority":                  "u=0, i",
+			"TE":                        "trailers",
+		},
+		HeaderOrder: []HeaderPair{
+			{"user-agent", ""},
+			{"accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+			{"accept-language", "en-US,en;q=0.9"},
+			{"accept-encoding", "gzip, deflate, br, zstd"},
+			{"upgrade-insecure-requests", "1"},
+			{"sec-fetch-dest", "document"},
+			{"sec-fetch-mode", "navigate"},
+			{"sec-fetch-site", "none"},
+			{"sec-fetch-user", "?1"},
+			{"priority", "u=0, i"},
+			{"te", "trailers"},
+		},
+		HTTP2Settings: HTTP2Settings{
+			HeaderTableSize:        65536,
+			EnablePush:             false, // Firefox 148 sends ENABLE_PUSH=0
+			MaxConcurrentStreams:   0,
+			InitialWindowSize:      131072,
+			MaxFrameSize:           16384,
+			MaxHeaderListSize:      0,
+			ConnectionWindowUpdate: 12517377,
+			StreamWeight:           42,
+			StreamExclusive:        false,
+		},
+		TCPFingerprint: TCPFingerprint{},
+		H2Config:       firefoxH2Config(),
+		SupportHTTP3:   false, // No Firefox QUIC fingerprint in utls
 	}
 }
 
@@ -2154,6 +2246,7 @@ var presets = map[string]func() *Preset{
 	"chrome-146-linux":   Chrome146Linux,
 	"chrome-146-macos":   Chrome146macOS,
 	"firefox-133":        Firefox133,
+	"firefox-148":        Firefox148,
 	"safari-18":          Safari18,
 	"chrome-143-ios":     IOSChrome143,
 	"chrome-144-ios":     IOSChrome144,
@@ -2171,7 +2264,7 @@ var presets = map[string]func() *Preset{
 	"chrome-latest-windows": Chrome146Windows,
 	"chrome-latest-linux":   Chrome146Linux,
 	"chrome-latest-macos":   Chrome146macOS,
-	"firefox-latest":        Firefox133,
+	"firefox-latest":        Firefox148,
 	"safari-latest":         Safari18,
 	"chrome-latest-ios":     IOSChrome146,
 	"safari-latest-ios":     IOSSafari18,
