@@ -20,10 +20,13 @@ func Unregister(name string) {
 }
 
 // LookupCustom returns a registered custom preset by name, or nil if not found.
+// Returns a deep clone to prevent callers from mutating the registry copy.
 func LookupCustom(name string) *Preset {
 	if v, ok := customPresets.Load(name); ok {
 		p, _ := v.(*Preset)
-		return p
+		if p != nil {
+			return clonePreset(p)
+		}
 	}
 	return nil
 }
