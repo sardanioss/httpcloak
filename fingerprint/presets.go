@@ -352,6 +352,67 @@ func (p *Preset) H3SendGreaseFrames() bool {
 	return true
 }
 
+// chromeH2Config returns the explicit H2 fingerprint config for Chrome presets.
+func chromeH2Config() *H2FingerprintConfig {
+	t := true
+	return &H2FingerprintConfig{
+		HPACKHeaderOrder: []string{
+			"cache-control",
+			"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
+			"upgrade-insecure-requests", "user-agent",
+			"content-type", "content-length",
+			"accept", "origin",
+			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
+			"referer",
+			"accept-encoding", "accept-language",
+			"cookie", "priority",
+		},
+		HPACKIndexingPolicy: "chrome",
+		StreamPriorityMode:  "chrome",
+		DisableCookieSplit:  &t,
+		SettingsOrder:       []uint16{1, 2, 4, 6},
+		PseudoHeaderOrder:   []string{":method", ":authority", ":scheme", ":path"},
+	}
+}
+
+// firefoxH2Config returns the explicit H2 fingerprint config for Firefox presets.
+func firefoxH2Config() *H2FingerprintConfig {
+	f := false
+	return &H2FingerprintConfig{
+		HPACKHeaderOrder: []string{
+			"user-agent",
+			"accept", "accept-language", "accept-encoding",
+			"sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
+			"referer", "cookie",
+			"content-type", "content-length", "origin",
+		},
+		HPACKIndexingPolicy: "default",
+		StreamPriorityMode:  "default",
+		DisableCookieSplit:  &f,
+		SettingsOrder:       []uint16{1, 2, 4, 5},
+		PseudoHeaderOrder:   []string{":method", ":authority", ":scheme", ":path"},
+	}
+}
+
+// safariH2Config returns the explicit H2 fingerprint config for Safari/WebKit presets.
+func safariH2Config() *H2FingerprintConfig {
+	t := true
+	return &H2FingerprintConfig{
+		HPACKHeaderOrder: []string{
+			"accept",
+			"sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
+			"accept-language", "accept-encoding",
+			"user-agent", "referer", "cookie",
+			"content-type", "content-length", "origin",
+		},
+		HPACKIndexingPolicy: "default",
+		StreamPriorityMode:  "default",
+		DisableCookieSplit:  &t,
+		SettingsOrder:       []uint16{2, 4, 3, 5, 9},
+		PseudoHeaderOrder:   []string{":method", ":scheme", ":path", ":authority"},
+	}
+}
+
 // Chrome133 returns the Chrome 133 fingerprint preset
 func Chrome133() *Preset {
 	p := GetPlatformInfo()
@@ -404,6 +465,7 @@ func Chrome133() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: false, // Legacy preset, no proper QUIC fingerprint
 	}
 }
@@ -460,6 +522,7 @@ func Chrome141() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: false, // Legacy preset, no proper QUIC fingerprint
 	}
 }
@@ -503,6 +566,7 @@ func Firefox133() *Preset {
 			StreamExclusive:        false,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       firefoxH2Config(),
 		SupportHTTP3: false, // No Firefox QUIC fingerprint in utls
 	}
 }
@@ -576,6 +640,7 @@ func Chrome143() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -634,6 +699,7 @@ func Chrome143Windows() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -692,6 +758,7 @@ func Chrome143Linux() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -750,6 +817,7 @@ func Chrome143macOS() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -818,6 +886,7 @@ func Chrome144() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -872,6 +941,7 @@ func Chrome144Windows() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -926,6 +996,7 @@ func Chrome144Linux() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -980,6 +1051,7 @@ func Chrome144macOS() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1048,6 +1120,7 @@ func Chrome145() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1102,6 +1175,7 @@ func Chrome145Windows() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1156,6 +1230,7 @@ func Chrome145Linux() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1210,6 +1285,7 @@ func Chrome145macOS() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1278,6 +1354,7 @@ func Chrome146() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1332,6 +1409,7 @@ func Chrome146Windows() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1386,6 +1464,7 @@ func Chrome146Linux() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1440,6 +1519,7 @@ func Chrome146macOS() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1487,6 +1567,7 @@ func Safari18() *Preset {
 			NoRFC7540Priorities:    true, // Safari sends NO_RFC7540_PRIORITIES=1
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       safariH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1536,6 +1617,7 @@ func IOSChrome143() *Preset {
 			NoRFC7540Priorities:    true, // iOS sends NO_RFC7540_PRIORITIES=1
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       safariH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1585,6 +1667,7 @@ func IOSChrome144() *Preset {
 			NoRFC7540Priorities:    true, // iOS sends NO_RFC7540_PRIORITIES=1
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       safariH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1633,6 +1716,7 @@ func IOSChrome145() *Preset {
 			NoRFC7540Priorities:    true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       safariH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1677,6 +1761,7 @@ func IOSSafari17() *Preset {
 			NoRFC7540Priorities:    true, // Safari uses m,s,p,a pseudo header order
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       safariH2Config(),
 		SupportHTTP3: false, // iOS Safari 17 doesn't have proper H3 TLS spec
 	}
 }
@@ -1724,6 +1809,7 @@ func IOSSafari18() *Preset {
 			NoRFC7540Priorities:    true, // iOS sends NO_RFC7540_PRIORITIES=1
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       safariH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1784,6 +1870,7 @@ func AndroidChrome143() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1838,6 +1925,7 @@ func AndroidChrome144() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1886,6 +1974,7 @@ func IOSChrome146() *Preset {
 			NoRFC7540Priorities:    true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       safariH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1940,6 +2029,7 @@ func AndroidChrome146() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1994,6 +2084,7 @@ func AndroidChrome145() *Preset {
 			StreamExclusive:        true,
 		},
 		TCPFingerprint: TCPFingerprint{},
+		H2Config:       chromeH2Config(),
 		SupportHTTP3: true,
 	}
 }
