@@ -433,6 +433,23 @@ func safariH2Config() *H2FingerprintConfig {
 	}
 }
 
+// safariH3Config returns the explicit H3 fingerprint config for Safari/WebKit presets.
+// Replaces the NoRFC7540Priorities heuristic fallback with explicit values.
+func safariH3Config() *H3FingerprintConfig {
+	f := false
+	qpackCap := uint64(16383)
+	maxField := uint64(0) // Safari omits MAX_FIELD_SECTION_SIZE
+	return &H3FingerprintConfig{
+		QPACKMaxTableCapacity:    &qpackCap,
+		MaxFieldSectionSize:      &maxField,
+		EnableDatagrams:          &f,
+		QUICChromeStyleInitial:   &f, // Safari doesn't mimic Chrome's initial packet pattern
+		QUICDisableHelloScramble: &f, // Safari uses default scrambling
+		QUICTransportParamOrder:  "random",
+		SendGreaseFrames:         &f, // Safari doesn't send GREASE frames on control stream
+	}
+}
+
 // Chrome133 returns the Chrome 133 fingerprint preset
 func Chrome133() *Preset {
 	p := GetPlatformInfo()
@@ -1588,6 +1605,7 @@ func Safari18() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
+		H3Config:       safariH3Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1638,6 +1656,7 @@ func IOSChrome143() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
+		H3Config:       safariH3Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1688,6 +1707,7 @@ func IOSChrome144() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
+		H3Config:       safariH3Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1737,6 +1757,7 @@ func IOSChrome145() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
+		H3Config:       safariH3Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1782,6 +1803,7 @@ func IOSSafari17() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
+		H3Config:       safariH3Config(),
 		SupportHTTP3: false, // iOS Safari 17 doesn't have proper H3 TLS spec
 	}
 }
@@ -1830,6 +1852,7 @@ func IOSSafari18() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
+		H3Config:       safariH3Config(),
 		SupportHTTP3: true,
 	}
 }
@@ -1995,6 +2018,7 @@ func IOSChrome146() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
+		H3Config:       safariH3Config(),
 		SupportHTTP3: true,
 	}
 }

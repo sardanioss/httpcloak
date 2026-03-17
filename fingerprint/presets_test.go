@@ -494,8 +494,24 @@ func TestSafariH2Config(t *testing.T) {
 			t.Fatal("Safari HPACK should not contain sec-ch-ua")
 		}
 	}
+	// H3Config should be explicitly set (not relying on heuristic)
+	if p.H3Config == nil {
+		t.Fatal("Safari18 H3Config should not be nil")
+	}
 	if p.H3QPACKMaxTableCapacity() != 16383 {
 		t.Fatalf("Safari H3 QPACK capacity: expected 16383, got %d", p.H3QPACKMaxTableCapacity())
+	}
+	if p.H3MaxFieldSectionSize() != 0 {
+		t.Fatalf("Safari H3 max field section: expected 0, got %d", p.H3MaxFieldSectionSize())
+	}
+	if p.H3EnableDatagrams() {
+		t.Fatal("Safari H3 should not enable datagrams")
+	}
+	if p.H3QUICChromeStyleInitial() {
+		t.Fatal("Safari should not use Chrome-style initial packets")
+	}
+	if p.H3SendGreaseFrames() {
+		t.Fatal("Safari should not send GREASE frames")
 	}
 }
 
