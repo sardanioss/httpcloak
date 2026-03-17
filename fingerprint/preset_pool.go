@@ -41,9 +41,17 @@ func NewPresetPool(name string, strategy PoolStrategy, presets []*Preset) *Prese
 	if len(presets) == 0 {
 		panic("fingerprint: NewPresetPool requires at least 1 preset")
 	}
+	for i, p := range presets {
+		if p == nil {
+			panic(fmt.Sprintf("fingerprint: NewPresetPool preset at index %d is nil", i))
+		}
+	}
+	// Defensive copy to prevent caller mutation
+	copied := make([]*Preset, len(presets))
+	copy(copied, presets)
 	return &PresetPool{
 		name:     name,
-		presets:  presets,
+		presets:  copied,
 		strategy: strategy,
 		rng:      rand.New(rand.NewSource(cryptoSeed())),
 	}
