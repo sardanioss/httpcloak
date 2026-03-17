@@ -607,11 +607,22 @@ alpnCheck:
 	if order := t.preset.H2SettingsOrder(); order != nil {
 		h2SettingsOrder = uint16sToSettingIDs(order)
 	} else {
-		h2SettingsOrder = []http2.SettingID{
-			http2.SettingHeaderTableSize,
-			http2.SettingEnablePush,
-			http2.SettingInitialWindowSize,
-			http2.SettingMaxHeaderListSize,
+		// Build order dynamically to stay consistent with settings map.
+		// Base order depends on browser type, then conditional settings are appended.
+		if settings.NoRFC7540Priorities {
+			// Safari/iOS base order: 2, 4 (no HeaderTableSize or MaxHeaderListSize)
+			h2SettingsOrder = []http2.SettingID{
+				http2.SettingEnablePush,
+				http2.SettingInitialWindowSize,
+			}
+		} else {
+			// Chrome base order: 1, 2, 4, 6
+			h2SettingsOrder = []http2.SettingID{
+				http2.SettingHeaderTableSize,
+				http2.SettingEnablePush,
+				http2.SettingInitialWindowSize,
+				http2.SettingMaxHeaderListSize,
+			}
 		}
 		if settings.MaxConcurrentStreams > 0 {
 			h2SettingsOrder = append(h2SettingsOrder, http2.SettingMaxConcurrentStreams)
@@ -648,6 +659,10 @@ alpnCheck:
 		AllowHTTP:                  false,
 		DisableCompression:         tlsOnly, // Disable auto Accept-Encoding in TLS-only mode
 		StrictMaxConcurrentStreams: false,
+		MaxHeaderListSize:          settings.MaxHeaderListSize,
+		MaxReadFrameSize:           settings.MaxFrameSize,
+		MaxDecoderHeaderTableSize:  settings.HeaderTableSize,
+		MaxEncoderHeaderTableSize:  settings.HeaderTableSize,
 		ReadIdleTimeout:            t.maxIdleTime,
 		PingTimeout:                15 * time.Second,
 

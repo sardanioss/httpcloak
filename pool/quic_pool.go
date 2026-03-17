@@ -875,11 +875,3 @@ func resolveTransportParamOrder(order string) quic.TransportParameterOrderMode {
 	}
 }
 
-// generateGREASESettingID generates a valid GREASE setting ID
-// GREASE IDs are of the form 0x1f * N + 0x21 where N is random
-// Chrome uses very large N values, producing setting IDs like 57836956465
-func generateGREASESettingID() uint64 {
-	// Generate large N values similar to Chrome (produces 10-11 digit IDs)
-	n := uint64(1000000000 + rand.Int63n(9000000000))
-	return 0x1f*n + 0x21
-}
