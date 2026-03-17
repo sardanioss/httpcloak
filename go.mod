@@ -29,3 +29,5 @@ require (
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
 )
+
+replace github.com/sardanioss/quic-go => /home/saksham/own_tools/quic-go

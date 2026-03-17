@@ -44,14 +44,10 @@ const (
 
 // RTT measurement state — measure once per process, re-measure after ResetInitialRTT().
 var (
-	rttMu       sync.Mutex
-	rttMeasured bool
+	rttMu          sync.Mutex
+	rttMeasured    bool
+	cachedRTTParams map[uint64][]byte // cached Chrome params with measured RTT
 )
-
-func init() {
-	// Set Chrome-like additional transport parameters
-	quic.SetAdditionalTransportParameters(BuildChromeTransportParams())
-}
 
 // BuildChromeTransportParams creates Chrome-like QUIC transport parameters.
 // Exported so pool and other packages can reference the canonical set.
@@ -81,7 +77,7 @@ func BuildChromeTransportParams() map[uint64][]byte {
 	params[tpGoogleConnectionOptions] = []byte("B2ON")
 
 	// initial_rtt (0x3127) - Chrome sends cached SRTT in microseconds
-	// Default 100ms (100000μs); MeasureAndSetInitialRTT overrides with real RTT
+	// Default 100ms (100000us); MeasureInitialRTT overrides with real RTT
 	initialRTT := make([]byte, 0, 8)
 	initialRTT = quicvarint.Append(initialRTT, 100000) // 100ms fallback
 	params[tpInitialRTT] = initialRTT
@@ -93,16 +89,20 @@ func BuildChromeTransportParams() map[uint64][]byte {
 	return params
 }
 
-// MeasureAndSetInitialRTT measures TCP RTT to host:port and updates the
-// initial_rtt QUIC transport parameter. Called once before first QUIC dial.
-// If measurement fails, keeps the default 100ms.
-func MeasureAndSetInitialRTT(ctx context.Context, host string, port int) {
+// MeasureInitialRTT measures TCP RTT to host:port and returns Chrome transport
+// params with the measured RTT. Called once per process (cached); subsequent
+// calls return the cached params. If measurement fails, returns params with
+// default 100ms RTT.
+func MeasureInitialRTT(ctx context.Context, host string, port int) map[uint64][]byte {
 	rttMu.Lock()
 	defer rttMu.Unlock()
 	if rttMeasured {
-		return
+		return cachedRTTParams
 	}
 	rttMeasured = true
+
+	// Start with default Chrome params (100ms RTT)
+	cachedRTTParams = BuildChromeTransportParams()
 
 	// Quick TCP SYN-ACK RTT probe (connect + immediate close)
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
@@ -117,14 +117,20 @@ func MeasureAndSetInitialRTT(ctx context.Context, host string, port int) {
 		conn.Close()
 	}
 	if err != nil {
-		return // keep default 100ms
+		return cachedRTTParams // keep default 100ms
 	}
 
-	// Rebuild transport params with measured RTT
-	params := BuildChromeTransportParams()
+	// Update with measured RTT
 	rttValue := make([]byte, 0, 8)
 	rttValue = quicvarint.Append(rttValue, uint64(rtt.Microseconds()))
-	params[tpInitialRTT] = rttValue
+	cachedRTTParams[tpInitialRTT] = rttValue
+	return cachedRTTParams
+}
+
+// MeasureAndSetInitialRTT measures TCP RTT and sets the global transport params.
+// Deprecated: Use MeasureInitialRTT and pass params via quic.Config.AdditionalTransportParameters instead.
+func MeasureAndSetInitialRTT(ctx context.Context, host string, port int) {
+	params := MeasureInitialRTT(ctx, host, port)
 	quic.SetAdditionalTransportParameters(params)
 }
 
@@ -133,6 +139,28 @@ func ResetInitialRTT() {
 	rttMu.Lock()
 	defer rttMu.Unlock()
 	rttMeasured = false
+	cachedRTTParams = nil
+}
+
+// AdditionalTransportParamsForPreset returns per-connection additional QUIC transport
+// params appropriate for the given preset. For Chrome presets, returns Chrome-specific
+// params (google_connection_options, google_version, version_information, initial_rtt).
+// For non-Chrome presets (e.g. Firefox), returns nil so these Chrome-specific params
+// are not sent. If ctx/host/port are provided and the preset is Chrome, includes
+// measured RTT; otherwise uses default 100ms.
+func AdditionalTransportParamsForPreset(preset *fingerprint.Preset, ctx context.Context, host string, port int) map[uint64][]byte {
+	if preset == nil {
+		return nil
+	}
+	order := preset.H3QUICTransportParamOrder()
+	if order != "chrome" {
+		return nil
+	}
+	// For Chrome presets, measure RTT and return Chrome params
+	if ctx != nil && host != "" && port > 0 {
+		return MeasureInitialRTT(ctx, host, port)
+	}
+	return BuildChromeTransportParams()
 }
 
 // generateGREASEVersion generates a GREASE version of form 0x?a?a?a?a
@@ -396,7 +424,9 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		}
 	}
 	t.quicTransport = &quic.Transport{
-		Conn: udpConn,
+		Conn:                         udpConn,
+		ConnectionIDLength:           t.preset.H3QUICConnectionIDLength(),
+		AllowZeroLengthConnectionIDs: true,
 	}
 
 	// Create HTTP/3 transport with custom dial for DNS caching
@@ -768,6 +798,8 @@ func (t *HTTP3Transport) dialQUICWithMASQUE(ctx context.Context, addr string, tl
 		ClientHelloID:                   clientHelloID,
 		CachedClientHelloSpec:           innerSpec, // Separate spec for consistent JA4, uses PSK for resumed
 		ECHConfigList:                   echConfigList,
+		AdditionalTransportParameters:   AdditionalTransportParamsForPreset(t.preset, nil, "", 0),
+		MaxDatagramFrameSize:            t.preset.H3QUICMaxDatagramFrameSize(),
 	}
 
 	// Dial QUIC over the MASQUE tunnel using quic.DialEarly for 0-RTT support
@@ -803,7 +835,11 @@ func (t *HTTP3Transport) dialQUICWithProxy(ctx context.Context, addr string, tls
 
 	// Create per-connection quic.Transport with real *net.UDPConn
 	// quic-go gets full OOB/ECN/GSO support via the real kernel socket
-	qt := &quic.Transport{Conn: udpConn.PacketConn()}
+	qt := &quic.Transport{
+		Conn:                         udpConn.PacketConn(),
+		ConnectionIDLength:           t.preset.H3QUICConnectionIDLength(),
+		AllowZeroLengthConnectionIDs: true,
+	}
 
 	// Track both for cleanup on Close/Refresh
 	pc := &proxyQUICConn{udpConn: udpConn, quicTr: qt}
@@ -965,8 +1001,10 @@ func (t *HTTP3Transport) buildQUICConfig(clientHelloID *utls.ClientHelloID, quic
 		ChromeStyleInitialPackets:     t.preset.H3QUICChromeStyleInitial(),
 		ClientHelloID:                 clientHelloID,
 		CachedClientHelloSpec:         t.cachedClientHelloSpec,
-		TransportParameterOrder:       resolveTransportParamOrder(t.preset.H3QUICTransportParamOrder()),
-		TransportParameterShuffleSeed: t.shuffleSeed,
+		TransportParameterOrder:              resolveTransportParamOrder(t.preset.H3QUICTransportParamOrder()),
+		TransportParameterShuffleSeed:        t.shuffleSeed,
+		AdditionalTransportParameters:        AdditionalTransportParamsForPreset(t.preset, nil, "", 0),
+		MaxDatagramFrameSize:                 t.preset.H3QUICMaxDatagramFrameSize(),
 	}
 }
 
@@ -1085,9 +1123,12 @@ func (t *HTTP3Transport) dialQUIC(ctx context.Context, addr string, tlsCfg *tls.
 		return nil, fmt.Errorf("invalid port: %w", err)
 	}
 
-	// Measure RTT to target before QUIC dial so initial_rtt matches real latency.
-	// Uses first resolved IP; runs once per process (cached via rttMeasured flag).
-	MeasureAndSetInitialRTT(ctx, ips[0].String(), portInt)
+	// Measure RTT and build per-connection transport params with measured initial_rtt.
+	// For Chrome presets, includes google_connection_options, google_version, etc.
+	// For non-Chrome presets (Firefox), returns nil so Chrome-specific params aren't sent.
+	if params := AdditionalTransportParamsForPreset(t.preset, ctx, ips[0].String(), portInt); params != nil {
+		t.quicConfig.AdditionalTransportParameters = params
+	}
 
 	// Filter IPs by local address family if set
 	if t.localAddr != "" {
@@ -1363,7 +1404,9 @@ func (t *HTTP3Transport) Refresh() error {
 			}
 		}
 		t.quicTransport = &quic.Transport{
-			Conn: udpConn,
+			Conn:                         udpConn,
+			ConnectionIDLength:           t.preset.H3QUICConnectionIDLength(),
+			AllowZeroLengthConnectionIDs: true,
 		}
 	}
 

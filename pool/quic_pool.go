@@ -29,17 +29,9 @@ const (
 	settingH3Datagram            = 0x33
 )
 
-func init() {
-	// Set Chrome-like connection ID length (0 bytes - Chrome sends empty SCID)
-	quic.SetDefaultConnectionIDLength(0)
-
-	// Set Chrome-like max_datagram_frame_size (65536 vs default 16383)
-	quic.SetMaxDatagramSize(65536)
-
-	// Note: Chrome transport parameters (version_info, google_version, initial_rtt)
-	// are set by transport/http3_transport.go's init() via BuildChromeTransportParams().
-	// GREASE transport param is inserted by quic-go's Chrome-mode marshaling.
-}
+// Note: Connection ID length, max datagram size, and additional transport params
+// are all set per-connection on quic.Config / quic.Transport based on the preset.
+// No process-global state is needed.
 
 // Note: quic-go may print buffer size warnings to stderr. These are informational
 // and don't affect functionality. We don't suppress them globally as that would
@@ -367,6 +359,7 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		CachedClientHelloSpec:         selectedSpec,
 		TransportParameterOrder:       resolveTransportParamOrder(p.preset.H3QUICTransportParamOrder()),
 		TransportParameterShuffleSeed: p.shuffleSeed,
+		MaxDatagramFrameSize:          p.preset.H3QUICMaxDatagramFrameSize(),
 	}
 	// Only set ECHConfigList if we have a config - matches proxy path behavior
 	// Setting nil explicitly vs not setting at all triggers different behavior in quic-go
@@ -388,13 +381,16 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		port = 443
 	}
 
-	// Measure RTT to target before QUIC dial so initial_rtt matches real latency.
-	// Uses first available IP; runs once per process (cached via rttMeasured flag).
+	// Measure RTT and build per-connection additional transport params.
+	// For Chrome presets, includes google_connection_options, google_version, etc.
+	// For non-Chrome presets, returns nil (no Chrome-specific params sent).
+	var rttHost string
 	if len(ipv6) > 0 {
-		transport.MeasureAndSetInitialRTT(ctx, ipv6[0].String(), port)
+		rttHost = ipv6[0].String()
 	} else if len(ipv4) > 0 {
-		transport.MeasureAndSetInitialRTT(ctx, ipv4[0].String(), port)
+		rttHost = ipv4[0].String()
 	}
+	quicConfig.AdditionalTransportParameters = transport.AdditionalTransportParamsForPreset(p.preset, ctx, rttHost, port)
 
 	// Generate large GREASE setting ID like Chrome (0x1f * N + 0x21 where N is large)
 	greaseSettingN := uint64(1000000000 + rand.Int63n(9000000000))
