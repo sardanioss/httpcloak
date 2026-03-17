@@ -428,6 +428,30 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 			}
 			p.QUICPSKClientHelloID = quicPSKID
 		}
+	} else {
+		// Neither JA3 nor ClientHello in this spec — overlay PSK/QUIC hellos
+		// on the inherited base preset (if any of these fields are set).
+		if spec.PSKClientHello != "" {
+			pskID, err := ResolveClientHelloID(spec.PSKClientHello)
+			if err != nil {
+				return fmt.Errorf("psk: %w", err)
+			}
+			p.PSKClientHelloID = pskID
+		}
+		if spec.QUICClientHello != "" {
+			quicID, err := ResolveClientHelloID(spec.QUICClientHello)
+			if err != nil {
+				return fmt.Errorf("quic: %w", err)
+			}
+			p.QUICClientHelloID = quicID
+		}
+		if spec.QUICPSKClientHello != "" {
+			quicPSKID, err := ResolveClientHelloID(spec.QUICPSKClientHello)
+			if err != nil {
+				return fmt.Errorf("quic_psk: %w", err)
+			}
+			p.QUICPSKClientHelloID = quicPSKID
+		}
 	}
 
 	return nil
@@ -584,7 +608,7 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 			p.HTTP2Settings.MaxFrameSize = s.Value
 		case 6:
 			p.HTTP2Settings.MaxHeaderListSize = s.Value
-		case 8:
+		case 9:
 			p.HTTP2Settings.NoRFC7540Priorities = s.Value != 0
 		}
 	}
@@ -757,16 +781,31 @@ func validatePreset(p *Preset, spec *PresetSpec) error {
 		if spec.TLS.JA3 != "" && spec.TLS.ClientHello != "" {
 			return fmt.Errorf("ja3 and client_hello are mutually exclusive")
 		}
-		// PSK/QUIC hello IDs require a primary client_hello
-		if spec.TLS.ClientHello == "" && spec.TLS.JA3 == "" {
+		// PSK/QUIC hello IDs require a primary client_hello or JA3 on the built preset
+		// (could come from based_on inheritance, not just the spec)
+		hasPrimary := p.ClientHelloID.Client != "" || p.JA3 != ""
+		if !hasPrimary {
 			if spec.TLS.PSKClientHello != "" {
-				return fmt.Errorf("psk_client_hello requires client_hello to be set")
+				return fmt.Errorf("psk_client_hello requires client_hello to be set (directly or via based_on)")
 			}
 			if spec.TLS.QUICClientHello != "" {
-				return fmt.Errorf("quic_client_hello requires client_hello to be set")
+				return fmt.Errorf("quic_client_hello requires client_hello to be set (directly or via based_on)")
 			}
 			if spec.TLS.QUICPSKClientHello != "" {
-				return fmt.Errorf("quic_psk_client_hello requires client_hello to be set")
+				return fmt.Errorf("quic_psk_client_hello requires client_hello to be set (directly or via based_on)")
+			}
+		}
+		// JA3 mode cannot control QUIC TLS — check both spec and built preset
+		isJA3Mode := p.JA3 != ""
+		if isJA3Mode {
+			if spec.TLS.QUICClientHello != "" {
+				return fmt.Errorf("quic_client_hello cannot be used with ja3; JA3 does not control QUIC TLS fingerprinting — use client_hello mode instead")
+			}
+			if spec.TLS.QUICPSKClientHello != "" {
+				return fmt.Errorf("quic_psk_client_hello cannot be used with ja3; JA3 does not control QUIC TLS fingerprinting — use client_hello mode instead")
+			}
+			if spec.TLS.PSKClientHello != "" {
+				return fmt.Errorf("psk_client_hello cannot be used with ja3; use ja3_extras for PSK configuration instead")
 			}
 		}
 		// ja3_extras without ja3 is invalid
