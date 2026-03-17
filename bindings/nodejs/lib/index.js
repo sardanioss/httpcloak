@@ -788,7 +788,8 @@ function getLib() {
     nativeLibHandle = koffi.load(libPath);
 
     // Use str for string returns - koffi handles the string copy automatically
-    // Note: The C strings allocated by Go are not freed, but Go's GC handles them
+    // Note: C strings from C.CString() are malloc'd; str return leaks them.
+    // Pool/preset functions use void* + readAndFreeString() to avoid this.
     lib = {
       httpcloak_session_new: nativeLibHandle.func("httpcloak_session_new", "int64", ["str"]),
       httpcloak_session_free: nativeLibHandle.func("httpcloak_session_free", "void", ["int64"]),
@@ -876,6 +877,20 @@ function getLib() {
       // Async cache result functions (called by JS to provide results to Go)
       httpcloak_async_cache_get_result: nativeLibHandle.func("httpcloak_async_cache_get_result", "void", ["int64", "str"]),
       httpcloak_async_cache_op_result: nativeLibHandle.func("httpcloak_async_cache_op_result", "void", ["int64", "int"]),
+      // Custom preset loading (void* returns for manual free)
+      httpcloak_preset_load_file: nativeLibHandle.func("httpcloak_preset_load_file", "void*", ["str"]),
+      httpcloak_preset_load_json: nativeLibHandle.func("httpcloak_preset_load_json", "void*", ["str"]),
+      httpcloak_preset_unregister: nativeLibHandle.func("httpcloak_preset_unregister", "void", ["str"]),
+      // Preset pool functions (void* returns for manual free)
+      httpcloak_pool_load_file: nativeLibHandle.func("httpcloak_pool_load_file", "void*", ["str"]),
+      httpcloak_pool_load_json: nativeLibHandle.func("httpcloak_pool_load_json", "void*", ["str"]),
+      httpcloak_pool_pick: nativeLibHandle.func("httpcloak_pool_pick", "void*", ["int64"]),
+      httpcloak_pool_random: nativeLibHandle.func("httpcloak_pool_random", "void*", ["int64"]),
+      httpcloak_pool_next: nativeLibHandle.func("httpcloak_pool_next", "void*", ["int64"]),
+      httpcloak_pool_get: nativeLibHandle.func("httpcloak_pool_get", "void*", ["int64", "int64"]),
+      httpcloak_pool_size: nativeLibHandle.func("httpcloak_pool_size", "int64", ["int64"]),
+      httpcloak_pool_name: nativeLibHandle.func("httpcloak_pool_name", "void*", ["int64"]),
+      httpcloak_pool_free: nativeLibHandle.func("httpcloak_pool_free", "void", ["int64"]),
     };
   }
   return lib;
@@ -3534,10 +3549,213 @@ function clearSessionCache() {
 }
 
 
+// --- String Memory Management for Preset/Pool Functions ---
+
+/**
+ * Read a C string from a void pointer and free the native memory.
+ * Returns null if the pointer is null/0.
+ * @param {*} ptr - Native void pointer
+ * @returns {string|null}
+ */
+function readAndFreeString(ptr) {
+  if (!ptr) return null;
+  const lib = getLib();
+  try {
+    return koffi.decode(ptr, "char", -1);
+  } finally {
+    lib.httpcloak_free_string(ptr);
+  }
+}
+
+// --- Custom Preset Loading ---
+
+/**
+ * Load a custom preset from a JSON file and register it.
+ * @param {string} filePath - Path to the preset JSON file
+ * @returns {string} The registered preset name
+ */
+function loadPreset(filePath) {
+  const lib = getLib();
+  const result = readAndFreeString(lib.httpcloak_preset_load_file(filePath));
+  if (!result) {
+    throw new HTTPCloakError("Failed to load preset from file");
+  }
+  const data = JSON.parse(result);
+  if (data.error) {
+    throw new HTTPCloakError(data.error);
+  }
+  return data.name;
+}
+
+/**
+ * Load a custom preset from a JSON string and register it.
+ * @param {string} jsonData - JSON string defining the preset
+ * @returns {string} The registered preset name
+ */
+function loadPresetFromJSON(jsonData) {
+  const lib = getLib();
+  const result = readAndFreeString(lib.httpcloak_preset_load_json(jsonData));
+  if (!result) {
+    throw new HTTPCloakError("Failed to load preset from JSON");
+  }
+  const data = JSON.parse(result);
+  if (data.error) {
+    throw new HTTPCloakError(data.error);
+  }
+  return data.name;
+}
+
+/**
+ * Unregister a custom preset by name.
+ * @param {string} name - The preset name to unregister
+ */
+function unregisterPreset(name) {
+  const lib = getLib();
+  lib.httpcloak_preset_unregister(name);
+}
+
+/**
+ * A pool of custom fingerprint presets for rotation.
+ *
+ * Pools load multiple presets from a single JSON file and provide
+ * round-robin or random selection. All presets are auto-registered
+ * on construction, so you can pass the returned name directly to
+ * Session({ preset: name }).
+ */
+class PresetPool {
+  /**
+   * Load a preset pool from a JSON file.
+   * @param {string} filePath - Path to the pool JSON file
+   */
+  constructor(filePath) {
+    this._lib = getLib();
+    const result = readAndFreeString(this._lib.httpcloak_pool_load_file(filePath));
+    if (!result) {
+      throw new HTTPCloakError(`Failed to load preset pool from file: ${filePath}`);
+    }
+    const data = JSON.parse(result);
+    if (data.error) {
+      throw new HTTPCloakError(data.error);
+    }
+    this._handle = BigInt(data.handle);
+  }
+
+  /**
+   * Load a preset pool from a JSON string.
+   * @param {string} jsonData - JSON string defining the pool
+   * @returns {PresetPool}
+   */
+  static fromJSON(jsonData) {
+    const pool = Object.create(PresetPool.prototype);
+    pool._lib = getLib();
+    const result = readAndFreeString(pool._lib.httpcloak_pool_load_json(jsonData));
+    if (!result) {
+      throw new HTTPCloakError("Failed to load preset pool from JSON");
+    }
+    const data = JSON.parse(result);
+    if (data.error) {
+      throw new HTTPCloakError(data.error);
+    }
+    pool._handle = BigInt(data.handle);
+    return pool;
+  }
+
+  /**
+   * Pick a preset using the pool's configured strategy.
+   * @returns {string} Preset name
+   */
+  pick() {
+    this._checkHandle();
+    return this._parsePoolResult(this._lib.httpcloak_pool_pick(this._handle));
+  }
+
+  /**
+   * Pick a random preset from the pool.
+   * @returns {string} Preset name
+   */
+  random() {
+    this._checkHandle();
+    return this._parsePoolResult(this._lib.httpcloak_pool_random(this._handle));
+  }
+
+  /**
+   * Pick the next preset in round-robin order.
+   * @returns {string} Preset name
+   */
+  next() {
+    this._checkHandle();
+    return this._parsePoolResult(this._lib.httpcloak_pool_next(this._handle));
+  }
+
+  /**
+   * Get a preset by index.
+   * @param {number} index - Zero-based index
+   * @returns {string} Preset name
+   */
+  get(index) {
+    this._checkHandle();
+    return this._parsePoolResult(this._lib.httpcloak_pool_get(this._handle, index));
+  }
+
+  /**
+   * Number of presets in the pool.
+   * @type {number}
+   */
+  get size() {
+    this._checkHandle();
+    const s = this._lib.httpcloak_pool_size(this._handle);
+    if (s < 0) {
+      throw new HTTPCloakError("Failed to get pool size");
+    }
+    return Number(s);
+  }
+
+  /**
+   * Name of the preset pool.
+   * @type {string}
+   */
+  get name() {
+    this._checkHandle();
+    return this._parsePoolResult(this._lib.httpcloak_pool_name(this._handle));
+  }
+
+  /**
+   * Free the pool handle and unregister all its presets.
+   */
+  close() {
+    if (this._handle && this._handle !== 0n && this._handle !== 0) {
+      this._lib.httpcloak_pool_free(this._handle);
+      this._handle = 0n;
+    }
+  }
+
+  _parsePoolResult(resultPtr) {
+    const result = readAndFreeString(resultPtr);
+    if (!result) {
+      throw new HTTPCloakError("No result from preset pool");
+    }
+    // Error responses are JSON with {"error":"..."}
+    if (result.startsWith("{")) {
+      const data = JSON.parse(result);
+      if (data.error) {
+        throw new HTTPCloakError(data.error);
+      }
+    }
+    return result;
+  }
+
+  _checkHandle() {
+    if (!this._handle || this._handle === 0n || this._handle === 0) {
+      throw new HTTPCloakError("PresetPool is closed");
+    }
+  }
+}
+
 module.exports = {
   // Classes
   Session,
   LocalProxy,
+  PresetPool,
   Response,
   FastResponse,
   StreamResponse,
@@ -3547,6 +3765,10 @@ module.exports = {
   SessionCacheBackend,
   // Presets
   Preset,
+  // Custom preset loading
+  loadPreset,
+  loadPresetFromJSON,
+  unregisterPreset,
   // Configuration
   configure,
   configureSessionCache,

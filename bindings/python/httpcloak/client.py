@@ -1111,6 +1111,34 @@ def _setup_lib(lib):
     lib.httpcloak_clear_session_cache_callbacks.argtypes = []
     lib.httpcloak_clear_session_cache_callbacks.restype = None
 
+    # Custom preset loading
+    lib.httpcloak_preset_load_file.argtypes = [c_char_p]
+    lib.httpcloak_preset_load_file.restype = c_void_p
+    lib.httpcloak_preset_load_json.argtypes = [c_char_p]
+    lib.httpcloak_preset_load_json.restype = c_void_p
+    lib.httpcloak_preset_unregister.argtypes = [c_char_p]
+    lib.httpcloak_preset_unregister.restype = None
+
+    # Preset pool functions
+    lib.httpcloak_pool_load_file.argtypes = [c_char_p]
+    lib.httpcloak_pool_load_file.restype = c_void_p
+    lib.httpcloak_pool_load_json.argtypes = [c_char_p]
+    lib.httpcloak_pool_load_json.restype = c_void_p
+    lib.httpcloak_pool_pick.argtypes = [c_int64]
+    lib.httpcloak_pool_pick.restype = c_void_p
+    lib.httpcloak_pool_random.argtypes = [c_int64]
+    lib.httpcloak_pool_random.restype = c_void_p
+    lib.httpcloak_pool_next.argtypes = [c_int64]
+    lib.httpcloak_pool_next.restype = c_void_p
+    lib.httpcloak_pool_get.argtypes = [c_int64, c_int64]
+    lib.httpcloak_pool_get.restype = c_void_p
+    lib.httpcloak_pool_size.argtypes = [c_int64]
+    lib.httpcloak_pool_size.restype = c_int64
+    lib.httpcloak_pool_name.argtypes = [c_int64]
+    lib.httpcloak_pool_name.restype = c_void_p
+    lib.httpcloak_pool_free.argtypes = [c_int64]
+    lib.httpcloak_pool_free.restype = None
+
 
 def _ptr_to_string(ptr) -> Optional[str]:
     """Convert a C string pointer to Python string and free it."""
@@ -3586,6 +3614,180 @@ def configure(
         )
         if final_headers:
             _default_session.headers.update(final_headers)
+
+
+def load_preset(path: str) -> str:
+    """Load a custom preset from a JSON file and register it.
+
+    Args:
+        path: Path to the preset JSON file.
+
+    Returns:
+        The registered preset name.
+    """
+    lib = _get_lib()
+    result_ptr = lib.httpcloak_preset_load_file(path.encode("utf-8"))
+    result = _ptr_to_string(result_ptr)
+    if result is None:
+        raise HTTPCloakError("Failed to load preset from file")
+    data = json.loads(result)
+    if "error" in data:
+        raise HTTPCloakError(data["error"])
+    return data["name"]
+
+
+def load_preset_from_json(json_data: str) -> str:
+    """Load a custom preset from a JSON string and register it.
+
+    Args:
+        json_data: JSON string defining the preset.
+
+    Returns:
+        The registered preset name.
+    """
+    lib = _get_lib()
+    result_ptr = lib.httpcloak_preset_load_json(json_data.encode("utf-8"))
+    result = _ptr_to_string(result_ptr)
+    if result is None:
+        raise HTTPCloakError("Failed to load preset from JSON")
+    data = json.loads(result)
+    if "error" in data:
+        raise HTTPCloakError(data["error"])
+    return data["name"]
+
+
+def unregister_preset(name: str) -> None:
+    """Unregister a custom preset by name.
+
+    Args:
+        name: The preset name to unregister.
+    """
+    lib = _get_lib()
+    lib.httpcloak_preset_unregister(name.encode("utf-8"))
+
+
+class PresetPool:
+    """A pool of custom fingerprint presets for rotation.
+
+    Pools load multiple presets from a single JSON file and provide
+    round-robin or random selection. All presets are auto-registered
+    on construction, so you can pass the returned name directly to
+    ``Session(preset=name)``.
+
+    Example::
+
+        pool = PresetPool("presets/rotation_pool.json")
+        print(len(pool))       # number of presets
+        print(pool.next())     # round-robin preset name
+
+        session = Session(preset=pool.random())
+        session.close()
+        pool.close()
+
+    Supports context manager and ``len()``/``pool[i]`` indexing.
+    """
+
+    def __init__(self, path: str):
+        self._lib = _get_lib()
+        result_ptr = self._lib.httpcloak_pool_load_file(path.encode("utf-8"))
+        result = _ptr_to_string(result_ptr)
+        if result is None:
+            raise HTTPCloakError(f"Failed to load preset pool from file: {path}")
+        data = json.loads(result)
+        if "error" in data:
+            raise HTTPCloakError(data["error"])
+        self._handle = data["handle"]
+
+    @classmethod
+    def from_json(cls, json_data: str) -> "PresetPool":
+        """Load a preset pool from a JSON string."""
+        pool = object.__new__(cls)
+        pool._lib = _get_lib()
+        result_ptr = pool._lib.httpcloak_pool_load_json(json_data.encode("utf-8"))
+        result = _ptr_to_string(result_ptr)
+        if result is None:
+            raise HTTPCloakError("Failed to load preset pool from JSON")
+        data = json.loads(result)
+        if "error" in data:
+            raise HTTPCloakError(data["error"])
+        pool._handle = data["handle"]
+        return pool
+
+    def _parse_pool_result(self, ptr) -> str:
+        result = _ptr_to_string(ptr)
+        if result is None:
+            raise HTTPCloakError("No result from preset pool")
+        # Error responses are JSON: {"error":"..."}
+        if result.startswith("{"):
+            data = json.loads(result)
+            if "error" in data:
+                raise HTTPCloakError(data["error"])
+        return result
+
+    def _check_handle(self):
+        if not self._handle or self._handle <= 0:
+            raise HTTPCloakError("PresetPool is closed")
+
+    def pick(self) -> str:
+        """Pick a preset using the pool's configured strategy."""
+        self._check_handle()
+        return self._parse_pool_result(self._lib.httpcloak_pool_pick(self._handle))
+
+    def random(self) -> str:
+        """Pick a random preset from the pool."""
+        self._check_handle()
+        return self._parse_pool_result(self._lib.httpcloak_pool_random(self._handle))
+
+    def next(self) -> str:
+        """Pick the next preset in round-robin order."""
+        self._check_handle()
+        return self._parse_pool_result(self._lib.httpcloak_pool_next(self._handle))
+
+    def get(self, index: int) -> str:
+        """Get a preset by index."""
+        self._check_handle()
+        return self._parse_pool_result(self._lib.httpcloak_pool_get(self._handle, index))
+
+    @property
+    def size(self) -> int:
+        """Number of presets in the pool."""
+        self._check_handle()
+        s = self._lib.httpcloak_pool_size(self._handle)
+        if s < 0:
+            raise HTTPCloakError("Failed to get pool size")
+        return s
+
+    @property
+    def name(self) -> str:
+        """Name of the preset pool."""
+        self._check_handle()
+        return self._parse_pool_result(self._lib.httpcloak_pool_name(self._handle))
+
+    def close(self):
+        """Free the pool handle and unregister all its presets."""
+        if self._handle and self._handle > 0:
+            self._lib.httpcloak_pool_free(self._handle)
+            self._handle = 0
+
+    def __len__(self) -> int:
+        return self.size
+
+    def __getitem__(self, index: int) -> str:
+        if index < 0:
+            index = len(self) + index
+        return self.get(index)
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
 
 class LocalProxy:

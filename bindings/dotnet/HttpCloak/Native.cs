@@ -232,6 +232,44 @@ internal static class Native
     [DllImport(LibraryName, EntryPoint = "httpcloak_local_proxy_unregister_session", CallingConvention = CallingConvention.Cdecl)]
     public static extern int LocalProxyUnregisterSession(long proxyHandle, [MarshalAs(UnmanagedType.LPUTF8Str)] string sessionId);
 
+    // Custom preset loading
+    [DllImport(LibraryName, EntryPoint = "httpcloak_preset_load_file", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr PresetLoadFile([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_preset_load_json", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr PresetLoadJson([MarshalAs(UnmanagedType.LPUTF8Str)] string jsonData);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_preset_unregister", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void PresetUnregister([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+
+    // Preset pool functions
+    [DllImport(LibraryName, EntryPoint = "httpcloak_pool_load_file", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr PoolLoadFile([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_pool_load_json", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr PoolLoadJson([MarshalAs(UnmanagedType.LPUTF8Str)] string jsonData);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_pool_pick", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr PoolPick(long handle);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_pool_random", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr PoolRandom(long handle);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_pool_next", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr PoolNext(long handle);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_pool_get", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr PoolGet(long handle, long index);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_pool_size", CallingConvention = CallingConvention.Cdecl)]
+    public static extern long PoolSize(long handle);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_pool_name", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr PoolName(long handle);
+
+    [DllImport(LibraryName, EntryPoint = "httpcloak_pool_free", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void PoolFree(long handle);
+
     // Raw response functions for fast-path (zero-copy)
     [DllImport(LibraryName, EntryPoint = "httpcloak_get_raw", CallingConvention = CallingConvention.Cdecl)]
     public static extern long GetRaw(long handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string url, [MarshalAs(UnmanagedType.LPUTF8Str)] string? optionsJson);

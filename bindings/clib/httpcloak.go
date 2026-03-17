@@ -162,6 +162,19 @@ var (
 	uploadCounter int64
 )
 
+// Preset pool handle management
+var (
+	presetPoolMu      sync.RWMutex
+	presetPools       = make(map[int64]*fingerprint.PresetPool)
+	presetPoolCounter int64
+)
+
+func getPresetPool(handle C.int64_t) *fingerprint.PresetPool {
+	presetPoolMu.RLock()
+	defer presetPoolMu.RUnlock()
+	return presetPools[int64(handle)]
+}
+
 // UploadStream represents an in-progress streaming upload
 type UploadStream struct {
 	session    *httpcloak.Session
@@ -2012,6 +2025,7 @@ var (
 	ErrInvalidSession    = errors.New("invalid session handle")
 	ErrInvalidStream     = errors.New("invalid stream handle")
 	ErrInvalidLocalProxy = errors.New("invalid local proxy handle")
+	ErrInvalidPresetPool = errors.New("invalid preset pool handle")
 )
 
 // ============================================================================
@@ -3406,6 +3420,140 @@ func encodeBase64(data []byte) string {
 	}
 
 	return string(result)
+}
+
+// --- Custom Preset Loading ---
+
+//export httpcloak_preset_load_file
+func httpcloak_preset_load_file(path *C.char) *C.char {
+	p, err := fingerprint.LoadAndBuildPreset(C.GoString(path))
+	if err != nil {
+		return makeErrorJSON(err)
+	}
+	fingerprint.Register(p.Name, p)
+	data, _ := json.Marshal(map[string]string{"name": p.Name})
+	return C.CString(string(data))
+}
+
+//export httpcloak_preset_load_json
+func httpcloak_preset_load_json(jsonData *C.char) *C.char {
+	p, err := fingerprint.LoadAndBuildPresetFromJSON([]byte(C.GoString(jsonData)))
+	if err != nil {
+		return makeErrorJSON(err)
+	}
+	fingerprint.Register(p.Name, p)
+	data, _ := json.Marshal(map[string]string{"name": p.Name})
+	return C.CString(string(data))
+}
+
+//export httpcloak_preset_unregister
+func httpcloak_preset_unregister(name *C.char) {
+	fingerprint.Unregister(C.GoString(name))
+}
+
+// --- Preset Pool Lifecycle ---
+
+//export httpcloak_pool_load_file
+func httpcloak_pool_load_file(path *C.char) *C.char {
+	pool, err := fingerprint.NewPresetPoolFromFile(C.GoString(path))
+	if err != nil {
+		return makeErrorJSON(err)
+	}
+	presetPoolMu.Lock()
+	presetPoolCounter++
+	handle := presetPoolCounter
+	presetPools[handle] = pool
+	presetPoolMu.Unlock()
+	data, _ := json.Marshal(map[string]int64{"handle": handle})
+	return C.CString(string(data))
+}
+
+//export httpcloak_pool_load_json
+func httpcloak_pool_load_json(jsonData *C.char) *C.char {
+	pool, err := fingerprint.NewPresetPoolFromJSON([]byte(C.GoString(jsonData)))
+	if err != nil {
+		return makeErrorJSON(err)
+	}
+	presetPoolMu.Lock()
+	presetPoolCounter++
+	handle := presetPoolCounter
+	presetPools[handle] = pool
+	presetPoolMu.Unlock()
+	data, _ := json.Marshal(map[string]int64{"handle": handle})
+	return C.CString(string(data))
+}
+
+// --- Preset Pool Accessors ---
+
+//export httpcloak_pool_pick
+func httpcloak_pool_pick(handle C.int64_t) *C.char {
+	pool := getPresetPool(handle)
+	if pool == nil {
+		return makeErrorJSON(ErrInvalidPresetPool)
+	}
+	return C.CString(pool.Pick().Name)
+}
+
+//export httpcloak_pool_random
+func httpcloak_pool_random(handle C.int64_t) *C.char {
+	pool := getPresetPool(handle)
+	if pool == nil {
+		return makeErrorJSON(ErrInvalidPresetPool)
+	}
+	return C.CString(pool.Random().Name)
+}
+
+//export httpcloak_pool_next
+func httpcloak_pool_next(handle C.int64_t) *C.char {
+	pool := getPresetPool(handle)
+	if pool == nil {
+		return makeErrorJSON(ErrInvalidPresetPool)
+	}
+	return C.CString(pool.Next().Name)
+}
+
+//export httpcloak_pool_get
+func httpcloak_pool_get(handle C.int64_t, index C.int64_t) *C.char {
+	pool := getPresetPool(handle)
+	if pool == nil {
+		return makeErrorJSON(ErrInvalidPresetPool)
+	}
+	idx := int(index)
+	if idx < 0 || idx >= pool.Size() {
+		return makeErrorJSON(fmt.Errorf("preset pool index %d out of range [0, %d)", idx, pool.Size()))
+	}
+	return C.CString(pool.Get(idx).Name)
+}
+
+//export httpcloak_pool_size
+func httpcloak_pool_size(handle C.int64_t) C.int64_t {
+	pool := getPresetPool(handle)
+	if pool == nil {
+		return -1
+	}
+	return C.int64_t(pool.Size())
+}
+
+//export httpcloak_pool_name
+func httpcloak_pool_name(handle C.int64_t) *C.char {
+	pool := getPresetPool(handle)
+	if pool == nil {
+		return makeErrorJSON(ErrInvalidPresetPool)
+	}
+	return C.CString(pool.Name())
+}
+
+//export httpcloak_pool_free
+func httpcloak_pool_free(handle C.int64_t) {
+	presetPoolMu.Lock()
+	pool, ok := presetPools[int64(handle)]
+	if ok {
+		delete(presetPools, int64(handle))
+	}
+	presetPoolMu.Unlock()
+	if pool != nil {
+		pool.Close()
+	}
 }
 
 func main() {}

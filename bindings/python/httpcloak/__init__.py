@@ -32,11 +32,16 @@ from .client import (
     # Classes
     Session,
     LocalProxy,
+    PresetPool,
     Response,
     FastResponse,
     HTTPCloakError,
     Preset,
     SessionCacheBackend,
+    # Custom preset loading
+    load_preset,
+    load_preset_from_json,
+    unregister_preset,
     # Configuration
     configure,
     configure_session_cache,
@@ -61,11 +66,15 @@ from .client import (
 __all__ = [
     "Session",
     "LocalProxy",
+    "PresetPool",
     "Response",
     "FastResponse",
     "HTTPCloakError",
     "Preset",
     "SessionCacheBackend",
+    "load_preset",
+    "load_preset_from_json",
+    "unregister_preset",
     "configure",
     "configure_session_cache",
     "clear_session_cache",
