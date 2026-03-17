@@ -1,5 +1,6 @@
 # Binaries
 httpcloak-daemon
+bindings/clib/httpcloak-clib
 *.exe
 *.exe~
 *.dll
@@ -34,12 +35,18 @@ temp/
 # Test binaries (in root)
 /test_cloudflare
 /test_fingerprint
+/test_cookie_isolation
+/test_session_resumption
 tests/
 # Internal tests (not published)
 internal_tests/
 
 # Local docs/notes (not published)
 PREPARE.md
+BUILDING.md
+CLAUDE.md
+TRANSPORT_AUDIT.md
+chrome_session_import_plan.md
 debug.md
 features.md
 browser_import_plan.md
