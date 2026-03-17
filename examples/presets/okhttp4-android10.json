@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "preset": {
+    "name": "okhttp4-android10",
+
+    "tls": {
+      "ja3": "771,4865-4866-4867-49195-49196-52393-49199-49200-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-51-45-43-21,29-23-24,0",
+      "signature_algorithms": [
+        1027, 1283, 1539,
+        2052, 2053, 2054,
+        1025, 1281, 1537
+      ],
+      "alpn": ["h2", "http/1.1"],
+      "cert_compression": ["brotli"],
+      "record_size_limit": 16385
+    },
+
+    "http2": {
+      "header_table_size": 65536,
+      "enable_push": false,
+      "initial_window_size": 16777216,
+      "max_frame_size": 16384,
+      "settings_order": [4],
+      "connection_window_update": 16711681,
+      "stream_weight": 0,
+      "stream_exclusive": false,
+      "pseudo_order": [":method", ":path", ":authority", ":scheme"],
+      "hpack_header_order": [
+        "accept", "accept-encoding", "accept-language",
+        "user-agent", "content-type", "content-length",
+        "cookie"
+      ],
+      "hpack_indexing_policy": "default",
+      "stream_priority_mode": "default",
+      "disable_cookie_split": false
+    },
+
+    "headers": {
+      "user_agent": "okhttp/4.12.0",
+      "values": {
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "order": [
+        {"key": "accept", "value": "*/*"},
+        {"key": "accept-encoding", "value": "gzip, deflate, br"},
+        {"key": "accept-language", "value": "en-US,en;q=0.9"},
+        {"key": "user-agent", "value": ""}
+      ]
+    },
+
+    "tcp": {
+      "platform": "Linux",
+      "ttl": 64,
+      "window_scale": 7
+    },
+
+    "protocols": {
+      "h3": false
+    }
+  }
+}

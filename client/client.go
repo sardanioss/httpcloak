@@ -1525,8 +1525,21 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 
 	// THEN: Set Sec-Fetch-Site based on the ACTUAL mode
 	// sec-fetch-site: none is ONLY valid for navigation, never for CORS
-	secFetchSite := detectSecFetchSiteForMode(req.FetchSite, parsedURL, req.Referer, effectiveMode)
-	httpReq.Header.Set("Sec-Fetch-Site", secFetchSite)
+	// Only set if the preset has sec-fetch headers (browsers do, OkHttp/curl don't)
+	hasSecFetch := false
+	if _, ok := preset.Headers["Sec-Fetch-Site"]; ok {
+		hasSecFetch = true
+	}
+	for _, hp := range preset.HeaderOrder {
+		if hp.Key == "sec-fetch-site" {
+			hasSecFetch = true
+			break
+		}
+	}
+	if hasSecFetch {
+		secFetchSite := detectSecFetchSiteForMode(req.FetchSite, parsedURL, req.Referer, effectiveMode)
+		httpReq.Header.Set("Sec-Fetch-Site", secFetchSite)
+	}
 
 	// Apply mode-specific headers - EVERYTHING is coherent
 	switch effectiveMode {
@@ -1615,30 +1628,43 @@ func isModeCriticalHeader(lowerKey string) bool {
 
 // applyNavigationModeHeaders sets headers for page navigation (human clicked link)
 func applyNavigationModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Request) {
-	// Client hints (low-entropy only)
-	if v, ok := preset.Headers["sec-ch-ua"]; ok {
-		httpReq.Header.Set("Sec-Ch-Ua", v)
-	}
-	if v, ok := preset.Headers["sec-ch-ua-mobile"]; ok {
-		httpReq.Header.Set("Sec-Ch-Ua-Mobile", v)
-	}
-	if v, ok := preset.Headers["sec-ch-ua-platform"]; ok {
-		httpReq.Header.Set("Sec-Ch-Ua-Platform", v)
-	}
-
-	// Navigation headers - THE coherent set for "human clicked a link"
-	// Note: cache-control is NOT sent on normal navigation, only on hard refresh (Ctrl+F5)
-	httpReq.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
-	httpReq.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	httpReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	httpReq.Header.Set("Sec-Fetch-Dest", "document")
-	httpReq.Header.Set("Sec-Fetch-Mode", "navigate")
-	httpReq.Header.Set("Sec-Fetch-User", "?1")
-	httpReq.Header.Set("Upgrade-Insecure-Requests", "1")
-
-	// Priority header (newer Chrome)
-	if v, ok := preset.Headers["Priority"]; ok {
-		httpReq.Header.Set("Priority", v)
+	// Apply ALL headers from the preset's HeaderOrder (preserves browser-specific values)
+	if len(preset.HeaderOrder) > 0 {
+		for _, hp := range preset.HeaderOrder {
+			if hp.Key == "user-agent" {
+				continue // already set by applyModeHeaders
+			}
+			if hp.Value != "" {
+				httpReq.Header.Set(hp.Key, hp.Value)
+			}
+		}
+	} else {
+		// Fallback: use Headers map + Chrome defaults for missing values
+		for key, value := range preset.Headers {
+			httpReq.Header.Set(key, value)
+		}
+		// Ensure navigation-critical headers exist (Chrome defaults)
+		if httpReq.Header.Get("Accept") == "" {
+			httpReq.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+		}
+		if httpReq.Header.Get("Accept-Encoding") == "" {
+			httpReq.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+		}
+		if httpReq.Header.Get("Accept-Language") == "" {
+			httpReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		}
+		if httpReq.Header.Get("Sec-Fetch-Dest") == "" {
+			httpReq.Header.Set("Sec-Fetch-Dest", "document")
+		}
+		if httpReq.Header.Get("Sec-Fetch-Mode") == "" {
+			httpReq.Header.Set("Sec-Fetch-Mode", "navigate")
+		}
+		if httpReq.Header.Get("Sec-Fetch-User") == "" {
+			httpReq.Header.Set("Sec-Fetch-User", "?1")
+		}
+		if httpReq.Header.Get("Upgrade-Insecure-Requests") == "" {
+			httpReq.Header.Set("Upgrade-Insecure-Requests", "1")
+		}
 	}
 }
 
@@ -1662,8 +1688,17 @@ func applyCORSModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req
 	} else {
 		httpReq.Header.Set("Accept", "*/*")
 	}
-	httpReq.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	httpReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	// Use preset's Accept-Encoding/Language if available, else Chrome defaults
+	if v, ok := preset.Headers["Accept-Encoding"]; ok {
+		httpReq.Header.Set("Accept-Encoding", v)
+	} else {
+		httpReq.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	}
+	if v, ok := preset.Headers["Accept-Language"]; ok {
+		httpReq.Header.Set("Accept-Language", v)
+	} else {
+		httpReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	}
 	httpReq.Header.Set("Sec-Fetch-Dest", "empty")
 	httpReq.Header.Set("Sec-Fetch-Mode", "cors")
 	// NO Sec-Fetch-User for CORS
