@@ -154,6 +154,8 @@ type H3FingerprintConfig struct {
 	QUICChromeStyleInitial   *bool   // nil = true
 	QUICDisableHelloScramble *bool   // nil = true
 	QUICTransportParamOrder  string  // "chrome"/"random". "" = "chrome".
+	QUICConnectionIDLength   *int    // nil = 0 (Chrome empty SCID). Firefox uses 8.
+	QUICMaxDatagramFrameSize *uint64 // nil = 65536 (Chrome). 0 to use quic-go default (16383).
 	MaxResponseHeaderBytes   *uint64 // nil = 262144
 	SendGreaseFrames         *bool   // nil = true
 }
@@ -334,6 +336,24 @@ func (p *Preset) H3QUICTransportParamOrder() string {
 		return p.H3Config.QUICTransportParamOrder
 	}
 	return "chrome"
+}
+
+// H3QUICConnectionIDLength returns the QUIC connection ID length in bytes.
+// Chrome uses 0 (empty SCID), Firefox uses 8.
+func (p *Preset) H3QUICConnectionIDLength() int {
+	if p.H3Config != nil && p.H3Config.QUICConnectionIDLength != nil {
+		return *p.H3Config.QUICConnectionIDLength
+	}
+	return 0 // Chrome default: empty SCID
+}
+
+// H3QUICMaxDatagramFrameSize returns the max_datagram_frame_size transport parameter.
+// Chrome uses 65536, default quic-go is 16383.
+func (p *Preset) H3QUICMaxDatagramFrameSize() uint64 {
+	if p.H3Config != nil && p.H3Config.QUICMaxDatagramFrameSize != nil {
+		return *p.H3Config.QUICMaxDatagramFrameSize
+	}
+	return 65536 // Chrome default
 }
 
 // H3MaxResponseHeaderBytes returns the max response header bytes.

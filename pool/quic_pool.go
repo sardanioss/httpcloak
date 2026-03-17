@@ -464,7 +464,9 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 				// Use quic.Transport.DialEarly instead of quic.DialEarly directly
 				// This matches the proxy path behavior and handles ECH/GREASE correctly
 				quicTransport := &quic.Transport{
-					Conn: udpConn,
+					Conn:                         udpConn,
+					ConnectionIDLength:           p.preset.H3QUICConnectionIDLength(),
+					AllowZeroLengthConnectionIDs: true,
 				}
 
 				conn, err := quicTransport.DialEarly(ctx, udpAddr, tlsCfg, cfg)
