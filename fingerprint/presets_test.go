@@ -180,8 +180,10 @@ func TestH2DisableCookieSplitCustom(t *testing.T) {
 
 func TestH2SettingsOrderDefault(t *testing.T) {
 	p := Chrome146()
-	if p.H2SettingsOrder() != nil {
-		t.Fatal("expected nil (dynamic builder)")
+	order := p.H2SettingsOrder()
+	expected := []uint16{1, 2, 4, 6}
+	if !reflect.DeepEqual(order, expected) {
+		t.Fatalf("expected %v, got %v", expected, order)
 	}
 }
 
@@ -197,8 +199,10 @@ func TestH2SettingsOrderCustom(t *testing.T) {
 
 func TestH2PseudoHeaderOrderDefault(t *testing.T) {
 	p := Chrome146()
-	if p.H2PseudoHeaderOrder() != nil {
-		t.Fatal("expected nil (heuristic)")
+	order := p.H2PseudoHeaderOrder()
+	expected := []string{":method", ":authority", ":scheme", ":path"}
+	if !reflect.DeepEqual(order, expected) {
+		t.Fatalf("expected %v, got %v", expected, order)
 	}
 }
 
@@ -434,6 +438,140 @@ func TestH3SendGreaseFramesCustom(t *testing.T) {
 	p.H3Config = &H3FingerprintConfig{SendGreaseFrames: boolPtr(false)}
 	if p.H3SendGreaseFrames() {
 		t.Fatal("expected false")
+	}
+}
+
+// --- Phase 4: Explicit H2Config Tests ---
+
+func TestFirefoxH2Config(t *testing.T) {
+	p := Firefox133()
+	if p.H2Config == nil {
+		t.Fatal("Firefox133 H2Config should not be nil")
+	}
+	if p.H2DisableCookieSplit() {
+		t.Fatal("Firefox should NOT disable cookie split")
+	}
+	settings := p.H2SettingsOrder()
+	expectedSettings := []uint16{1, 2, 4, 5}
+	if !reflect.DeepEqual(settings, expectedSettings) {
+		t.Fatalf("Firefox settings order: expected %v, got %v", expectedSettings, settings)
+	}
+	order := p.H2HeaderOrder()
+	if len(order) == 0 || order[0] != "user-agent" {
+		t.Fatalf("Firefox HPACK should start with user-agent, got %v", order)
+	}
+	for _, h := range order {
+		if h == "sec-ch-ua" {
+			t.Fatal("Firefox HPACK should not contain sec-ch-ua")
+		}
+	}
+	if p.H2StreamPriorityMode() != "default" {
+		t.Fatalf("Firefox priority mode: expected 'default', got %q", p.H2StreamPriorityMode())
+	}
+}
+
+func TestSafariH2Config(t *testing.T) {
+	p := Safari18()
+	if p.H2Config == nil {
+		t.Fatal("Safari18 H2Config should not be nil")
+	}
+	pseudo := p.H2PseudoHeaderOrder()
+	expectedPseudo := []string{":method", ":scheme", ":path", ":authority"}
+	if !reflect.DeepEqual(pseudo, expectedPseudo) {
+		t.Fatalf("Safari pseudo order: expected %v, got %v", expectedPseudo, pseudo)
+	}
+	settings := p.H2SettingsOrder()
+	expectedSettings := []uint16{2, 4, 3, 5, 9}
+	if !reflect.DeepEqual(settings, expectedSettings) {
+		t.Fatalf("Safari settings order: expected %v, got %v", expectedSettings, settings)
+	}
+	order := p.H2HeaderOrder()
+	if len(order) == 0 || order[0] != "accept" {
+		t.Fatalf("Safari HPACK should start with accept, got %v", order)
+	}
+	for _, h := range order {
+		if h == "sec-ch-ua" {
+			t.Fatal("Safari HPACK should not contain sec-ch-ua")
+		}
+	}
+	if p.H3QPACKMaxTableCapacity() != 16383 {
+		t.Fatalf("Safari H3 QPACK capacity: expected 16383, got %d", p.H3QPACKMaxTableCapacity())
+	}
+}
+
+func TestIOSChromeH2Config(t *testing.T) {
+	p := IOSChrome146()
+	if p.H2Config == nil {
+		t.Fatal("IOSChrome146 H2Config should not be nil")
+	}
+	pseudo := p.H2PseudoHeaderOrder()
+	expectedPseudo := []string{":method", ":scheme", ":path", ":authority"}
+	if !reflect.DeepEqual(pseudo, expectedPseudo) {
+		t.Fatalf("iOS Chrome pseudo order: expected %v, got %v", expectedPseudo, pseudo)
+	}
+	settings := p.H2SettingsOrder()
+	expectedSettings := []uint16{2, 4, 3, 5, 9}
+	if !reflect.DeepEqual(settings, expectedSettings) {
+		t.Fatalf("iOS Chrome settings order: expected %v, got %v", expectedSettings, settings)
+	}
+}
+
+func TestAndroidChromeH2Config(t *testing.T) {
+	p := AndroidChrome146()
+	if p.H2Config == nil {
+		t.Fatal("AndroidChrome146 H2Config should not be nil")
+	}
+	settings := p.H2SettingsOrder()
+	expectedSettings := []uint16{1, 2, 4, 6}
+	if !reflect.DeepEqual(settings, expectedSettings) {
+		t.Fatalf("Android Chrome settings order: expected %v, got %v", expectedSettings, settings)
+	}
+	pseudo := p.H2PseudoHeaderOrder()
+	expectedPseudo := []string{":method", ":authority", ":scheme", ":path"}
+	if !reflect.DeepEqual(pseudo, expectedPseudo) {
+		t.Fatalf("Android Chrome pseudo order: expected %v, got %v", expectedPseudo, pseudo)
+	}
+	if !p.H2DisableCookieSplit() {
+		t.Fatal("Android Chrome should disable cookie split (same as desktop)")
+	}
+}
+
+func TestChromeH2ConfigNoRegression(t *testing.T) {
+	p := Chrome146()
+	order := p.H2HeaderOrder()
+	if len(order) != 19 || order[0] != "cache-control" {
+		t.Fatalf("Chrome HPACK order regression: got %d headers, first=%q", len(order), order[0])
+	}
+	if p.H2HPACKIndexingPolicy() != "chrome" {
+		t.Fatalf("Chrome indexing policy regression: got %q", p.H2HPACKIndexingPolicy())
+	}
+	ni := p.H2HPACKNeverIndex()
+	if len(ni) != 3 {
+		t.Fatalf("Chrome never-index regression: expected 3, got %d", len(ni))
+	}
+	if p.H2StreamPriorityMode() != "chrome" {
+		t.Fatalf("Chrome priority mode regression: got %q", p.H2StreamPriorityMode())
+	}
+	if !p.H2DisableCookieSplit() {
+		t.Fatal("Chrome cookie split regression: expected true")
+	}
+	settings := p.H2SettingsOrder()
+	if !reflect.DeepEqual(settings, []uint16{1, 2, 4, 6}) {
+		t.Fatalf("Chrome settings order regression: got %v", settings)
+	}
+	pseudo := p.H2PseudoHeaderOrder()
+	if !reflect.DeepEqual(pseudo, []string{":method", ":authority", ":scheme", ":path"}) {
+		t.Fatalf("Chrome pseudo order regression: got %v", pseudo)
+	}
+}
+
+func TestAllPresetsHaveH2Config(t *testing.T) {
+	allPresets := Available()
+	for _, name := range allPresets {
+		p := Get(name)
+		if p.H2Config == nil {
+			t.Errorf("preset %q has nil H2Config", name)
+		}
 	}
 }
 
