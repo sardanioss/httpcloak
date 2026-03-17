@@ -1826,14 +1826,14 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 		}
 	}
 
-	// Set pseudo-header order: custom (Akamai) > browser-type heuristic
+	// Set pseudo-header order: custom (Akamai) > preset H2Config > heuristic
 	if len(customPseudoOrder) > 0 {
 		httpReq.Header[http.PHeaderOrderKey] = customPseudoOrder
+	} else if order := preset.H2PseudoHeaderOrder(); order != nil {
+		httpReq.Header[http.PHeaderOrderKey] = order
 	} else if preset.HTTP2Settings.NoRFC7540Priorities {
-		// Safari/iOS uses m,s,p,a
 		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":scheme", ":path", ":authority"}
 	} else {
-		// Chrome uses m,a,s,p
 		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":authority", ":scheme", ":path"}
 	}
 }

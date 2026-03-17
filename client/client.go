@@ -1480,9 +1480,10 @@ func applyTLSOnlyHeaders(httpReq *http.Request, preset *fingerprint.Preset, req 
 		httpReq.Header[http.HeaderOrderKey] = order
 	}
 
-	// Set pseudo-header order based on browser type
-	// Safari/iOS uses m,s,p,a; Chrome uses m,a,s,p
-	if preset.HTTP2Settings.NoRFC7540Priorities {
+	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)
+	if order := preset.H2PseudoHeaderOrder(); order != nil {
+		httpReq.Header[http.PHeaderOrderKey] = order
+	} else if preset.HTTP2Settings.NoRFC7540Priorities {
 		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":scheme", ":path", ":authority"}
 	} else {
 		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":authority", ":scheme", ":path"}
@@ -1576,9 +1577,10 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 		}
 	}
 
-	// Set pseudo-header order based on browser type
-	// Safari/iOS uses m,s,p,a; Chrome uses m,a,s,p
-	if preset.HTTP2Settings.NoRFC7540Priorities {
+	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)
+	if order := preset.H2PseudoHeaderOrder(); order != nil {
+		httpReq.Header[http.PHeaderOrderKey] = order
+	} else if preset.HTTP2Settings.NoRFC7540Priorities {
 		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":scheme", ":path", ":authority"}
 	} else {
 		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":authority", ":scheme", ":path"}
