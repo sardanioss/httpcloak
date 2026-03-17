@@ -503,7 +503,7 @@ func TestBuildPresetHTTP2StructuredSettings(t *testing.T) {
 			Settings: []HTTP2SettingSpec{
 				{ID: 1, Value: 65536},
 				{ID: 4, Value: 6291456},
-				{ID: 8, Value: 1},
+				{ID: 9, Value: 1},
 			},
 		},
 	}
@@ -1321,8 +1321,7 @@ func TestPresetSpecJSONRoundTrip(t *testing.T) {
 
 func ptrUint64(v uint64) *uint64 { return &v }
 func ptrInt64(v int64) *int64    { return &v }
-func ptrBool(v bool) *bool       { return &v }
-func ptrString(v string) *string { return &v }
+func ptrBool(v bool) *bool { return &v }
 
 func TestClonePresetH3ConfigDeepCopy(t *testing.T) {
 	src := &Preset{
@@ -1634,7 +1633,7 @@ func TestBuildPresetHTTP2SettingsAllIDs(t *testing.T) {
 				{ID: 4, Value: 65535},
 				{ID: 5, Value: 16384},
 				{ID: 6, Value: 8192},
-				{ID: 8, Value: 1},
+				{ID: 9, Value: 1},
 			},
 		},
 	}
@@ -1661,7 +1660,7 @@ func TestBuildPresetHTTP2SettingsAllIDs(t *testing.T) {
 		t.Fatalf("ID 6: got %d", p.HTTP2Settings.MaxHeaderListSize)
 	}
 	if !p.HTTP2Settings.NoRFC7540Priorities {
-		t.Fatal("ID 8: expected true")
+		t.Fatal("ID 9: expected true")
 	}
 }
 
@@ -1984,5 +1983,83 @@ func TestValidateExtFieldsWithJA3Allowed(t *testing.T) {
 	}
 	if p.JA3Extras == nil || !p.JA3Extras.PermuteExtensions {
 		t.Fatal("expected ext fields to be applied with ja3")
+	}
+}
+
+// --- JA3 + QUIC Mutual Exclusion Validation ---
+
+func TestValidateJA3WithQUICClientHelloError(t *testing.T) {
+	spec := &PresetSpec{
+		Name: "ja3-quic",
+		TLS: &TLSSpec{
+			JA3:             "771,4865-4866-4867,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-65037-21-41,29-23-24,0",
+			QUICClientHello: "chrome-146-quic",
+		},
+	}
+	_, err := BuildPreset(spec)
+	if err == nil {
+		t.Fatal("expected error for ja3 + quic_client_hello")
+	}
+}
+
+func TestValidateJA3WithQUICPSKClientHelloError(t *testing.T) {
+	spec := &PresetSpec{
+		Name: "ja3-quic-psk",
+		TLS: &TLSSpec{
+			JA3:                "771,4865-4866-4867,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-65037-21-41,29-23-24,0",
+			QUICPSKClientHello: "chrome-146-quic",
+		},
+	}
+	_, err := BuildPreset(spec)
+	if err == nil {
+		t.Fatal("expected error for ja3 + quic_psk_client_hello")
+	}
+}
+
+func TestValidateJA3WithPSKClientHelloError(t *testing.T) {
+	spec := &PresetSpec{
+		Name: "ja3-psk",
+		TLS: &TLSSpec{
+			JA3:            "771,4865-4866-4867,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-65037-21-41,29-23-24,0",
+			PSKClientHello: "chrome-146-windows-psk",
+		},
+	}
+	_, err := BuildPreset(spec)
+	if err == nil {
+		t.Fatal("expected error for ja3 + psk_client_hello")
+	}
+}
+
+// --- Nil Preset in Pool Panic ---
+
+func TestNewPresetPoolNilPresetPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for nil preset in pool")
+		}
+	}()
+	NewPresetPool("test", PoolRandom, []*Preset{Chrome146(), nil})
+}
+
+// --- Pool Defensive Copy ---
+
+func TestNewPresetPoolDefensiveCopy(t *testing.T) {
+	p1 := Chrome146()
+	p2 := Chrome146()
+	p2.Name = "chrome-146-copy"
+	presets := []*Preset{p1, p2}
+	pool := NewPresetPool("test", PoolRoundRobin, presets)
+	defer pool.Close()
+
+	// Mutate the original slice
+	presets[0] = nil
+
+	// Pool should be unaffected
+	got := pool.Get(0)
+	if got == nil {
+		t.Fatal("pool should not be affected by caller slice mutation")
+	}
+	if got.Name != "chrome-146" {
+		t.Fatalf("expected chrome-146, got %s", got.Name)
 	}
 }
