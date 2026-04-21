@@ -1878,15 +1878,22 @@ class Session:
             options["headers"] = merged_headers
         options_json = json_module.dumps(options).encode("utf-8") if options else None
 
+        body_len = len(body) if body else 0
+
         start_time = time.perf_counter()
-        result = self._lib.httpcloak_post(
+        response_handle = self._lib.httpcloak_post_raw(
             self._handle,
             url.encode("utf-8"),
             body,
+            body_len,
             options_json,
         )
         elapsed = time.perf_counter() - start_time
-        return _parse_response(result, elapsed=elapsed)
+
+        if response_handle < 0:
+            raise HTTPCloakError("Request failed")
+
+        return _parse_raw_response(self._lib, response_handle, elapsed=elapsed)
 
     def request(
         self,
@@ -1921,27 +1928,28 @@ class Session:
         url = _add_params_to_url(url, params)
         merged_headers = self._merge_headers(headers)
 
-        body = None
+        body_bytes = None
         # Handle multipart file upload
         if files is not None:
             form_data = data if isinstance(data, dict) else None
             body_bytes, content_type = _encode_multipart(data=form_data, files=files)
-            body = body_bytes.decode("latin-1")  # Preserve binary data
             merged_headers = merged_headers or {}
             merged_headers["Content-Type"] = content_type
         elif json is not None:
-            body = json_module.dumps(json)
+            body_bytes = json_module.dumps(json).encode("utf-8")
             merged_headers = merged_headers or {}
             merged_headers.setdefault("Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
-                body = urlencode(data)
+                body_bytes = urlencode(data).encode("utf-8")
                 merged_headers = merged_headers or {}
                 merged_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+            elif isinstance(data, str):
+                body_bytes = data.encode("utf-8")
             elif isinstance(data, bytes):
-                body = data.decode("utf-8")
+                body_bytes = data
             else:
-                body = data
+                body_bytes = bytes(data)
 
         # Use request auth if provided, otherwise fall back to session auth
         effective_auth = auth if auth is not None else self.auth
@@ -1954,18 +1962,24 @@ class Session:
         }
         if merged_headers:
             request_config["headers"] = merged_headers
-        if body:
-            request_config["body"] = body
         if timeout:
             request_config["timeout"] = timeout
 
+        body_len = len(body_bytes) if body_bytes else 0
+
         start_time = time.perf_counter()
-        result = self._lib.httpcloak_request(
+        response_handle = self._lib.httpcloak_request_raw(
             self._handle,
             json_module.dumps(request_config).encode("utf-8"),
+            body_bytes,
+            body_len,
         )
         elapsed = time.perf_counter() - start_time
-        return _parse_response(result, elapsed=elapsed)
+
+        if response_handle < 0:
+            raise HTTPCloakError("Request failed")
+
+        return _parse_raw_response(self._lib, response_handle, elapsed=elapsed)
 
     def put(
         self,
