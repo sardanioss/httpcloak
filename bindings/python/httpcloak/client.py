@@ -1798,6 +1798,7 @@ class Session:
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """
         Perform a POST request.
@@ -1877,12 +1878,14 @@ class Session:
         merged_headers = self._apply_cookies(merged_headers, cookies)
 
         if timeout:
-            return self.request("POST", url, headers=merged_headers, data=body, timeout=timeout)
+            return self.request("POST", url, headers=merged_headers, data=body, timeout=timeout, fetch_mode=fetch_mode)
 
         # Build options JSON with headers wrapper (clib expects {"headers": {...}})
         options = {}
         if merged_headers:
             options["headers"] = merged_headers
+        if fetch_mode:
+            options["fetch_mode"] = fetch_mode
         options_json = json_module.dumps(options).encode("utf-8") if options else None
 
         body_len = len(body) if body else 0
@@ -1914,6 +1917,7 @@ class Session:
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """
         Perform a custom HTTP request.
@@ -1971,6 +1975,8 @@ class Session:
             request_config["headers"] = merged_headers
         if timeout:
             request_config["timeout"] = timeout
+        if fetch_mode:
+            request_config["fetch_mode"] = fetch_mode
 
         body_len = len(body_bytes) if body_bytes else 0
 
@@ -1999,9 +2005,10 @@ class Session:
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """Perform a PUT request."""
-        return self.request("PUT", url, params=params, data=data, json=json, files=files, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
+        return self.request("PUT", url, params=params, data=data, json=json, files=files, headers=headers, cookies=cookies, auth=auth, timeout=timeout, fetch_mode=fetch_mode)
 
     def delete(
         self,
@@ -2011,9 +2018,10 @@ class Session:
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """Perform a DELETE request."""
-        return self.request("DELETE", url, params=params, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
+        return self.request("DELETE", url, params=params, headers=headers, cookies=cookies, auth=auth, timeout=timeout, fetch_mode=fetch_mode)
 
     def patch(
         self,
@@ -2026,9 +2034,10 @@ class Session:
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """Perform a PATCH request."""
-        return self.request("PATCH", url, params=params, data=data, json=json, files=files, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
+        return self.request("PATCH", url, params=params, data=data, json=json, files=files, headers=headers, cookies=cookies, auth=auth, timeout=timeout, fetch_mode=fetch_mode)
 
     def head(
         self,
@@ -2038,9 +2047,10 @@ class Session:
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """Perform a HEAD request."""
-        return self.request("HEAD", url, params=params, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
+        return self.request("HEAD", url, params=params, headers=headers, cookies=cookies, auth=auth, timeout=timeout, fetch_mode=fetch_mode)
 
     def options(
         self,
@@ -2050,9 +2060,10 @@ class Session:
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """Perform an OPTIONS request."""
-        return self.request("OPTIONS", url, params=params, headers=headers, cookies=cookies, auth=auth, timeout=timeout)
+        return self.request("OPTIONS", url, params=params, headers=headers, cookies=cookies, auth=auth, timeout=timeout, fetch_mode=fetch_mode)
 
     # =========================================================================
     # Async Methods (Native - using Go goroutines)
@@ -2065,6 +2076,7 @@ class Session:
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """
         Async GET request using native Go goroutines.
@@ -2093,6 +2105,8 @@ class Session:
         options = {}
         if merged_headers:
             options["headers"] = merged_headers
+        if fetch_mode:
+            options["fetch_mode"] = fetch_mode
         options_json = json.dumps(options).encode("utf-8") if options else None
 
         # Start async request
@@ -2115,6 +2129,7 @@ class Session:
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """
         Async POST request using native Go goroutines.
@@ -2164,6 +2179,8 @@ class Session:
         options = {}
         if merged_headers:
             options["headers"] = merged_headers
+        if fetch_mode:
+            options["fetch_mode"] = fetch_mode
         options_json = json.dumps(options).encode("utf-8") if options else None
 
         # Start async request
@@ -2188,6 +2205,7 @@ class Session:
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
+        fetch_mode: Optional[str] = None,
     ) -> Response:
         """
         Async custom HTTP request using native Go goroutines.
@@ -2240,6 +2258,8 @@ class Session:
             request_config["headers"] = merged_headers
         if body:
             request_config["body"] = body
+        if fetch_mode:
+            request_config["fetch_mode"] = fetch_mode
 
         # Get async manager and register this request (each request gets unique ID)
         manager = _get_async_manager()
@@ -2730,6 +2750,7 @@ class Session:
         auth: Optional[Tuple[str, str]] = None,
         timeout: Optional[int] = None,
         stream: bool = False,
+        fetch_mode: Optional[str] = None,
     ) -> Union[Response, StreamResponse]:
         """
         Perform a GET request.
@@ -2769,12 +2790,14 @@ class Session:
         merged_headers = self._apply_cookies(merged_headers, cookies)
 
         if timeout:
-            return self.request("GET", url, headers=merged_headers, timeout=timeout)
+            return self.request("GET", url, headers=merged_headers, timeout=timeout, fetch_mode=fetch_mode)
 
         # Build options JSON with headers wrapper (clib expects {"headers": {...}})
         options = {}
         if merged_headers:
             options["headers"] = merged_headers
+        if fetch_mode:
+            options["fetch_mode"] = fetch_mode
         options_json = json.dumps(options).encode("utf-8") if options else None
 
         start_time = time.perf_counter()
