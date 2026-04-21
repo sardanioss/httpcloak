@@ -806,7 +806,7 @@ func (t *HTTP2Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, t
 		connectReq += fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", proxyAuth)
 	}
 
-	connectReq += "\r\n"
+	connectReq += "Connection: keep-alive\r\n\r\n"
 
 	// Use speculative TLS only when explicitly enabled and not on the blocklist
 	if t.config != nil && t.config.EnableSpeculativeTLS && !IsProxyNoSpeculative(t.proxy.URL) {
@@ -868,7 +868,7 @@ func (t *HTTP2Transport) dialHTTPProxyBlockingFresh(ctx context.Context, targetH
 	if proxyAuth != "" {
 		connectReq += fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", proxyAuth)
 	}
-	connectReq += "\r\n"
+	connectReq += "Connection: keep-alive\r\n\r\n"
 
 	return t.dialHTTPProxyBlocking(ctx, conn, connectReq)
 }
