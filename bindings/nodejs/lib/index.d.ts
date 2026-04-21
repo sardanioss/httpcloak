@@ -268,6 +268,19 @@ export interface RequestOptions {
   auth?: [string, string];
   /** Optional request timeout in seconds */
   timeout?: number;
+  /**
+   * Explicit Sec-Fetch-Mode/Dest override for requests where auto-sniffing isn't enough.
+   *
+   * Valid values:
+   * - `"cors"` - XHR/fetch() request (Sec-Fetch-Mode: cors, Sec-Fetch-Dest: empty, Sec-Fetch-Site: same-origin)
+   * - `"no-cors"` - Subresource load (image/script/stylesheet tag)
+   * - `"navigate"` - Top-level navigation (document load, classic form POST)
+   * - `"websocket"` - WebSocket upgrade
+   *
+   * When unset (default), httpcloak auto-detects based on method, Accept, Content-Type, and Sec-Fetch-Dest headers.
+   * Set this explicitly when the auto-sniff gets it wrong (e.g., POST to a CORS endpoint without a JSON Accept header).
+   */
+  fetchMode?: "cors" | "no-cors" | "navigate" | "websocket";
 }
 
 export class Session {

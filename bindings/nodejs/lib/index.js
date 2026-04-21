@@ -1586,7 +1586,7 @@ class Session {
    * @returns {Response} Response object
    */
   getSync(url, options = {}) {
-    const { headers = null, params = null, cookies = null, auth = null } = options;
+    const { headers = null, params = null, cookies = null, auth = null, fetchMode = null } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1599,6 +1599,9 @@ class Session {
     const reqOptions = {};
     if (mergedHeaders) {
       reqOptions.headers = mergedHeaders;
+    }
+    if (fetchMode) {
+      reqOptions.fetch_mode = fetchMode;
     }
     const optionsJson = Object.keys(reqOptions).length > 0 ? JSON.stringify(reqOptions) : null;
 
@@ -1629,7 +1632,7 @@ class Session {
    * @returns {Response} Response object
    */
   postSync(url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, fetchMode = null } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1671,6 +1674,9 @@ class Session {
     if (mergedHeaders) {
       reqOptions.headers = mergedHeaders;
     }
+    if (fetchMode) {
+      reqOptions.fetch_mode = fetchMode;
+    }
     const optionsJson = Object.keys(reqOptions).length > 0 ? JSON.stringify(reqOptions) : null;
 
     const bodyPtr = bodyBuffer || Buffer.alloc(0);
@@ -1695,7 +1701,7 @@ class Session {
    * @returns {Response} Response object
    */
   requestSync(method, url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1737,6 +1743,7 @@ class Session {
     };
     if (mergedHeaders) requestConfig.headers = mergedHeaders;
     if (timeout) requestConfig.timeout = timeout;
+    if (fetchMode) requestConfig.fetch_mode = fetchMode;
 
     const bodyPtr = bodyBuffer || Buffer.alloc(0);
     const bodyLen = bodyBuffer ? bodyBuffer.length : 0;
@@ -1767,7 +1774,7 @@ class Session {
    * @returns {Promise<Response>} Response object
    */
   get(url, options = {}) {
-    const { headers = null, params = null, cookies = null, auth = null } = options;
+    const { headers = null, params = null, cookies = null, auth = null, fetchMode = null } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1780,6 +1787,9 @@ class Session {
     const reqOptions = {};
     if (mergedHeaders) {
       reqOptions.headers = mergedHeaders;
+    }
+    if (fetchMode) {
+      reqOptions.fetch_mode = fetchMode;
     }
     const optionsJson = Object.keys(reqOptions).length > 0 ? JSON.stringify(reqOptions) : null;
 
@@ -1801,7 +1811,7 @@ class Session {
    * @returns {Promise<Response>} Response object
    */
   post(url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, fetchMode = null } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1845,6 +1855,9 @@ class Session {
     if (mergedHeaders) {
       reqOptions.headers = mergedHeaders;
     }
+    if (fetchMode) {
+      reqOptions.fetch_mode = fetchMode;
+    }
     const optionsJson = Object.keys(reqOptions).length > 0 ? JSON.stringify(reqOptions) : null;
 
     // Register async request with callback manager
@@ -1866,7 +1879,7 @@ class Session {
    * @returns {Promise<Response>} Response object
    */
   request(method, url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1912,6 +1925,7 @@ class Session {
     if (mergedHeaders) requestConfig.headers = mergedHeaders;
     if (body) requestConfig.body = body;
     if (timeout) requestConfig.timeout = timeout;
+    if (fetchMode) requestConfig.fetch_mode = fetchMode;
 
     // Register async request with callback manager
     const manager = getAsyncManager();
