@@ -118,6 +118,7 @@ import (
 	"io"
 	"sync"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/sardanioss/httpcloak"
@@ -139,6 +140,18 @@ func decodeRequestBody(body, encoding string) ([]byte, error) {
 		return base64.StdEncoding.DecodeString(body)
 	}
 	return []byte(body), nil
+}
+
+// encodeResponseBody serializes a response body into ResponseData.Body/BodyEncoding.
+// Valid UTF-8 passes through as a plain string (back-compat, no size overhead).
+// Non-UTF-8 bodies (PDFs, images, compressed streams, etc.) are base64-encoded so
+// they survive json.Marshal without U+FFFD replacement corrupting every non-ASCII
+// byte. Bindings must check body_encoding and base64-decode when it equals "base64".
+func encodeResponseBody(b []byte) (string, string) {
+	if utf8.Valid(b) {
+		return string(b), ""
+	}
+	return base64.StdEncoding.EncodeToString(b), "base64"
 }
 
 // Session handle management
@@ -235,13 +248,14 @@ type RedirectInfo struct {
 
 // Response for JSON serialization (legacy - includes body as string)
 type ResponseData struct {
-	StatusCode int                 `json:"status_code"`
-	Headers    map[string][]string `json:"headers"`
-	Body       string              `json:"body"`
-	FinalURL   string              `json:"final_url"`
-	Protocol   string              `json:"protocol"`
-	Cookies    []Cookie            `json:"cookies"`
-	History    []RedirectInfo      `json:"history"`
+	StatusCode   int                 `json:"status_code"`
+	Headers      map[string][]string `json:"headers"`
+	Body         string              `json:"body"`
+	BodyEncoding string              `json:"body_encoding,omitempty"` // "" (text) or "base64"
+	FinalURL     string              `json:"final_url"`
+	Protocol     string              `json:"protocol"`
+	Cookies      []Cookie            `json:"cookies"`
+	History      []RedirectInfo      `json:"history"`
 }
 
 // ResponseMetadata for optimized responses - body is passed separately as raw bytes
@@ -545,14 +559,16 @@ func makeResponseJSON(resp *httpcloak.Response) *C.char {
 		}
 	}
 
+	body, bodyEncoding := encodeResponseBody(bodyBytes)
 	data := ResponseData{
-		StatusCode: resp.StatusCode,
-		Headers:    resp.Headers,
-		Body:       string(bodyBytes),
-		FinalURL:   resp.FinalURL,
-		Protocol:   resp.Protocol,
-		Cookies:    cookies,
-		History:    history,
+		StatusCode:   resp.StatusCode,
+		Headers:      resp.Headers,
+		Body:         body,
+		BodyEncoding: bodyEncoding,
+		FinalURL:     resp.FinalURL,
+		Protocol:     resp.Protocol,
+		Cookies:      cookies,
+		History:      history,
 	}
 	jsonData, _ := json.Marshal(data)
 	return C.CString(string(jsonData))
@@ -1474,14 +1490,16 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 			}
 		}
 
+		body, bodyEncoding := encodeResponseBody(bodyBytes)
 		data := ResponseData{
-			StatusCode: resp.StatusCode,
-			Headers:    resp.Headers,
-			Body:       string(bodyBytes),
-			FinalURL:   resp.FinalURL,
-			Protocol:   resp.Protocol,
-			Cookies:    cookies,
-			History:    history,
+			StatusCode:   resp.StatusCode,
+			Headers:      resp.Headers,
+			Body:         body,
+			BodyEncoding: bodyEncoding,
+			FinalURL:     resp.FinalURL,
+			Protocol:     resp.Protocol,
+			Cookies:      cookies,
+			History:      history,
 		}
 		jsonData, _ := json.Marshal(data)
 		invokeCallback(int64(callbackID), string(jsonData), "")
@@ -1562,14 +1580,16 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 			}
 		}
 
+		body, bodyEncoding := encodeResponseBody(bodyBytes)
 		data := ResponseData{
-			StatusCode: resp.StatusCode,
-			Headers:    resp.Headers,
-			Body:       string(bodyBytes),
-			FinalURL:   resp.FinalURL,
-			Protocol:   resp.Protocol,
-			Cookies:    cookies,
-			History:    history,
+			StatusCode:   resp.StatusCode,
+			Headers:      resp.Headers,
+			Body:         body,
+			BodyEncoding: bodyEncoding,
+			FinalURL:     resp.FinalURL,
+			Protocol:     resp.Protocol,
+			Cookies:      cookies,
+			History:      history,
 		}
 		jsonData, _ := json.Marshal(data)
 		invokeCallback(int64(callbackID), string(jsonData), "")
@@ -1660,14 +1680,16 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 			}
 		}
 
+		body, bodyEncoding := encodeResponseBody(bodyBytes)
 		data := ResponseData{
-			StatusCode: resp.StatusCode,
-			Headers:    resp.Headers,
-			Body:       string(bodyBytes),
-			FinalURL:   resp.FinalURL,
-			Protocol:   resp.Protocol,
-			Cookies:    cookies,
-			History:    history,
+			StatusCode:   resp.StatusCode,
+			Headers:      resp.Headers,
+			Body:         body,
+			BodyEncoding: bodyEncoding,
+			FinalURL:     resp.FinalURL,
+			Protocol:     resp.Protocol,
+			Cookies:      cookies,
+			History:      history,
 		}
 		jsonData, _ := json.Marshal(data)
 		invokeCallback(int64(callbackID), string(jsonData), "")
