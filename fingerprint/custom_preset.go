@@ -33,7 +33,7 @@ type PresetSpec struct {
 	HTTP3    *HTTP3Spec    `json:"http3,omitempty"`
 	Headers  *HeaderSpec   `json:"headers,omitempty"`
 	TCP      *TCPSpec      `json:"tcp,omitempty"`
-	Protocol *ProtocolSpec `json:"protocol,omitempty"`
+	Protocol *ProtocolSpec `json:"protocols,omitempty"`
 }
 
 // TLSSpec defines TLS fingerprint configuration.
@@ -48,8 +48,9 @@ type TLSSpec struct {
 	JA3ExtrasSpec *JA3ExtrasSpec `json:"ja3_extras,omitempty"`
 
 	// Individual extension data (supplements client_hello or ja3)
-	SignatureAlgorithms []uint16 `json:"signature_algorithms,omitempty"`
-	ALPN               []string `json:"alpn,omitempty"`
+	SignatureAlgorithms            []uint16 `json:"signature_algorithms,omitempty"`
+	DelegatedCredentialAlgorithms  []uint16 `json:"delegated_credential_algorithms,omitempty"`
+	ALPN                           []string `json:"alpn,omitempty"`
 	CertCompression    []string `json:"cert_compression,omitempty"` // "brotli", "zlib", "zstd"
 	PermuteExtensions  *bool    `json:"permute_extensions,omitempty"`
 	RecordSizeLimit    *uint16  `json:"record_size_limit,omitempty"`
@@ -58,12 +59,13 @@ type TLSSpec struct {
 
 // JA3ExtrasSpec is the JSON representation of JA3Extras.
 type JA3ExtrasSpec struct {
-	SignatureAlgorithms []uint16 `json:"signature_algorithms,omitempty"`
-	ALPN               []string `json:"alpn,omitempty"`
-	CertCompression    []string `json:"cert_compression,omitempty"`
-	PermuteExtensions  *bool    `json:"permute_extensions,omitempty"`
-	RecordSizeLimit    *uint16  `json:"record_size_limit,omitempty"`
-	KeyShareCurves     *int     `json:"key_share_curves,omitempty"`
+	SignatureAlgorithms            []uint16 `json:"signature_algorithms,omitempty"`
+	DelegatedCredentialAlgorithms  []uint16 `json:"delegated_credential_algorithms,omitempty"`
+	ALPN                           []string `json:"alpn,omitempty"`
+	CertCompression                []string `json:"cert_compression,omitempty"`
+	PermuteExtensions              *bool    `json:"permute_extensions,omitempty"`
+	RecordSizeLimit                *uint16  `json:"record_size_limit,omitempty"`
+	KeyShareCurves                 *int     `json:"key_share_curves,omitempty"`
 }
 
 // HTTP2Spec defines HTTP/2 fingerprint configuration.
@@ -104,19 +106,21 @@ type HTTP2SettingSpec struct {
 
 // HTTP3Spec defines HTTP/3 and QUIC fingerprint configuration.
 type HTTP3Spec struct {
-	QPACKMaxTableCapacity    *uint64 `json:"qpack_max_table_capacity,omitempty"`
-	QPACKBlockedStreams       *uint64 `json:"qpack_blocked_streams,omitempty"`
-	MaxFieldSectionSize       *uint64 `json:"max_field_section_size,omitempty"`
-	EnableDatagrams           *bool   `json:"enable_datagrams,omitempty"`
-	QUICInitialPacketSize     *uint16 `json:"quic_initial_packet_size,omitempty"`
-	QUICMaxIncomingStreams     *int64  `json:"quic_max_incoming_streams,omitempty"`
-	QUICMaxIncomingUniStreams  *int64  `json:"quic_max_incoming_uni_streams,omitempty"`
-	QUICAllow0RTT             *bool   `json:"quic_allow_0rtt,omitempty"`
-	QUICChromeStyleInitial    *bool   `json:"quic_chrome_style_initial,omitempty"`
-	QUICDisableHelloScramble  *bool   `json:"quic_disable_hello_scramble,omitempty"`
-	QUICTransportParamOrder   *string `json:"quic_transport_param_order,omitempty"` // "chrome","random"
-	MaxResponseHeaderBytes    *uint64 `json:"max_response_header_bytes,omitempty"`
-	SendGreaseFrames          *bool   `json:"send_grease_frames,omitempty"`
+	QPACKMaxTableCapacity        *uint64 `json:"qpack_max_table_capacity,omitempty"`
+	QPACKBlockedStreams           *uint64 `json:"qpack_blocked_streams,omitempty"`
+	MaxFieldSectionSize          *uint64 `json:"max_field_section_size,omitempty"`
+	EnableDatagrams              *bool   `json:"enable_datagrams,omitempty"`
+	QUICInitialPacketSize        *uint16 `json:"quic_initial_packet_size,omitempty"`
+	QUICMaxIncomingStreams        *int64  `json:"quic_max_incoming_streams,omitempty"`
+	QUICMaxIncomingUniStreams     *int64  `json:"quic_max_incoming_uni_streams,omitempty"`
+	QUICAllow0RTT                *bool   `json:"quic_allow_0rtt,omitempty"`
+	QUICChromeStyleInitial       *bool   `json:"quic_chrome_style_initial,omitempty"`
+	QUICDisableHelloScramble     *bool   `json:"quic_disable_hello_scramble,omitempty"`
+	QUICTransportParamOrder      *string `json:"quic_transport_param_order,omitempty"` // "chrome","random"
+	QUICConnectionIDLength       *int    `json:"quic_connection_id_length,omitempty"`
+	QUICMaxDatagramFrameSize     *uint64 `json:"quic_max_datagram_frame_size,omitempty"`
+	MaxResponseHeaderBytes       *uint64 `json:"max_response_header_bytes,omitempty"`
+	SendGreaseFrames             *bool   `json:"send_grease_frames,omitempty"`
 }
 
 // HeaderSpec defines header fingerprint configuration.
@@ -342,6 +346,14 @@ func clonePreset(src *Preset) *Preset {
 			v := *src.H3Config.MaxResponseHeaderBytes
 			h3.MaxResponseHeaderBytes = &v
 		}
+		if src.H3Config.QUICConnectionIDLength != nil {
+			v := *src.H3Config.QUICConnectionIDLength
+			h3.QUICConnectionIDLength = &v
+		}
+		if src.H3Config.QUICMaxDatagramFrameSize != nil {
+			v := *src.H3Config.QUICMaxDatagramFrameSize
+			h3.QUICMaxDatagramFrameSize = &v
+		}
 		if src.H3Config.SendGreaseFrames != nil {
 			v := *src.H3Config.SendGreaseFrames
 			h3.SendGreaseFrames = &v
@@ -355,6 +367,10 @@ func clonePreset(src *Preset) *Preset {
 		if src.JA3Extras.SignatureAlgorithms != nil {
 			extras.SignatureAlgorithms = make([]tls.SignatureScheme, len(src.JA3Extras.SignatureAlgorithms))
 			copy(extras.SignatureAlgorithms, src.JA3Extras.SignatureAlgorithms)
+		}
+		if src.JA3Extras.DelegatedCredentialAlgorithms != nil {
+			extras.DelegatedCredentialAlgorithms = make([]tls.SignatureScheme, len(src.JA3Extras.DelegatedCredentialAlgorithms))
+			copy(extras.DelegatedCredentialAlgorithms, src.JA3Extras.DelegatedCredentialAlgorithms)
 		}
 		if src.JA3Extras.ALPN != nil {
 			extras.ALPN = make([]string, len(src.JA3Extras.ALPN))
@@ -468,6 +484,12 @@ func buildJA3Extras(spec *JA3ExtrasSpec) (*JA3Extras, error) {
 			extras.SignatureAlgorithms[i] = tls.SignatureScheme(v)
 		}
 	}
+	if len(spec.DelegatedCredentialAlgorithms) > 0 {
+		extras.DelegatedCredentialAlgorithms = make([]tls.SignatureScheme, len(spec.DelegatedCredentialAlgorithms))
+		for i, v := range spec.DelegatedCredentialAlgorithms {
+			extras.DelegatedCredentialAlgorithms[i] = tls.SignatureScheme(v)
+		}
+	}
 	if len(spec.ALPN) > 0 {
 		extras.ALPN = make([]string, len(spec.ALPN))
 		copy(extras.ALPN, spec.ALPN)
@@ -495,13 +517,14 @@ func buildJA3Extras(spec *JA3ExtrasSpec) (*JA3Extras, error) {
 func buildJA3ExtrasFromTLS(spec *TLSSpec) (*JA3Extras, error) {
 	// Check if any top-level TLS fields are set that would create extras
 	hasSigAlgs := len(spec.SignatureAlgorithms) > 0
+	hasDCAlgs := len(spec.DelegatedCredentialAlgorithms) > 0
 	hasALPN := len(spec.ALPN) > 0
 	hasCertComp := len(spec.CertCompression) > 0
 	hasPermute := spec.PermuteExtensions != nil
 	hasRSL := spec.RecordSizeLimit != nil
 	hasKSC := spec.KeyShareCurves != nil
 
-	if !hasSigAlgs && !hasALPN && !hasCertComp && !hasPermute && !hasRSL && !hasKSC {
+	if !hasSigAlgs && !hasDCAlgs && !hasALPN && !hasCertComp && !hasPermute && !hasRSL && !hasKSC {
 		return nil, nil
 	}
 
@@ -510,6 +533,12 @@ func buildJA3ExtrasFromTLS(spec *TLSSpec) (*JA3Extras, error) {
 		extras.SignatureAlgorithms = make([]tls.SignatureScheme, len(spec.SignatureAlgorithms))
 		for i, v := range spec.SignatureAlgorithms {
 			extras.SignatureAlgorithms[i] = tls.SignatureScheme(v)
+		}
+	}
+	if hasDCAlgs {
+		extras.DelegatedCredentialAlgorithms = make([]tls.SignatureScheme, len(spec.DelegatedCredentialAlgorithms))
+		for i, v := range spec.DelegatedCredentialAlgorithms {
+			extras.DelegatedCredentialAlgorithms[i] = tls.SignatureScheme(v)
 		}
 	}
 	if hasALPN {
@@ -711,6 +740,14 @@ func applyHTTP3(p *Preset, spec *HTTP3Spec) {
 	}
 	if spec.QUICTransportParamOrder != nil {
 		h3.QUICTransportParamOrder = *spec.QUICTransportParamOrder
+	}
+	if spec.QUICConnectionIDLength != nil {
+		v := *spec.QUICConnectionIDLength
+		h3.QUICConnectionIDLength = &v
+	}
+	if spec.QUICMaxDatagramFrameSize != nil {
+		v := *spec.QUICMaxDatagramFrameSize
+		h3.QUICMaxDatagramFrameSize = &v
 	}
 	if spec.MaxResponseHeaderBytes != nil {
 		v := *spec.MaxResponseHeaderBytes
