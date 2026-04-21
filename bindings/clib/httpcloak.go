@@ -116,6 +116,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -224,6 +225,9 @@ type RequestConfig struct {
 	Body         string            `json:"body,omitempty"`
 	BodyEncoding string            `json:"body_encoding,omitempty"` // "text" (default) or "base64"
 	Timeout      int               `json:"timeout,omitempty"`       // seconds
+	// FetchMode explicitly forces Sec-Fetch-Mode and bypasses auto-sniffing.
+	// Valid values: "cors", "no-cors", "navigate", "websocket". Empty = auto.
+	FetchMode string `json:"fetch_mode,omitempty"`
 }
 
 // Cookie represents a parsed cookie from Set-Cookie header
@@ -535,6 +539,47 @@ func convertHeaders(headers map[string]string) map[string][]string {
 	return result
 }
 
+// buildHeaders combines user headers with optional fetch_mode override. When
+// fetch_mode is set, it's injected as the Sec-Fetch-Mode header (and a
+// coherent Sec-Fetch-Dest when appropriate) so the Go core's mode picker
+// treats it as an explicit user intent. User-supplied Sec-Fetch-* headers
+// still win.
+func buildHeaders(rawHeaders map[string]string, fetchMode string) map[string][]string {
+	h := convertHeaders(rawHeaders)
+	fetchMode = strings.ToLower(strings.TrimSpace(fetchMode))
+	if fetchMode == "" {
+		return h
+	}
+	if h == nil {
+		h = make(map[string][]string)
+	}
+	hasHeader := func(name string) bool {
+		for k := range h {
+			if strings.EqualFold(k, name) {
+				return true
+			}
+		}
+		return false
+	}
+	switch fetchMode {
+	case "cors", "no-cors", "navigate", "websocket":
+		if !hasHeader("Sec-Fetch-Mode") {
+			h["Sec-Fetch-Mode"] = []string{fetchMode}
+		}
+		// Pair a coherent default Sec-Fetch-Dest when the user didn't supply
+		// one. Keeps the final header set self-consistent.
+		if !hasHeader("Sec-Fetch-Dest") {
+			switch fetchMode {
+			case "cors", "websocket":
+				h["Sec-Fetch-Dest"] = []string{"empty"}
+			case "navigate":
+				h["Sec-Fetch-Dest"] = []string{"document"}
+			}
+		}
+	}
+	return h
+}
+
 func makeResponseJSON(resp *httpcloak.Response) *C.char {
 	// Read body from io.ReadCloser
 	var bodyBytes []byte
@@ -777,7 +822,7 @@ func httpcloak_get_raw(handle C.int64_t, url *C.char, optionsJSON *C.char) C.int
 	req := &httpcloak.Request{
 		Method:  "GET",
 		URL:     urlStr,
-		Headers: convertHeaders(options.Headers),
+		Headers: buildHeaders(options.Headers, options.FetchMode),
 	}
 
 	resp, err := session.Do(ctx, req)
@@ -826,7 +871,7 @@ func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.i
 	req := &httpcloak.Request{
 		Method:  "POST",
 		URL:     urlStr,
-		Headers: convertHeaders(options.Headers),
+		Headers: buildHeaders(options.Headers, options.FetchMode),
 		Body:    bodyReader,
 	}
 
@@ -884,7 +929,7 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 	req := &httpcloak.Request{
 		Method:  method,
 		URL:     config.URL,
-		Headers: convertHeaders(config.Headers),
+		Headers: buildHeaders(config.Headers, config.FetchMode),
 		Body:    bodyReader,
 	}
 
@@ -1208,6 +1253,9 @@ func httpcloak_session_fork(handle C.int64_t) C.int64_t {
 type RequestOptions struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	Timeout int               `json:"timeout,omitempty"` // milliseconds
+	// FetchMode explicitly forces Sec-Fetch-Mode and bypasses auto-sniffing.
+	// Valid values: "cors", "no-cors", "navigate", "websocket". Empty = auto.
+	FetchMode string `json:"fetch_mode,omitempty"`
 }
 
 //export httpcloak_get
@@ -1242,7 +1290,7 @@ func httpcloak_get(handle C.int64_t, url *C.char, optionsJSON *C.char) *C.char {
 	req := &httpcloak.Request{
 		Method:  "GET",
 		URL:     urlStr,
-		Headers: convertHeaders(options.Headers),
+		Headers: buildHeaders(options.Headers, options.FetchMode),
 	}
 
 	resp, err := session.Do(ctx, req)
@@ -1294,7 +1342,7 @@ func httpcloak_post(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.
 	req := &httpcloak.Request{
 		Method:  "POST",
 		URL:     urlStr,
-		Headers: convertHeaders(options.Headers),
+		Headers: buildHeaders(options.Headers, options.FetchMode),
 		Body:    bodyReader,
 	}
 
@@ -1348,7 +1396,7 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) *C.char {
 	req := &httpcloak.Request{
 		Method:  config.Method,
 		URL:     config.URL,
-		Headers: convertHeaders(config.Headers),
+		Headers: buildHeaders(config.Headers, config.FetchMode),
 		Body:    bodyReader,
 	}
 
@@ -1456,7 +1504,7 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 		req := &httpcloak.Request{
 			Method:  "GET",
 			URL:     urlStr,
-			Headers: convertHeaders(options.Headers),
+			Headers: buildHeaders(options.Headers, options.FetchMode),
 		}
 
 		resp, err := session.Do(ctx, req)
@@ -1545,7 +1593,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		req := &httpcloak.Request{
 			Method:  "POST",
 			URL:     urlStr,
-			Headers: convertHeaders(options.Headers),
+			Headers: buildHeaders(options.Headers, options.FetchMode),
 			Body:    bodyReader,
 		}
 
@@ -1645,7 +1693,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 		req := &httpcloak.Request{
 			Method:  config.Method,
 			URL:     config.URL,
-			Headers: convertHeaders(config.Headers),
+			Headers: buildHeaders(config.Headers, config.FetchMode),
 			Body:    bodyReader,
 		}
 
@@ -2872,7 +2920,7 @@ func httpcloak_stream_get(sessionHandle C.int64_t, url *C.char, optionsJSON *C.c
 	req := &httpcloak.Request{
 		Method:  "GET",
 		URL:     urlStr,
-		Headers: convertHeaders(options.Headers),
+		Headers: buildHeaders(options.Headers, options.FetchMode),
 	}
 
 	resp, err := session.DoStream(ctx, req)
@@ -2930,7 +2978,7 @@ func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, o
 	req := &httpcloak.Request{
 		Method:  "POST",
 		URL:     urlStr,
-		Headers: convertHeaders(options.Headers),
+		Headers: buildHeaders(options.Headers, options.FetchMode),
 		Body:    bodyReader,
 	}
 
@@ -2991,7 +3039,7 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) C.in
 	req := &httpcloak.Request{
 		Method:  config.Method,
 		URL:     config.URL,
-		Headers: convertHeaders(config.Headers),
+		Headers: buildHeaders(config.Headers, config.FetchMode),
 		Body:    bodyReader,
 	}
 
