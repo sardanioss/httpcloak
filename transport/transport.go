@@ -1770,12 +1770,13 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 		}
 		httpReq.Header.Set("User-Agent", preset.UserAgent)
 
-		// Auto-detect CORS mode from user's Accept header.
-		// If the user sends an API-style Accept (application/json, */*, etc.),
-		// adjust sec-fetch headers to CORS mode instead of Navigate.
-		// This prevents sending browser navigation headers to API endpoints,
-		// which WAFs like Incapsula flag as bot behavior.
-		if isAPIRequest(userHeaders) {
+		// Auto-detect CORS mode from the request shape. Real browsers use
+		// cors/empty Sec-Fetch-* for fetch()/XHR and navigate/document for
+		// top-level navigations + classic <form> POSTs; infer which one this
+		// request is from method, Content-Type, Accept, and any user-supplied
+		// Sec-Fetch-* headers. WAFs like Akamai flag navigation headers on
+		// API endpoints as bot behavior.
+		if sniffXHRMode(httpReq.Method, userHeaders) {
 			httpReq.Header.Set("Sec-Fetch-Mode", "cors")
 			httpReq.Header.Set("Sec-Fetch-Dest", "empty")
 			httpReq.Header.Set("Sec-Fetch-Site", "cross-site")
@@ -1783,6 +1784,12 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 			httpReq.Header.Del("sec-fetch-user")
 			httpReq.Header.Del("Upgrade-Insecure-Requests")
 			httpReq.Header.Del("upgrade-insecure-requests")
+			// Real browsers send Accept: */* on fetch()/XHR unless the user
+			// explicitly asked for something else — no user Accept means swap
+			// the navigation Accept (text/html,...) for the CORS default.
+			if headerVal(userHeaders, "Accept") == "" {
+				httpReq.Header.Set("Accept", "*/*")
+			}
 			// CORS uses u=1,i priority (lower urgency than navigation's u=0,i)
 			if httpReq.Header.Get("Priority") != "" {
 				httpReq.Header.Set("Priority", "u=1, i")
@@ -1838,24 +1845,104 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 	}
 }
 
-// isAPIRequest detects if user headers indicate an API call (not browser navigation).
-// Checks Accept header for API content types like application/json, */*, etc.
-func isAPIRequest(userHeaders map[string][]string) bool {
-	if userHeaders == nil {
-		return false
-	}
-	// Case-insensitive lookup for Accept header
-	for k, v := range userHeaders {
-		if strings.EqualFold(k, "Accept") && len(v) > 0 {
-			lower := strings.ToLower(v[0])
-			return strings.Contains(lower, "application/json") ||
-				strings.Contains(lower, "application/xml") ||
-				strings.Contains(lower, "text/plain") ||
-				strings.Contains(lower, "application/octet-stream") ||
-				lower == "*/*"
+// sniffXHRMode decides whether a request should send CORS-mode Sec-Fetch-*
+// instead of navigation-mode, based on the request method and user headers.
+// Browsers send cors/empty for fetch()/XHR and navigate/document for top-level
+// navigations + classic <form> POSTs. Libraries that don't know the user's
+// intent (session.post / httpcloak_post) have to infer it from the request
+// shape.
+func sniffXHRMode(method string, userHeaders map[string][]string) bool {
+	method = strings.ToUpper(method)
+
+	// Explicit user override on Sec-Fetch-Mode / Sec-Fetch-Dest wins — the
+	// caller knows what intent they want to project. "navigate" explicitly
+	// asks for navigation mode even for a POST that would otherwise sniff
+	// as CORS.
+	if v := headerVal(userHeaders, "Sec-Fetch-Mode"); v != "" {
+		switch strings.ToLower(v) {
+		case "cors", "no-cors", "websocket":
+			return true
+		case "navigate":
+			return false
 		}
 	}
-	return false
+	if v := headerVal(userHeaders, "Sec-Fetch-Dest"); v != "" {
+		// "document" is the only dest compatible with navigate mode — treat
+		// an explicit "document" as a nav signal, anything else as API.
+		if strings.ToLower(v) == "document" {
+			return false
+		}
+		return true
+	}
+
+	// API-style Accept flags any method (also keeps prior GET behavior).
+	if v := headerVal(userHeaders, "Accept"); v != "" && isAPIAcceptValue(v) {
+		return true
+	}
+
+	switch method {
+	case "GET", "HEAD", "OPTIONS", "":
+		// Bodyless methods stay navigate unless Accept hinted API (above).
+		return false
+	case "DELETE":
+		// DELETE is never a navigation.
+		return true
+	}
+
+	// Body-carrying methods (POST/PUT/PATCH/...). Use Content-Type to
+	// distinguish form submissions (navigate) from programmatic calls (cors).
+	if ct := headerVal(userHeaders, "Content-Type"); ct != "" {
+		if isFormContentTypeValue(ct) {
+			return false
+		}
+		if isAPIContentTypeValue(ct) {
+			return true
+		}
+	}
+
+	// Unknown Content-Type on a body-carrying method: lean CORS. Real-world
+	// POSTs from scrapers are overwhelmingly API calls; form submissions
+	// always carry one of the form Content-Types handled above.
+	return true
+}
+
+func headerVal(h map[string][]string, name string) string {
+	if h == nil {
+		return ""
+	}
+	for k, v := range h {
+		if strings.EqualFold(k, name) && len(v) > 0 {
+			return v[0]
+		}
+	}
+	return ""
+}
+
+func isAPIAcceptValue(accept string) bool {
+	lower := strings.ToLower(accept)
+	return strings.Contains(lower, "application/json") ||
+		strings.Contains(lower, "application/xml") ||
+		strings.Contains(lower, "text/plain") ||
+		strings.Contains(lower, "application/octet-stream") ||
+		lower == "*/*"
+}
+
+func isFormContentTypeValue(ct string) bool {
+	lower := strings.ToLower(ct)
+	return strings.HasPrefix(lower, "application/x-www-form-urlencoded") ||
+		strings.HasPrefix(lower, "multipart/form-data")
+}
+
+func isAPIContentTypeValue(ct string) bool {
+	lower := strings.ToLower(ct)
+	return strings.HasPrefix(lower, "application/json") ||
+		strings.HasPrefix(lower, "application/xml") ||
+		strings.HasPrefix(lower, "application/octet-stream") ||
+		strings.HasPrefix(lower, "application/grpc") ||
+		strings.HasPrefix(lower, "application/x-protobuf") ||
+		strings.HasPrefix(lower, "text/plain") ||
+		// Any other application/* that isn't a form type is API-ish.
+		(strings.HasPrefix(lower, "application/") && !isFormContentTypeValue(lower))
 }
 
 // isChromePreset returns true if the preset name indicates a Chrome fingerprint.

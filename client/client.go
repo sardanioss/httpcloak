@@ -1510,16 +1510,13 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 	}
 
 	// FIRST: Determine effective mode (BEFORE setting sec-fetch-site!)
-	// Smart mode detection: if user sets API-style Accept header, treat as CORS
-	// This prevents the "I want JSON but I'm navigating a document" incoherence
+	// Auto-detect CORS vs navigate from the request context so programmatic
+	// POSTs (fetch/XHR) don't get navigation headers that WAFs flag as bot
+	// traffic. NoCors is explicit and must not be overridden.
 	effectiveMode := req.FetchMode
 	if effectiveMode == FetchModeNavigate {
-		// Auto-detect CORS from Accept header, but only when mode is default Navigate
-		// NoCors mode is explicit and must not be overridden
-		if acceptValues, ok := getHeaderCaseInsensitive(req.Headers, "Accept"); ok && len(acceptValues) > 0 {
-			if isAPIAcceptHeader(acceptValues[0]) {
-				effectiveMode = FetchModeCORS
-			}
+		if sniffXHRMode(req) {
+			effectiveMode = FetchModeCORS
 		}
 	}
 
@@ -1538,13 +1535,11 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 		applyNavigationModeHeaders(httpReq, preset, req)
 	}
 
-	// Apply user custom headers, but BLOCK any that would break coherence
+	// Apply user custom headers. User wins over mode defaults — they can project
+	// any intent they want, including deliberate incoherence for site testing.
+	// The mode picker above already upgraded to CORS when their Sec-Fetch-*
+	// overrides implied one, so the final header set is already self-consistent.
 	for key, values := range req.Headers {
-		lowerKey := strings.ToLower(key)
-		// Skip headers that would break mode coherence
-		if isModeCriticalHeader(lowerKey) {
-			continue
-		}
 		for i, value := range values {
 			if i == 0 {
 				httpReq.Header.Set(key, value)
@@ -1598,20 +1593,90 @@ func isAPIAcceptHeader(accept string) bool {
 		(lower == "*/*")
 }
 
-// isModeCriticalHeader returns true if this header is controlled by the mode
-// These headers MUST be coherent with each other - user cannot override individually
-func isModeCriticalHeader(lowerKey string) bool {
-	critical := map[string]bool{
-		"accept":                    true,
-		"sec-fetch-mode":            true,
-		"sec-fetch-dest":            true,
-		"sec-fetch-user":            true,
-		"sec-fetch-site":            true,
-		"upgrade-insecure-requests": true,
-		"origin":                    true,
-	}
-	return critical[lowerKey]
+// isFormContentType returns true for Content-Type values that a browser sends
+// on a classic <form method=POST> submission. These POSTs stay navigation mode.
+func isFormContentType(ct string) bool {
+	lower := strings.ToLower(ct)
+	return strings.HasPrefix(lower, "application/x-www-form-urlencoded") ||
+		strings.HasPrefix(lower, "multipart/form-data")
 }
+
+// isAPIContentType returns true for Content-Type values that indicate a
+// programmatic XHR/fetch call (JSON APIs, protobuf, raw binary uploads).
+func isAPIContentType(ct string) bool {
+	lower := strings.ToLower(ct)
+	return strings.HasPrefix(lower, "application/json") ||
+		strings.HasPrefix(lower, "application/xml") ||
+		strings.HasPrefix(lower, "application/octet-stream") ||
+		strings.HasPrefix(lower, "application/grpc") ||
+		strings.HasPrefix(lower, "application/x-protobuf") ||
+		strings.HasPrefix(lower, "text/plain") ||
+		// Any other application/* that isn't a form type is API-ish enough
+		(strings.HasPrefix(lower, "application/") && !isFormContentType(lower))
+}
+
+// sniffXHRMode decides whether a request with default FetchMode should be
+// upgraded to CORS. Browsers only emit navigation sec-fetch-* for real top-level
+// navigations (user click, address bar) and classic <form> POSTs; everything
+// else — fetch()/XHR/sendBeacon — is CORS or no-cors. Libraries like Python
+// httpcloak.Session.post() have to infer intent from the request shape.
+func sniffXHRMode(req *Request) bool {
+	method := strings.ToUpper(req.Method)
+
+	// Explicit user override on the Sec-Fetch-Mode / Sec-Fetch-Dest headers
+	// wins. "navigate" forces navigation even for a POST that would otherwise
+	// sniff as CORS (e.g. SPA that wants to mimic a form submission).
+	if v, ok := getHeaderCaseInsensitive(req.Headers, "Sec-Fetch-Mode"); ok && len(v) > 0 {
+		switch strings.ToLower(v[0]) {
+		case "cors", "no-cors", "websocket":
+			return true
+		case "navigate":
+			return false
+		}
+	}
+	if v, ok := getHeaderCaseInsensitive(req.Headers, "Sec-Fetch-Dest"); ok && len(v) > 0 {
+		// "document" is the only dest compatible with navigate mode — treat
+		// an explicit "document" as a nav signal, anything else as API.
+		if strings.ToLower(v[0]) == "document" {
+			return false
+		}
+		return true
+	}
+
+	// Accept-header sniff works for any method — keeps prior GET behavior.
+	if accept, ok := getHeaderCaseInsensitive(req.Headers, "Accept"); ok && len(accept) > 0 {
+		if isAPIAcceptHeader(accept[0]) {
+			return true
+		}
+	}
+
+	switch method {
+	case "GET", "HEAD", "OPTIONS", "":
+		// No body-carrying methods: stay navigate unless Accept hinted API
+		// (handled above).
+		return false
+	case "DELETE":
+		// DELETE is never a navigation; Chrome sends cors/empty.
+		return true
+	}
+
+	// Body-carrying methods (POST/PUT/PATCH/etc). Use Content-Type to
+	// distinguish form submissions (navigate) from programmatic calls (cors).
+	if ct, ok := getHeaderCaseInsensitive(req.Headers, "Content-Type"); ok && len(ct) > 0 {
+		if isFormContentType(ct[0]) {
+			return false
+		}
+		if isAPIContentType(ct[0]) {
+			return true
+		}
+	}
+
+	// Unknown Content-Type on a body-carrying method: lean CORS. Real-world
+	// POSTs from Python/Node scrapers are overwhelmingly API calls; form
+	// submissions always carry one of the form Content-Types above.
+	return true
+}
+
 
 // applyNavigationModeHeaders sets headers for page navigation (human clicked link)
 // Uses preset's values for Accept/Accept-Encoding/Accept-Language when available,
