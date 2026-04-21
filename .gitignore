@@ -41,6 +41,10 @@ tests/
 # Internal tests (not published)
 internal_tests/
 
+# Local workspace config (points at machine-local fork paths)
+go.work
+go.work.sum
+
 # Local docs/notes (not published)
 PREPARE.md
 BUILDING.md
