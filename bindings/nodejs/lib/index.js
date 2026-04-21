@@ -219,8 +219,16 @@ class Response {
   constructor(data, elapsed = 0) {
     this.statusCode = data.status_code || 0;
     this.headers = data.headers || {};
-    this._body = Buffer.from(data.body || "", "utf8");
-    this._text = data.body || "";
+    // Go side base64-encodes non-UTF-8 response bodies so binary survives
+    // the JSON round trip. "" (or missing) body_encoding means plain text.
+    const bodyStr = data.body || "";
+    if (data.body_encoding === "base64") {
+      this._body = Buffer.from(bodyStr, "base64");
+      this._text = this._body.toString("utf8"); // best-effort text view
+    } else {
+      this._body = Buffer.from(bodyStr, "utf8");
+      this._text = bodyStr;
+    }
     this.finalUrl = data.final_url || "";
     this.protocol = data.protocol || "";
     this.elapsed = elapsed; // milliseconds
