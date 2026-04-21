@@ -361,10 +361,13 @@ public sealed class Session : IDisposable
             : null;
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        IntPtr resultPtr = Native.Get(_handle, url, optionsJson);
+        long responseHandle = Native.GetRaw(_handle, url, optionsJson);
         stopwatch.Stop();
 
-        return ParseResponse(resultPtr, stopwatch.Elapsed);
+        if (responseHandle < 0)
+            throw new HttpCloakException("Request failed");
+
+        return ParseRawResponse(responseHandle, stopwatch.Elapsed);
     }
 
     /// <summary>
@@ -394,11 +397,31 @@ public sealed class Session : IDisposable
             ? JsonSerializer.Serialize(new RequestOptions { Headers = headers }, JsonContext.Relaxed.RequestOptions)
             : null;
 
+        byte[] bodyBytes = body != null ? System.Text.Encoding.UTF8.GetBytes(body) : Array.Empty<byte>();
+
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        IntPtr resultPtr = Native.Post(_handle, url, body, optionsJson);
+        long responseHandle;
+
+        if (bodyBytes.Length > 0)
+        {
+            unsafe
+            {
+                fixed (byte* bodyPtr = bodyBytes)
+                {
+                    responseHandle = Native.PostRaw(_handle, url, (IntPtr)bodyPtr, bodyBytes.Length, optionsJson);
+                }
+            }
+        }
+        else
+        {
+            responseHandle = Native.PostRaw(_handle, url, IntPtr.Zero, 0, optionsJson);
+        }
         stopwatch.Stop();
 
-        return ParseResponse(resultPtr, stopwatch.Elapsed);
+        if (responseHandle < 0)
+            throw new HttpCloakException("Request failed");
+
+        return ParseRawResponse(responseHandle, stopwatch.Elapsed);
     }
 
     /// <summary>
@@ -498,22 +521,41 @@ public sealed class Session : IDisposable
         headers = ApplyCookies(headers, cookies);
         InferContentType(body, headers);
 
+        // Body goes through the raw bytes channel, not the JSON payload.
         var request = new RequestConfig
         {
             Method = method.ToUpperInvariant(),
             Url = url,
-            Body = body,
             Headers = headers.Count > 0 ? headers : null,
             Timeout = timeout
         };
 
         string requestJson = JsonSerializer.Serialize(request, JsonContext.Relaxed.RequestConfig);
+        byte[] bodyBytes = body != null ? System.Text.Encoding.UTF8.GetBytes(body) : Array.Empty<byte>();
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        IntPtr resultPtr = Native.Request(_handle, requestJson);
+        long responseHandle;
+
+        if (bodyBytes.Length > 0)
+        {
+            unsafe
+            {
+                fixed (byte* bodyPtr = bodyBytes)
+                {
+                    responseHandle = Native.RequestRaw(_handle, requestJson, (IntPtr)bodyPtr, bodyBytes.Length);
+                }
+            }
+        }
+        else
+        {
+            responseHandle = Native.RequestRaw(_handle, requestJson, IntPtr.Zero, 0);
+        }
         stopwatch.Stop();
 
-        return ParseResponse(resultPtr, stopwatch.Elapsed);
+        if (responseHandle < 0)
+            throw new HttpCloakException("Request failed");
+
+        return ParseRawResponse(responseHandle, stopwatch.Elapsed);
     }
 
     /// <summary>
@@ -676,8 +718,6 @@ public sealed class Session : IDisposable
         {
             Method = method.ToUpperInvariant(),
             Url = url,
-            Body = Convert.ToBase64String(body),
-            BodyEncoding = "base64",
             Headers = headers.Count > 0 ? headers : null,
             Timeout = timeout
         };
@@ -685,10 +725,28 @@ public sealed class Session : IDisposable
         string requestJson = JsonSerializer.Serialize(request, JsonContext.Relaxed.RequestConfig);
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        IntPtr resultPtr = Native.Request(_handle, requestJson);
+        long responseHandle;
+
+        if (body != null && body.Length > 0)
+        {
+            unsafe
+            {
+                fixed (byte* bodyPtr = body)
+                {
+                    responseHandle = Native.RequestRaw(_handle, requestJson, (IntPtr)bodyPtr, body.Length);
+                }
+            }
+        }
+        else
+        {
+            responseHandle = Native.RequestRaw(_handle, requestJson, IntPtr.Zero, 0);
+        }
         stopwatch.Stop();
 
-        return ParseResponse(resultPtr, stopwatch.Elapsed);
+        if (responseHandle < 0)
+            throw new HttpCloakException("Request failed");
+
+        return ParseRawResponse(responseHandle, stopwatch.Elapsed);
     }
 
     /// <summary>
@@ -1428,26 +1486,54 @@ public sealed class Session : IDisposable
         return new StreamResponse(streamHandle, metadata);
     }
 
-    private static Response ParseResponse(IntPtr resultPtr, TimeSpan elapsed = default)
+    // Same raw-path plumbing as ParseFastResponse, but materialises a regular
+    // Response so sync Get/Post/Request can skip the JSON/base64 round trip.
+    private static Response ParseRawResponse(long responseHandle, TimeSpan elapsed = default)
     {
-        string? json = Native.PtrToStringAndFree(resultPtr);
-
-        if (string.IsNullOrEmpty(json))
-            throw new HttpCloakException("No response received");
-
-        // Check for error response
-        if (json.Contains("\"error\""))
+        try
         {
-            var error = JsonSerializer.Deserialize(json, JsonContext.Default.ErrorResponse);
-            if (error?.Error != null)
-                throw new HttpCloakException(error.Error);
+            IntPtr metaPtr = Native.ResponseGetMetadata(responseHandle);
+            string? metaJson = Native.PtrToStringAndFree(metaPtr);
+
+            if (string.IsNullOrEmpty(metaJson))
+                throw new HttpCloakException("No response metadata received");
+
+            if (metaJson.Contains("\"error\""))
+            {
+                var error = JsonSerializer.Deserialize(metaJson, JsonContext.Default.ErrorResponse);
+                if (error?.Error != null)
+                    throw new HttpCloakException(error.Error);
+            }
+
+            var metadata = JsonSerializer.Deserialize(metaJson, JsonContext.Default.FastResponseMetadata);
+            if (metadata == null)
+                throw new HttpCloakException("Failed to parse response metadata");
+
+            int bodyLen = Native.ResponseGetBodyLen(responseHandle);
+            byte[] content;
+
+            if (bodyLen > 0)
+            {
+                content = new byte[bodyLen];
+                unsafe
+                {
+                    fixed (byte* bufPtr = content)
+                    {
+                        Native.ResponseCopyBodyTo(responseHandle, (IntPtr)bufPtr, bodyLen);
+                    }
+                }
+            }
+            else
+            {
+                content = Array.Empty<byte>();
+            }
+
+            return new Response(metadata, content, elapsed);
         }
-
-        var response = JsonSerializer.Deserialize(json, JsonContext.Default.ResponseData);
-        if (response == null)
-            throw new HttpCloakException("Failed to parse response");
-
-        return new Response(response, elapsed);
+        finally
+        {
+            Native.ResponseFree(responseHandle);
+        }
     }
 
     private static FastResponse ParseFastResponse(long responseHandle, TimeSpan elapsed = default)
@@ -1892,6 +1978,25 @@ public sealed class Response
 
         // Parse redirect history
         History = data.History?.Select(h => new RedirectInfo(h.StatusCode, h.Url ?? "", h.Headers)).ToList()
+            ?? new List<RedirectInfo>();
+    }
+
+    // Raw-path constructor: body bytes come from the native response handle via
+    // zero-copy buffer fill, so we never round-trip through JSON/base64.
+    internal Response(FastResponseMetadata metadata, byte[] rawBody, TimeSpan elapsed = default)
+    {
+        StatusCode = metadata.StatusCode;
+        Headers = metadata.Headers ?? new Dictionary<string, string[]>();
+        _content = rawBody;
+        Text = System.Text.Encoding.UTF8.GetString(rawBody);
+        Url = metadata.FinalUrl ?? "";
+        Protocol = metadata.Protocol ?? "";
+        Elapsed = elapsed;
+
+        Cookies = metadata.Cookies?.Select(c => new Cookie(c.Name ?? "", c.Value ?? "", c.Domain ?? "", c.Path ?? "", c.Expires ?? "", c.MaxAge, c.Secure, c.HttpOnly, c.SameSite ?? "")).ToList()
+            ?? new List<Cookie>();
+
+        History = metadata.History?.Select(h => new RedirectInfo(h.StatusCode, h.Url ?? "", h.Headers)).ToList()
             ?? new List<RedirectInfo>();
     }
 
