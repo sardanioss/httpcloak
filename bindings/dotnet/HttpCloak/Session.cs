@@ -1005,7 +1005,7 @@ public sealed class Session : IDisposable
     /// <param name="maxAge">Max age in seconds (0 means not set)</param>
     /// <param name="expires">Expiration date in RFC1123 format</param>
     public void SetCookie(string name, string value, string? domain = null, string? path = null,
-        bool secure = false, bool httpOnly = false, string? sameSite = null, int maxAge = 0, string? expires = null)
+        bool secure = false, bool httpOnly = false, string? sameSite = null, long maxAge = 0, string? expires = null)
     {
         ThrowIfDisposed();
         var cookie = new CookieData
@@ -1859,7 +1859,7 @@ public sealed class Cookie
     public string Expires { get; }
 
     /// <summary>Max age in seconds (0 means not set).</summary>
-    public int MaxAge { get; }
+    public long MaxAge { get; }
 
     /// <summary>Secure flag.</summary>
     public bool Secure { get; }
@@ -1871,7 +1871,7 @@ public sealed class Cookie
     public string SameSite { get; }
 
     internal Cookie(string name, string value, string domain = "", string path = "",
-        string expires = "", int maxAge = 0, bool secure = false, bool httpOnly = false, string sameSite = "")
+        string expires = "", long maxAge = 0, bool secure = false, bool httpOnly = false, string sameSite = "")
     {
         Name = name;
         Value = value;
@@ -2852,8 +2852,12 @@ internal class CookieData
     [JsonPropertyName("expires")]
     public string? Expires { get; set; }
 
+    // long (Int64) rather than int (Int32): servers can send Max-Age values larger
+    // than 2^31-1 (e.g. 3,153,600,000 = 100 years), which would throw during
+    // deserialization when typed as int. Go's MaxAge is platform-native int which
+    // is 64-bit on every platform this library actually targets.
     [JsonPropertyName("max_age")]
-    public int MaxAge { get; set; }
+    public long MaxAge { get; set; }
 
     [JsonPropertyName("secure")]
     public bool Secure { get; set; }
