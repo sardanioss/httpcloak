@@ -403,8 +403,15 @@ class Response:
             body = raw_body.decode("utf-8", errors="replace")
         else:
             body = data.get("body", "")
+            encoding = data.get("body_encoding", "")
             if isinstance(body, str):
-                body_bytes = body.encode("utf-8")
+                if encoding == "base64":
+                    # Go side base64-encodes bodies that aren't valid UTF-8 so binary
+                    # (PDFs, images, compressed streams) survives the JSON round trip.
+                    body_bytes = base64.b64decode(body)
+                    body = body_bytes.decode("utf-8", errors="replace")
+                else:
+                    body_bytes = body.encode("utf-8")
             else:
                 body_bytes = body
 
