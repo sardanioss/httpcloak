@@ -1868,7 +1868,20 @@ public sealed class Response
     {
         StatusCode = data.StatusCode;
         Headers = data.Headers ?? new Dictionary<string, string[]>();
-        Text = data.Body ?? "";
+        // Go base64-encodes non-UTF-8 response bodies so binary (PDFs, images,
+        // compressed streams) survives the JSON round trip. "" / missing means
+        // plain text and passes through unchanged.
+        var bodyStr = data.Body ?? "";
+        if (data.BodyEncoding == "base64")
+        {
+            _content = Convert.FromBase64String(bodyStr);
+            Text = System.Text.Encoding.UTF8.GetString(_content); // best-effort text view
+        }
+        else
+        {
+            Text = bodyStr;
+            _content = System.Text.Encoding.UTF8.GetBytes(bodyStr);
+        }
         Url = data.FinalUrl ?? "";
         Protocol = data.Protocol ?? "";
         Elapsed = elapsed;
@@ -1922,11 +1935,13 @@ public sealed class Response
         return Array.Empty<string>();
     }
 
+    private readonly byte[] _content;
+
     /// <summary>Response body as string.</summary>
     public string Text { get; }
 
     /// <summary>Response body as bytes.</summary>
-    public byte[] Content => System.Text.Encoding.UTF8.GetBytes(Text);
+    public byte[] Content => _content;
 
     /// <summary>Final URL after redirects.</summary>
     public string Url { get; }
@@ -2767,6 +2782,12 @@ internal class ResponseData
 
     [JsonPropertyName("body")]
     public string? Body { get; set; }
+
+    // "" (or missing) = plain text; "base64" = base64-encoded non-UTF-8 body.
+    // Go side base64-encodes when bodyBytes aren't valid UTF-8 so binary
+    // (PDFs, images, etc.) survives the JSON round trip intact.
+    [JsonPropertyName("body_encoding")]
+    public string? BodyEncoding { get; set; }
 
     [JsonPropertyName("final_url")]
     public string? FinalUrl { get; set; }
