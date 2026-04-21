@@ -216,18 +216,27 @@ class Response {
    * @param {Object} data - Response data from native library
    * @param {number} [elapsed=0] - Elapsed time in milliseconds
    */
-  constructor(data, elapsed = 0) {
+  constructor(data, elapsed = 0, rawBody = null) {
     this.statusCode = data.status_code || 0;
     this.headers = data.headers || {};
-    // Go side base64-encodes non-UTF-8 response bodies so binary survives
-    // the JSON round trip. "" (or missing) body_encoding means plain text.
-    const bodyStr = data.body || "";
-    if (data.body_encoding === "base64") {
-      this._body = Buffer.from(bodyStr, "base64");
-      this._text = this._body.toString("utf8"); // best-effort text view
+    if (rawBody !== null) {
+      // Raw-path: body arrived as binary bytes alongside metadata JSON
+      // (httpcloak_*_raw + response_finalize). No base64 round trip — fastest
+      // and loss-free for PDFs/images/etc.
+      this._body = rawBody;
+      this._text = rawBody.toString("utf8"); // best-effort text view
     } else {
-      this._body = Buffer.from(bodyStr, "utf8");
-      this._text = bodyStr;
+      // JSON path: body is a string inside the JSON blob. Non-UTF-8 bodies
+      // arrive base64-encoded (Go side since 98e4228). Valid UTF-8 passes
+      // through as plain text.
+      const bodyStr = data.body || "";
+      if (data.body_encoding === "base64") {
+        this._body = Buffer.from(bodyStr, "base64");
+        this._text = this._body.toString("utf8");
+      } else {
+        this._body = Buffer.from(bodyStr, "utf8");
+        this._text = bodyStr;
+      }
     }
     this.finalUrl = data.final_url || "";
     this.protocol = data.protocol || "";
@@ -1053,6 +1062,38 @@ function parseResponse(resultPtr, elapsed = 0) {
 }
 
 /**
+ * Parse a raw response handle returned by httpcloak_*_raw into a Response
+ * with a binary Buffer body. Avoids the base64 round trip used by the JSON
+ * path — binary bodies (PDFs, images, streams) land in memory once.
+ * @param {Object} lib - Native library binding
+ * @param {number|bigint} responseHandle
+ * @param {number} [elapsed=0] - Elapsed milliseconds
+ * @returns {Response}
+ */
+function parseRawResponse(lib, responseHandle, elapsed = 0) {
+  const bodyLen = lib.httpcloak_response_get_body_len(responseHandle);
+  if (bodyLen < 0) {
+    lib.httpcloak_response_free(responseHandle);
+    throw new HTTPCloakError("Failed to get response body length");
+  }
+
+  const buffer = Buffer.allocUnsafe(bodyLen);
+  // finalize() copies body into buffer, returns metadata JSON (no body), and
+  // frees the handle — a single FFI call instead of three.
+  const metadataStr = lib.httpcloak_response_finalize(responseHandle, buffer, bodyLen);
+  if (!metadataStr) {
+    throw new HTTPCloakError("Failed to finalize response");
+  }
+
+  const metadata = JSON.parse(metadataStr);
+  if (metadata.error) {
+    throw new HTTPCloakError(metadata.error);
+  }
+
+  return new Response(metadata, elapsed, buffer);
+}
+
+/**
  * Add query parameters to URL
  */
 function addParamsToUrl(url, params) {
@@ -1562,9 +1603,12 @@ class Session {
     const optionsJson = Object.keys(reqOptions).length > 0 ? JSON.stringify(reqOptions) : null;
 
     const startTime = Date.now();
-    const result = this._lib.httpcloak_get(this._handle, url, optionsJson);
+    const responseHandle = this._lib.httpcloak_get_raw(this._handle, url, optionsJson);
     const elapsed = Date.now() - startTime;
-    return parseResponse(result, elapsed);
+    if (responseHandle < 0 || responseHandle === 0 || responseHandle === 0n) {
+      throw new HTTPCloakError("Request failed");
+    }
+    return parseRawResponse(this._lib, responseHandle, elapsed);
   }
 
   /**
@@ -1590,33 +1634,31 @@ class Session {
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
 
-    // Handle multipart file upload
+    // Normalize body to a Buffer so the raw path can pass (ptr, len) without
+    // null-terminator truncation or utf8 mangling.
+    let bodyBuffer = null;
     if (files !== null) {
       const formData = (data !== null && typeof data === "object") ? data : null;
       const multipart = encodeMultipart(formData, files);
-      body = multipart.body.toString("latin1"); // Preserve binary data
+      bodyBuffer = multipart.body;
       mergedHeaders = mergedHeaders || {};
       mergedHeaders["Content-Type"] = multipart.contentType;
-    }
-    // Handle JSON body
-    else if (json !== null) {
-      body = JSON.stringify(json);
+    } else if (json !== null) {
+      bodyBuffer = Buffer.from(JSON.stringify(json), "utf8");
       mergedHeaders = mergedHeaders || {};
       if (!mergedHeaders["Content-Type"]) {
         mergedHeaders["Content-Type"] = "application/json";
       }
-    }
-    // Handle form data
-    else if (data !== null && typeof data === "object") {
-      body = new URLSearchParams(data).toString();
+    } else if (data !== null && typeof data === "object") {
+      bodyBuffer = Buffer.from(new URLSearchParams(data).toString(), "utf8");
       mergedHeaders = mergedHeaders || {};
       if (!mergedHeaders["Content-Type"]) {
         mergedHeaders["Content-Type"] = "application/x-www-form-urlencoded";
       }
-    }
-    // Handle Buffer body
-    else if (Buffer.isBuffer(body)) {
-      body = body.toString("utf8");
+    } else if (Buffer.isBuffer(body)) {
+      bodyBuffer = body;
+    } else if (typeof body === "string") {
+      bodyBuffer = Buffer.from(body, "utf8");
     }
 
     // Use request auth if provided, otherwise fall back to session auth
@@ -1631,10 +1673,16 @@ class Session {
     }
     const optionsJson = Object.keys(reqOptions).length > 0 ? JSON.stringify(reqOptions) : null;
 
+    const bodyPtr = bodyBuffer || Buffer.alloc(0);
+    const bodyLen = bodyBuffer ? bodyBuffer.length : 0;
+
     const startTime = Date.now();
-    const result = this._lib.httpcloak_post(this._handle, url, body, optionsJson);
+    const responseHandle = this._lib.httpcloak_post_raw(this._handle, url, bodyPtr, bodyLen, optionsJson);
     const elapsed = Date.now() - startTime;
-    return parseResponse(result, elapsed);
+    if (responseHandle < 0 || responseHandle === 0 || responseHandle === 0n) {
+      throw new HTTPCloakError("Request failed");
+    }
+    return parseRawResponse(this._lib, responseHandle, elapsed);
   }
 
   /**
@@ -1652,33 +1700,30 @@ class Session {
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
 
-    // Handle multipart file upload
+    // Normalize body to a Buffer so the raw path can pass (ptr, len).
+    let bodyBuffer = null;
     if (files !== null) {
       const formData = (data !== null && typeof data === "object") ? data : null;
       const multipart = encodeMultipart(formData, files);
-      body = multipart.body.toString("latin1"); // Preserve binary data
+      bodyBuffer = multipart.body;
       mergedHeaders = mergedHeaders || {};
       mergedHeaders["Content-Type"] = multipart.contentType;
-    }
-    // Handle JSON body
-    else if (json !== null) {
-      body = JSON.stringify(json);
+    } else if (json !== null) {
+      bodyBuffer = Buffer.from(JSON.stringify(json), "utf8");
       mergedHeaders = mergedHeaders || {};
       if (!mergedHeaders["Content-Type"]) {
         mergedHeaders["Content-Type"] = "application/json";
       }
-    }
-    // Handle form data
-    else if (data !== null && typeof data === "object") {
-      body = new URLSearchParams(data).toString();
+    } else if (data !== null && typeof data === "object") {
+      bodyBuffer = Buffer.from(new URLSearchParams(data).toString(), "utf8");
       mergedHeaders = mergedHeaders || {};
       if (!mergedHeaders["Content-Type"]) {
         mergedHeaders["Content-Type"] = "application/x-www-form-urlencoded";
       }
-    }
-    // Handle Buffer body
-    else if (Buffer.isBuffer(body)) {
-      body = body.toString("utf8");
+    } else if (Buffer.isBuffer(body)) {
+      bodyBuffer = body;
+    } else if (typeof body === "string") {
+      bodyBuffer = Buffer.from(body, "utf8");
     }
 
     // Use request auth if provided, otherwise fall back to session auth
@@ -1691,16 +1736,23 @@ class Session {
       url,
     };
     if (mergedHeaders) requestConfig.headers = mergedHeaders;
-    if (body) requestConfig.body = body;
     if (timeout) requestConfig.timeout = timeout;
 
+    const bodyPtr = bodyBuffer || Buffer.alloc(0);
+    const bodyLen = bodyBuffer ? bodyBuffer.length : 0;
+
     const startTime = Date.now();
-    const result = this._lib.httpcloak_request(
+    const responseHandle = this._lib.httpcloak_request_raw(
       this._handle,
-      JSON.stringify(requestConfig)
+      JSON.stringify(requestConfig),
+      bodyPtr,
+      bodyLen
     );
     const elapsed = Date.now() - startTime;
-    return parseResponse(result, elapsed);
+    if (responseHandle < 0 || responseHandle === 0 || responseHandle === 0n) {
+      throw new HTTPCloakError("Request failed");
+    }
+    return parseRawResponse(this._lib, responseHandle, elapsed);
   }
 
   // ===========================================================================
