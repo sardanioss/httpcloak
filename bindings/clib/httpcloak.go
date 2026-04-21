@@ -3304,13 +3304,15 @@ func httpcloak_upload_finish(uploadHandle C.int64_t) *C.char {
 
 	cookies := parseSetCookieHeaders(resp.Headers)
 
+	body, bodyEncoding := encodeResponseBody(bodyBytes)
 	responseData := ResponseData{
-		StatusCode: resp.StatusCode,
-		Headers:    resp.Headers,
-		Body:       string(bodyBytes),
-		FinalURL:   resp.FinalURL,
-		Protocol:   resp.Protocol,
-		Cookies:    cookies,
+		StatusCode:   resp.StatusCode,
+		Headers:      resp.Headers,
+		Body:         body,
+		BodyEncoding: bodyEncoding,
+		FinalURL:     resp.FinalURL,
+		Protocol:     resp.Protocol,
+		Cookies:      cookies,
 	}
 
 	jsonData, err := json.Marshal(responseData)
