@@ -992,18 +992,47 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 				newMethod = "GET"
 			}
 
+			// Browser-parity scrubbing on scheme downgrade / cross-origin.
+			// See session.requestWithRedirects for the same policy and rationale.
+			schemeDowngrade := isSchemeDowngradeClient(reqURL, redirectURL)
+			crossOrigin := !sameOriginClient(reqURL, redirectURL)
+
+			var carriedHeaders map[string][]string
+			if len(req.Headers) > 0 {
+				carriedHeaders = make(map[string][]string, len(req.Headers))
+				for k, v := range req.Headers {
+					lk := strings.ToLower(k)
+					if schemeDowngrade && lk == "referer" {
+						continue
+					}
+					if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
+						continue
+					}
+					carriedHeaders[k] = v
+				}
+			}
+
+			carriedReferer := reqURL
+			carriedAuth := req.Auth
+			if schemeDowngrade {
+				carriedReferer = ""
+				carriedAuth = nil
+			} else if crossOrigin {
+				carriedAuth = nil
+			}
+
 			// Create new request for redirect
 			newReq := &Request{
 				Method:          newMethod,
 				URL:             redirectURL,
-				Headers:         req.Headers,
+				Headers:         carriedHeaders,
 				Timeout:         req.Timeout,
 				UserAgent:       req.UserAgent,
 				ForceProtocol:   req.ForceProtocol,
 				FetchMode:       req.FetchMode,
 				FetchSite:       FetchSiteCrossSite, // Redirects are usually cross-site
-				Referer:         reqURL,
-				Auth:            req.Auth,
+				Referer:         carriedReferer,
+				Auth:            carriedAuth,
 				FollowRedirects: req.FollowRedirects,
 				MaxRedirects:    req.MaxRedirects,
 				DisableRetry:    true, // Don't retry redirects
@@ -1949,4 +1978,42 @@ func decompress(data []byte, encoding string) ([]byte, error) {
 		// Unknown encoding, return as-is
 		return data, nil
 	}
+}
+
+// parseOriginClient returns (scheme, host, port) with default ports filled in.
+// Used to gate header scrubbing on scheme downgrade / cross-origin redirects.
+func parseOriginClient(urlStr string) (scheme, host, port string) {
+	u, err := url.Parse(urlStr)
+	if err != nil || u.Scheme == "" {
+		return "", "", ""
+	}
+	scheme = strings.ToLower(u.Scheme)
+	host = strings.ToLower(u.Hostname())
+	port = u.Port()
+	if port == "" {
+		switch scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return scheme, host, port
+}
+
+// sameOriginClient reports whether two URLs share scheme+host+port.
+func sameOriginClient(a, b string) bool {
+	as, ah, ap := parseOriginClient(a)
+	bs, bh, bp := parseOriginClient(b)
+	if as == "" || bs == "" {
+		return false
+	}
+	return as == bs && ah == bh && ap == bp
+}
+
+// isSchemeDowngradeClient reports whether a redirect goes https → http.
+func isSchemeDowngradeClient(from, to string) bool {
+	fs, _, _ := parseOriginClient(from)
+	ts, _, _ := parseOriginClient(to)
+	return fs == "https" && ts == "http"
 }

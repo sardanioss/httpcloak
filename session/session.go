@@ -436,6 +436,16 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 				Headers: make(map[string][]string),
 			}
 
+			// Browser-parity scheme/origin policy for the new hop:
+			//   - https → http downgrade: strip Referer (Chrome's default
+			//     strict-origin-when-cross-origin), Authorization, and
+			//     Proxy-Authorization (WHATWG Fetch "HTTP-redirect fetch").
+			//   - cross-origin (any scheme change or host/port change):
+			//     strip Authorization and Proxy-Authorization — Chrome, Firefox,
+			//     curl (≥7.58) and Fetch all do this to prevent credential leaks.
+			schemeDowngrade := isSchemeDowngrade(req.URL, redirectURL)
+			crossOrigin := !sameOrigin(req.URL, redirectURL)
+
 			// Copy safe headers
 			for k, v := range req.Headers {
 				// Don't copy Content-* headers on method change
@@ -444,6 +454,13 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 				}
 				// Don't copy Cookie header (will be re-added from session)
 				if k == "Cookie" || k == "cookie" {
+					continue
+				}
+				lk := strings.ToLower(k)
+				if schemeDowngrade && lk == "referer" {
+					continue
+				}
+				if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
 					continue
 				}
 				newReq.Headers[k] = v
@@ -1396,6 +1413,48 @@ func (s *Session) PostStream(ctx context.Context, url string, body []byte, heade
 		Body:    body,
 		Headers: headers,
 	})
+}
+
+// parseOrigin returns (scheme, host, port) for origin comparison. Missing
+// ports are filled in with the scheme default so http://x:80 and http://x
+// compare equal. Returned values are lowercased.
+func parseOrigin(urlStr string) (scheme, host, port string) {
+	u, err := url.Parse(urlStr)
+	if err != nil || u.Scheme == "" {
+		return "", "", ""
+	}
+	scheme = strings.ToLower(u.Scheme)
+	host = strings.ToLower(u.Hostname())
+	port = u.Port()
+	if port == "" {
+		switch scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return scheme, host, port
+}
+
+// sameOrigin reports whether two URLs share scheme+host+port.
+func sameOrigin(a, b string) bool {
+	as, ah, ap := parseOrigin(a)
+	bs, bh, bp := parseOrigin(b)
+	if as == "" || bs == "" {
+		return false
+	}
+	return as == bs && ah == bh && ap == bp
+}
+
+// isSchemeDowngrade reports whether the redirect is https → http.
+// Chrome's default strict-origin-when-cross-origin referrer policy strips
+// Referer entirely on such downgrades, and Fetch semantics strip any
+// Authorization that was set on the original request.
+func isSchemeDowngrade(from, to string) bool {
+	fs, _, _ := parseOrigin(from)
+	ts, _, _ := parseOrigin(to)
+	return fs == "https" && ts == "http"
 }
 
 // resolveURL resolves a possibly relative URL against a base URL (RFC 3986)
