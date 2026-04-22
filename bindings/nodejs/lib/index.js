@@ -804,28 +804,37 @@ function getLib() {
     const libPath = getLibPath();
     nativeLibHandle = koffi.load(libPath);
 
-    // Use str for string returns - koffi handles the string copy automatically
-    // Note: C strings from C.CString() are malloc'd; str return leaks them.
-    // Pool/preset functions use void* + readAndFreeString() to avoid this.
+    // Declare the free function first so we can hand it to koffi.disposable.
+    // httpcloak_free_string is NULL-safe on the Go side (no-op on nil).
+    const httpcloakFreeString = nativeLibHandle.func("httpcloak_free_string", "void", ["void*"]);
+
+    // Named disposable type derived from "str": koffi decodes the C string
+    // into a JS string AND then calls httpcloakFreeString on the original
+    // malloc'd pointer. Every function below that returned plain "str"
+    // previously leaked that malloc (issue #48: customers reported ~48MB/h
+    // RSS growth in sustained production traffic). Using HeapStr closes the
+    // leak without any call-site changes.
+    const HeapStr = koffi.disposable("HeapStr", "str", httpcloakFreeString);
+
     lib = {
       httpcloak_session_new: nativeLibHandle.func("httpcloak_session_new", "int64", ["str"]),
       httpcloak_session_free: nativeLibHandle.func("httpcloak_session_free", "void", ["int64"]),
       httpcloak_session_refresh: nativeLibHandle.func("httpcloak_session_refresh", "void", ["int64"]),
-      httpcloak_session_refresh_protocol: nativeLibHandle.func("httpcloak_session_refresh_protocol", "str", ["int64", "str"]),
-      httpcloak_session_warmup: nativeLibHandle.func("httpcloak_session_warmup", "str", ["int64", "str", "int64"]),
+      httpcloak_session_refresh_protocol: nativeLibHandle.func("httpcloak_session_refresh_protocol", HeapStr, ["int64", "str"]),
+      httpcloak_session_warmup: nativeLibHandle.func("httpcloak_session_warmup", HeapStr, ["int64", "str", "int64"]),
       httpcloak_session_fork: nativeLibHandle.func("httpcloak_session_fork", "int64", ["int64"]),
-      httpcloak_get: nativeLibHandle.func("httpcloak_get", "str", ["int64", "str", "str"]),
-      httpcloak_post: nativeLibHandle.func("httpcloak_post", "str", ["int64", "str", "str", "str"]),
-      httpcloak_request: nativeLibHandle.func("httpcloak_request", "str", ["int64", "str"]),
-      httpcloak_get_cookies: nativeLibHandle.func("httpcloak_get_cookies", "str", ["int64"]),
+      httpcloak_get: nativeLibHandle.func("httpcloak_get", HeapStr, ["int64", "str", "str"]),
+      httpcloak_post: nativeLibHandle.func("httpcloak_post", HeapStr, ["int64", "str", "str", "str"]),
+      httpcloak_request: nativeLibHandle.func("httpcloak_request", HeapStr, ["int64", "str"]),
+      httpcloak_get_cookies: nativeLibHandle.func("httpcloak_get_cookies", HeapStr, ["int64"]),
       httpcloak_set_cookie: nativeLibHandle.func("httpcloak_set_cookie", "void", ["int64", "str"]),
       httpcloak_delete_cookie: nativeLibHandle.func("httpcloak_delete_cookie", "void", ["int64", "str", "str"]),
       httpcloak_clear_cookies: nativeLibHandle.func("httpcloak_clear_cookies", "void", ["int64"]),
-      httpcloak_free_string: nativeLibHandle.func("httpcloak_free_string", "void", ["void*"]),
-      httpcloak_version: nativeLibHandle.func("httpcloak_version", "str", []),
-      httpcloak_available_presets: nativeLibHandle.func("httpcloak_available_presets", "str", []),
-      httpcloak_set_ech_dns_servers: nativeLibHandle.func("httpcloak_set_ech_dns_servers", "str", ["str"]),
-      httpcloak_get_ech_dns_servers: nativeLibHandle.func("httpcloak_get_ech_dns_servers", "str", []),
+      httpcloak_free_string: httpcloakFreeString,
+      httpcloak_version: nativeLibHandle.func("httpcloak_version", HeapStr, []),
+      httpcloak_available_presets: nativeLibHandle.func("httpcloak_available_presets", HeapStr, []),
+      httpcloak_set_ech_dns_servers: nativeLibHandle.func("httpcloak_set_ech_dns_servers", HeapStr, ["str"]),
+      httpcloak_get_ech_dns_servers: nativeLibHandle.func("httpcloak_get_ech_dns_servers", HeapStr, []),
       // Async functions
       httpcloak_register_callback: nativeLibHandle.func("httpcloak_register_callback", "int64", [koffi.pointer(AsyncCallbackProto)]),
       httpcloak_unregister_callback: nativeLibHandle.func("httpcloak_unregister_callback", "void", ["int64"]),
@@ -836,41 +845,41 @@ function getLib() {
       httpcloak_stream_get: nativeLibHandle.func("httpcloak_stream_get", "int64", ["int64", "str", "str"]),
       httpcloak_stream_post: nativeLibHandle.func("httpcloak_stream_post", "int64", ["int64", "str", "str", "str"]),
       httpcloak_stream_request: nativeLibHandle.func("httpcloak_stream_request", "int64", ["int64", "str"]),
-      httpcloak_stream_get_metadata: nativeLibHandle.func("httpcloak_stream_get_metadata", "str", ["int64"]),
-      httpcloak_stream_read: nativeLibHandle.func("httpcloak_stream_read", "str", ["int64", "int64"]),
+      httpcloak_stream_get_metadata: nativeLibHandle.func("httpcloak_stream_get_metadata", HeapStr, ["int64"]),
+      httpcloak_stream_read: nativeLibHandle.func("httpcloak_stream_read", HeapStr, ["int64", "int64"]),
       httpcloak_stream_close: nativeLibHandle.func("httpcloak_stream_close", "void", ["int64"]),
       // Raw response functions for fast-path (zero-copy)
       httpcloak_get_raw: nativeLibHandle.func("httpcloak_get_raw", "int64", ["int64", "str", "str"]),
       httpcloak_post_raw: nativeLibHandle.func("httpcloak_post_raw", "int64", ["int64", "str", "void*", "int", "str"]),
       httpcloak_request_raw: nativeLibHandle.func("httpcloak_request_raw", "int64", ["int64", "str", "void*", "int"]),
-      httpcloak_response_get_metadata: nativeLibHandle.func("httpcloak_response_get_metadata", "str", ["int64"]),
+      httpcloak_response_get_metadata: nativeLibHandle.func("httpcloak_response_get_metadata", HeapStr, ["int64"]),
       httpcloak_response_get_body_len: nativeLibHandle.func("httpcloak_response_get_body_len", "int", ["int64"]),
       httpcloak_response_copy_body_to: nativeLibHandle.func("httpcloak_response_copy_body_to", "int", ["int64", "void*", "int"]),
       httpcloak_response_free: nativeLibHandle.func("httpcloak_response_free", "void", ["int64"]),
       // Combined finalize function (copy + metadata + free in one call)
-      httpcloak_response_finalize: nativeLibHandle.func("httpcloak_response_finalize", "str", ["int64", "void*", "int"]),
+      httpcloak_response_finalize: nativeLibHandle.func("httpcloak_response_finalize", HeapStr, ["int64", "void*", "int"]),
       // Session persistence functions
-      httpcloak_session_save: nativeLibHandle.func("httpcloak_session_save", "str", ["int64", "str"]),
+      httpcloak_session_save: nativeLibHandle.func("httpcloak_session_save", HeapStr, ["int64", "str"]),
       httpcloak_session_load: nativeLibHandle.func("httpcloak_session_load", "int64", ["str"]),
-      httpcloak_session_marshal: nativeLibHandle.func("httpcloak_session_marshal", "str", ["int64"]),
+      httpcloak_session_marshal: nativeLibHandle.func("httpcloak_session_marshal", HeapStr, ["int64"]),
       httpcloak_session_unmarshal: nativeLibHandle.func("httpcloak_session_unmarshal", "int64", ["str"]),
       // Proxy management functions
-      httpcloak_session_set_proxy: nativeLibHandle.func("httpcloak_session_set_proxy", "str", ["int64", "str"]),
-      httpcloak_session_set_tcp_proxy: nativeLibHandle.func("httpcloak_session_set_tcp_proxy", "str", ["int64", "str"]),
-      httpcloak_session_set_udp_proxy: nativeLibHandle.func("httpcloak_session_set_udp_proxy", "str", ["int64", "str"]),
-      httpcloak_session_get_proxy: nativeLibHandle.func("httpcloak_session_get_proxy", "str", ["int64"]),
-      httpcloak_session_get_tcp_proxy: nativeLibHandle.func("httpcloak_session_get_tcp_proxy", "str", ["int64"]),
-      httpcloak_session_get_udp_proxy: nativeLibHandle.func("httpcloak_session_get_udp_proxy", "str", ["int64"]),
+      httpcloak_session_set_proxy: nativeLibHandle.func("httpcloak_session_set_proxy", HeapStr, ["int64", "str"]),
+      httpcloak_session_set_tcp_proxy: nativeLibHandle.func("httpcloak_session_set_tcp_proxy", HeapStr, ["int64", "str"]),
+      httpcloak_session_set_udp_proxy: nativeLibHandle.func("httpcloak_session_set_udp_proxy", HeapStr, ["int64", "str"]),
+      httpcloak_session_get_proxy: nativeLibHandle.func("httpcloak_session_get_proxy", HeapStr, ["int64"]),
+      httpcloak_session_get_tcp_proxy: nativeLibHandle.func("httpcloak_session_get_tcp_proxy", HeapStr, ["int64"]),
+      httpcloak_session_get_udp_proxy: nativeLibHandle.func("httpcloak_session_get_udp_proxy", HeapStr, ["int64"]),
       // Header order customization
-      httpcloak_session_set_header_order: nativeLibHandle.func("httpcloak_session_set_header_order", "str", ["int64", "str"]),
-      httpcloak_session_get_header_order: nativeLibHandle.func("httpcloak_session_get_header_order", "str", ["int64"]),
+      httpcloak_session_set_header_order: nativeLibHandle.func("httpcloak_session_set_header_order", HeapStr, ["int64", "str"]),
+      httpcloak_session_get_header_order: nativeLibHandle.func("httpcloak_session_get_header_order", HeapStr, ["int64"]),
       // Local proxy functions
       httpcloak_local_proxy_start: nativeLibHandle.func("httpcloak_local_proxy_start", "int64", ["str"]),
       httpcloak_local_proxy_stop: nativeLibHandle.func("httpcloak_local_proxy_stop", "void", ["int64"]),
       httpcloak_local_proxy_get_port: nativeLibHandle.func("httpcloak_local_proxy_get_port", "int", ["int64"]),
       httpcloak_local_proxy_is_running: nativeLibHandle.func("httpcloak_local_proxy_is_running", "int", ["int64"]),
-      httpcloak_local_proxy_get_stats: nativeLibHandle.func("httpcloak_local_proxy_get_stats", "str", ["int64"]),
-      httpcloak_local_proxy_register_session: nativeLibHandle.func("httpcloak_local_proxy_register_session", "str", ["int64", "str", "int64"]),
+      httpcloak_local_proxy_get_stats: nativeLibHandle.func("httpcloak_local_proxy_get_stats", HeapStr, ["int64"]),
+      httpcloak_local_proxy_register_session: nativeLibHandle.func("httpcloak_local_proxy_register_session", HeapStr, ["int64", "str", "int64"]),
       httpcloak_local_proxy_unregister_session: nativeLibHandle.func("httpcloak_local_proxy_unregister_session", "int", ["int64", "str"]),
       // Session cache callbacks
       httpcloak_set_session_cache_callbacks: nativeLibHandle.func("httpcloak_set_session_cache_callbacks", "void", [
