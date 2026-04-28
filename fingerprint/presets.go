@@ -1702,6 +1702,69 @@ func Safari18() *Preset {
 	}
 }
 
+// Chrome147Windows returns Chrome 147 with Windows platform.
+//
+// The preset is provided by the embedded JSON registry (fingerprint/embedded/chrome-147-windows.json),
+// which inherits TLS bytes from chrome-146-windows and overrides only the User-Agent
+// and sec-ch-ua header. If the embedded JSON failed to load, the factory falls back
+// to Chrome146Windows so callers don't get a Chrome146 fallback by accident.
+func Chrome147Windows() *Preset {
+	if p := LookupCustom("chrome-147-windows"); p != nil {
+		return p
+	}
+	return Chrome146Windows()
+}
+
+// Chrome147Linux returns Chrome 147 with Linux platform. See Chrome147Windows.
+func Chrome147Linux() *Preset {
+	if p := LookupCustom("chrome-147-linux"); p != nil {
+		return p
+	}
+	return Chrome146Linux()
+}
+
+// Chrome147macOS returns Chrome 147 with macOS platform. See Chrome147Windows.
+func Chrome147macOS() *Preset {
+	if p := LookupCustom("chrome-147-macos"); p != nil {
+		return p
+	}
+	return Chrome146macOS()
+}
+
+// Chrome147 returns the Chrome 147 fingerprint preset auto-detected from the
+// running OS. Mirrors Chrome146's platform-aware behavior.
+func Chrome147() *Preset {
+	switch GetPlatformInfo().Platform {
+	case "Windows":
+		return Chrome147Windows()
+	case "macOS":
+		return Chrome147macOS()
+	default:
+		return Chrome147Linux()
+	}
+}
+
+// IOSChrome147 returns Chrome 147 on iOS. Embedded JSON only overrides the
+// User-Agent (CriOS major version) — everything else (no sec-ch-ua due to
+// WebKit, Safari TLS via HelloIOS_18, Safari H2 config) inherits unchanged
+// from chrome-146-ios. Falls back to IOSChrome146 if the JSON didn't load.
+func IOSChrome147() *Preset {
+	if p := LookupCustom("chrome-147-ios"); p != nil {
+		return p
+	}
+	return IOSChrome146()
+}
+
+// AndroidChrome147 returns Chrome 147 on Android. Same diff pattern as
+// desktop (UA bump + sec-ch-ua brand rotation); inherits Linux-flavored
+// TLS from chrome-146-android. Falls back to AndroidChrome146.
+func AndroidChrome147() *Preset {
+	if p := LookupCustom("chrome-147-android"); p != nil {
+		return p
+	}
+	return AndroidChrome146()
+}
+
 // IOSChrome143 returns Chrome 143 on iOS fingerprint preset
 // Note: iOS Chrome uses WebKit (Apple requirement), so it has Safari's TLS AND HTTP/2 fingerprint
 // WebKit doesn't support Client Hints, so no sec-ch-ua headers
@@ -2245,6 +2308,10 @@ var presets = map[string]func() *Preset{
 	"chrome-146-windows": Chrome146Windows,
 	"chrome-146-linux":   Chrome146Linux,
 	"chrome-146-macos":   Chrome146macOS,
+	"chrome-147":         Chrome147,
+	"chrome-147-windows": Chrome147Windows,
+	"chrome-147-linux":   Chrome147Linux,
+	"chrome-147-macos":   Chrome147macOS,
 	"firefox-133":        Firefox133,
 	"firefox-148":        Firefox148,
 	"safari-18":          Safari18,
@@ -2258,32 +2325,36 @@ var presets = map[string]func() *Preset{
 	"chrome-144-android": AndroidChrome144,
 	"chrome-145-android": AndroidChrome145,
 	"chrome-146-android": AndroidChrome146,
+	"chrome-147-ios":     IOSChrome147,
+	"chrome-147-android": AndroidChrome147,
 
 	// -latest aliases (always point to the newest version)
-	"chrome-latest":         Chrome146,
-	"chrome-latest-windows": Chrome146Windows,
-	"chrome-latest-linux":   Chrome146Linux,
-	"chrome-latest-macos":   Chrome146macOS,
+	"chrome-latest":         Chrome147,
+	"chrome-latest-windows": Chrome147Windows,
+	"chrome-latest-linux":   Chrome147Linux,
+	"chrome-latest-macos":   Chrome147macOS,
 	"firefox-latest":        Firefox148,
 	"safari-latest":         Safari18,
-	"chrome-latest-ios":     IOSChrome146,
+	"chrome-latest-ios":     IOSChrome147,
 	"safari-latest-ios":     IOSSafari18,
-	"chrome-latest-android": AndroidChrome146,
+	"chrome-latest-android": AndroidChrome147,
 
 	// Backwards compatibility aliases (old naming convention)
 	"ios-chrome-143":        IOSChrome143,
 	"ios-chrome-144":        IOSChrome144,
 	"ios-chrome-145":        IOSChrome145,
 	"ios-chrome-146":        IOSChrome146,
+	"ios-chrome-147":        IOSChrome147,
 	"ios-safari-17":         IOSSafari17,
 	"ios-safari-18":         IOSSafari18,
 	"android-chrome-143":    AndroidChrome143,
 	"android-chrome-144":    AndroidChrome144,
 	"android-chrome-145":    AndroidChrome145,
 	"android-chrome-146":    AndroidChrome146,
-	"ios-chrome-latest":     IOSChrome146,
+	"android-chrome-147":    AndroidChrome147,
+	"ios-chrome-latest":     IOSChrome147,
 	"ios-safari-latest":     IOSSafari18,
-	"android-chrome-latest": AndroidChrome146,
+	"android-chrome-latest": AndroidChrome147,
 }
 
 // Get returns a preset by name. Checks custom registry first, then built-in

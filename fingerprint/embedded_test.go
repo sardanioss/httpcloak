@@ -107,23 +107,17 @@ func TestEmbedded_RoundTripDescribe(t *testing.T) {
 	}
 }
 
-// TestEmbedded_NoNameCollisionWithBuiltins guards against an embedded JSON
-// silently overwriting a built-in factory preset. Both register through the
-// custom registry, but built-ins are also reachable directly via the
-// presets[] map — a name collision means Get() inconsistency depending on
-// init order. Embedded names should be net-new.
-func TestEmbedded_NoNameCollisionWithBuiltins(t *testing.T) {
+// TestEmbedded_FactoryDelegationIsConsistent verifies that when an embedded
+// JSON shares a name with a built-in factory, the factory is the LookupCustom
+// bridge pattern (Chrome147Windows etc.) — i.e., calling the factory returns
+// the embedded preset, not a divergent in-memory definition.
+//
+// This catches the failure mode where a contributor adds an embedded JSON
+// AND independently writes a competing factory function for the same name —
+// Get(name) would silently prefer one over the other depending on
+// LookupCustom precedence.
+func TestEmbedded_FactoryDelegationIsConsistent(t *testing.T) {
 	entries, _ := fs.ReadDir(embeddedPresets, "embedded")
-
-	// Snapshot the names emitted by built-in factories alone.
-	builtins := make(map[string]bool)
-	for name := range presets {
-		// Resolve the factory to extract its internal name (which may
-		// differ from the alias key, e.g. "chrome-latest" → preset.Name="chrome-146").
-		p := presets[name]()
-		builtins[p.Name] = true
-		builtins[name] = true
-	}
 
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
@@ -134,9 +128,28 @@ func TestEmbedded_NoNameCollisionWithBuiltins(t *testing.T) {
 		if pf == nil || pf.Preset == nil {
 			continue
 		}
-		if builtins[pf.Preset.Name] {
-			t.Errorf("embedded preset %s name %q collides with a built-in factory — embedded JSON should add net-new presets",
-				e.Name(), pf.Preset.Name)
+		name := pf.Preset.Name
+
+		factory, hasFactory := presets[name]
+		if !hasFactory {
+			continue // No factory shadow; embedded JSON is the sole producer.
+		}
+
+		// Factory exists; it MUST delegate to LookupCustom for the embedded
+		// preset to be observable. Verify by calling the factory and
+		// comparing observable state to a direct LookupCustom result.
+		viaFactory := factory()
+		viaCustom := LookupCustom(name)
+		if viaCustom == nil {
+			t.Errorf("embedded preset %s registered but LookupCustom returned nil", name)
+			continue
+		}
+		// Compare a representative subset of observable fields.
+		if viaFactory.Name != viaCustom.Name ||
+			viaFactory.UserAgent != viaCustom.UserAgent ||
+			viaFactory.Headers["sec-ch-ua"] != viaCustom.Headers["sec-ch-ua"] {
+			t.Errorf("factory %s does not delegate to embedded preset:\n  factory.UA = %q\n  custom.UA  = %q",
+				name, viaFactory.UserAgent, viaCustom.UserAgent)
 		}
 	}
 }
