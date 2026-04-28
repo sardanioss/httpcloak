@@ -242,6 +242,9 @@ internal static class Native
     [DllImport(LibraryName, EntryPoint = "httpcloak_preset_unregister", CallingConvention = CallingConvention.Cdecl)]
     public static extern void PresetUnregister([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
 
+    [DllImport(LibraryName, EntryPoint = "httpcloak_describe_preset", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr DescribePreset([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+
     // Preset pool functions
     [DllImport(LibraryName, EntryPoint = "httpcloak_pool_load_file", CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr PoolLoadFile([MarshalAs(UnmanagedType.LPUTF8Str)] string path);

@@ -40,6 +40,40 @@ public static class CustomPresets
         Native.PresetUnregister(name);
     }
 
+    /// <summary>
+    /// Return a fully-resolved JSON document for the given preset.
+    ///
+    /// The output flattens any inheritance chain and resolves H2/H3 defaults
+    /// (Chrome unless the preset overrides) into explicit values, so the
+    /// result is suitable for saving, editing, and reloading via
+    /// <see cref="LoadFromJson"/>. Two consecutive calls return byte-identical JSON.
+    /// </summary>
+    /// <param name="name">The preset name (built-in or custom-registered).</param>
+    /// <returns>JSON string of the form <c>{"version":1,"preset":{...}}</c>.</returns>
+    /// <exception cref="HttpCloakException">
+    /// Thrown if the preset is not registered or references an unknown utls
+    /// ClientHelloID.
+    /// </exception>
+    public static string Describe(string name)
+    {
+        var resultPtr = Native.DescribePreset(name);
+        var json = Native.PtrToStringAndFree(resultPtr);
+        if (string.IsNullOrEmpty(json))
+            throw new HttpCloakException($"Failed to describe preset: {name}");
+
+        // The error envelope ({"error": "..."}) is also valid JSON. A successful
+        // describe always carries a top-level "preset" field, so checking for
+        // the absence of "preset" disambiguates the two.
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("error", out var errorElem) &&
+            !root.TryGetProperty("preset", out _))
+        {
+            throw new HttpCloakException(errorElem.GetString() ?? "Unknown error");
+        }
+        return json;
+    }
+
     private static string? ParsePresetNameResult(IntPtr ptr)
     {
         var json = Native.PtrToStringAndFree(ptr);
