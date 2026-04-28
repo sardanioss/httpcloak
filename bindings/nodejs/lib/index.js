@@ -907,6 +907,9 @@ function getLib() {
       httpcloak_preset_load_file: nativeLibHandle.func("httpcloak_preset_load_file", "void*", ["str"]),
       httpcloak_preset_load_json: nativeLibHandle.func("httpcloak_preset_load_json", "void*", ["str"]),
       httpcloak_preset_unregister: nativeLibHandle.func("httpcloak_preset_unregister", "void", ["str"]),
+      // Describe uses HeapStr (issue #48 leak-safe disposable) — koffi
+      // auto-frees the malloc'd C string after decode.
+      httpcloak_describe_preset: nativeLibHandle.func("httpcloak_describe_preset", HeapStr, ["str"]),
       // Preset pool functions (void* returns for manual free)
       httpcloak_pool_load_file: nativeLibHandle.func("httpcloak_pool_load_file", "void*", ["str"]),
       httpcloak_pool_load_json: nativeLibHandle.func("httpcloak_pool_load_json", "void*", ["str"]),
@@ -3698,6 +3701,40 @@ function unregisterPreset(name) {
 }
 
 /**
+ * Return a fully-resolved JSON document for the given preset.
+ *
+ * The output flattens any inheritance chain and resolves H2/H3 defaults
+ * (Chrome unless the preset overrides) into explicit values, so the
+ * result is suitable for saving, editing, and reloading via
+ * loadPresetFromJSON. Two consecutive calls return byte-identical JSON.
+ *
+ * @param {string} name - The preset name (built-in or custom-registered).
+ * @returns {string} JSON string of the form {"version":1,"preset":{...}}.
+ * @throws {HTTPCloakError} If the preset is not registered or references
+ *   an unknown utls ClientHelloID.
+ */
+function describePreset(name) {
+  const lib = getLib();
+  const result = lib.httpcloak_describe_preset(name);
+  if (!result) {
+    throw new HTTPCloakError(`Failed to describe preset: ${name}`);
+  }
+  // The error envelope ({"error": "..."}) is also a valid JSON document.
+  // A successful describe always carries a top-level "preset" field, so
+  // distinguishing the two is straightforward.
+  let parsed;
+  try {
+    parsed = JSON.parse(result);
+  } catch (err) {
+    throw new HTTPCloakError(`Invalid describe_preset response: ${err.message}`);
+  }
+  if (parsed && parsed.error && !parsed.preset) {
+    throw new HTTPCloakError(parsed.error);
+  }
+  return result;
+}
+
+/**
  * A pool of custom fingerprint presets for rotation.
  *
  * Pools load multiple presets from a single JSON file and provide
@@ -3852,6 +3889,7 @@ module.exports = {
   loadPreset,
   loadPresetFromJSON,
   unregisterPreset,
+  describePreset,
   // Configuration
   configure,
   configureSessionCache,
