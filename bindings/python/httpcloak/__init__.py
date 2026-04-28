@@ -42,6 +42,7 @@ from .client import (
     load_preset,
     load_preset_from_json,
     unregister_preset,
+    describe_preset,
     # Configuration
     configure,
     configure_session_cache,
@@ -75,6 +76,7 @@ __all__ = [
     "load_preset",
     "load_preset_from_json",
     "unregister_preset",
+    "describe_preset",
     "configure",
     "configure_session_cache",
     "clear_session_cache",

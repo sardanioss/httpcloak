@@ -1125,6 +1125,8 @@ def _setup_lib(lib):
     lib.httpcloak_preset_load_json.restype = c_void_p
     lib.httpcloak_preset_unregister.argtypes = [c_char_p]
     lib.httpcloak_preset_unregister.restype = None
+    lib.httpcloak_describe_preset.argtypes = [c_char_p]
+    lib.httpcloak_describe_preset.restype = c_void_p
 
     # Preset pool functions
     lib.httpcloak_pool_load_file.argtypes = [c_char_p]
@@ -3708,6 +3710,41 @@ def unregister_preset(name: str) -> None:
     """
     lib = _get_lib()
     lib.httpcloak_preset_unregister(name.encode("utf-8"))
+
+
+def describe_preset(name: str) -> str:
+    """Return a fully-resolved JSON document for the given preset.
+
+    The output is a complete preset definition flattened from any
+    inheritance chains and resolved against Chrome defaults — suitable
+    for saving, editing, and reloading via ``load_preset_from_json``.
+    Two consecutive calls on the same preset return byte-identical JSON.
+
+    Args:
+        name: The preset name (e.g. ``"chrome-146-windows"``). Both
+            built-in names and custom-registered names are accepted.
+
+    Returns:
+        A JSON string in the standard ``PresetFile`` format
+        (``{"version": 1, "preset": {...}}``).
+
+    Raises:
+        HTTPCloakError: If the preset is not registered or if it
+            references an unknown utls ClientHelloID.
+    """
+    lib = _get_lib()
+    result_ptr = lib.httpcloak_describe_preset(name.encode("utf-8"))
+    result = _ptr_to_string(result_ptr)
+    if result is None:
+        raise HTTPCloakError(f"Failed to describe preset: {name}")
+    # Detect the {"error": "..."} envelope returned by makeErrorJSON in clib.
+    try:
+        decoded = json.loads(result)
+    except json.JSONDecodeError as exc:
+        raise HTTPCloakError(f"Invalid describe_preset response: {exc}") from exc
+    if isinstance(decoded, dict) and "error" in decoded and "preset" not in decoded:
+        raise HTTPCloakError(decoded["error"])
+    return result
 
 
 class PresetPool:
