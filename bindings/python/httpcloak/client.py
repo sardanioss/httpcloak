@@ -1440,8 +1440,12 @@ class Session:
         verify: SSL certificate verification (default: True)
         allow_redirects: Follow redirects (default: True)
         max_redirects: Maximum number of redirects to follow (default: 10)
-        retry: Number of retries on failure (default: 3, set to 0 to disable)
-        retry_on_status: List of status codes to retry on (default: [429, 500, 502, 503, 504])
+        retry: Number of retries on failure (default: 0, no retries — set to a positive
+            integer to enable. The previous default of 3 silently retried POST/PUT/PATCH
+            on 5xx, which violated request idempotency expectations and matched the bug
+            in issue #57. Aligned with the .NET binding which already defaulted to 0.)
+        retry_on_status: List of status codes to retry on (default: [429, 500, 502, 503, 504],
+            only consulted when retry > 0)
         retry_wait_min: Minimum wait time between retries in milliseconds (default: 500)
         retry_wait_max: Maximum wait time between retries in milliseconds (default: 10000)
         prefer_ipv4: Prefer IPv4 addresses over IPv6 (default: False)
@@ -1493,7 +1497,7 @@ class Session:
         verify: bool = True,
         allow_redirects: bool = True,
         max_redirects: int = 10,
-        retry: int = 3,
+        retry: int = 0,
         retry_on_status: Optional[List[int]] = None,
         retry_wait_min: int = 500,
         retry_wait_max: int = 10000,
@@ -3583,7 +3587,7 @@ def configure(
     verify: bool = True,
     allow_redirects: bool = True,
     max_redirects: int = 10,
-    retry: int = 3,
+    retry: int = 0,
     retry_on_status: Optional[List[int]] = None,
     prefer_ipv4: bool = False,
 ) -> None:
@@ -3603,8 +3607,8 @@ def configure(
         verify: SSL certificate verification (default: True)
         allow_redirects: Follow redirects (default: True)
         max_redirects: Maximum number of redirects to follow (default: 10)
-        retry: Number of retries on failure (default: 3, set to 0 to disable)
-        retry_on_status: List of status codes to retry on (default: None)
+        retry: Number of retries on failure (default: 0, no retries)
+        retry_on_status: List of status codes to retry on (default: None — only consulted when retry > 0)
         prefer_ipv4: Prefer IPv4 addresses over IPv6 (default: False)
 
     Example:

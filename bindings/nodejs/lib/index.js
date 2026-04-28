@@ -1326,8 +1326,8 @@ class Session {
    * @param {boolean} [options.verify=true] - SSL certificate verification
    * @param {boolean} [options.allowRedirects=true] - Follow redirects
    * @param {number} [options.maxRedirects=10] - Maximum number of redirects to follow
-   * @param {number} [options.retry=3] - Number of retries on failure (set to 0 to disable)
-   * @param {number[]} [options.retryOnStatus] - Status codes to retry on
+   * @param {number} [options.retry=0] - Number of retries on failure (default 0 = no retries; set positive to enable. Issue #57: prior default 3 silently retried POST/PUT/PATCH on 5xx, violating idempotency expectations)
+   * @param {number[]} [options.retryOnStatus] - Status codes to retry on (only consulted when retry > 0)
    * @param {number} [options.retryWaitMin=500] - Minimum wait time between retries in milliseconds
    * @param {number} [options.retryWaitMax=10000] - Maximum wait time between retries in milliseconds
    * @param {Array} [options.auth] - Default auth [username, password] for all requests
@@ -1347,7 +1347,7 @@ class Session {
       verify = true,
       allowRedirects = true,
       maxRedirects = 10,
-      retry = 3,
+      retry = 0,
       retryOnStatus = null,
       retryWaitMin = 500,
       retryWaitMax = 10000,
@@ -2918,8 +2918,8 @@ let _defaultConfig = {};
  * @param {boolean} [options.verify=true] - SSL certificate verification
  * @param {boolean} [options.allowRedirects=true] - Follow redirects
  * @param {number} [options.maxRedirects=10] - Maximum number of redirects to follow
- * @param {number} [options.retry=3] - Number of retries on failure (set to 0 to disable)
- * @param {number[]} [options.retryOnStatus] - Status codes to retry on
+ * @param {number} [options.retry=0] - Number of retries on failure (default 0 = no retries; set positive to enable. See issue #57)
+ * @param {number[]} [options.retryOnStatus] - Status codes to retry on (only consulted when retry > 0)
  */
 function configure(options = {}) {
   const {
@@ -2932,7 +2932,7 @@ function configure(options = {}) {
     verify = true,
     allowRedirects = true,
     maxRedirects = 10,
-    retry = 3,
+    retry = 0,
     retryOnStatus = null,
   } = options;
 
@@ -2988,7 +2988,7 @@ function _getDefaultSession() {
     const verify = _defaultConfig.verify !== undefined ? _defaultConfig.verify : true;
     const allowRedirects = _defaultConfig.allowRedirects !== undefined ? _defaultConfig.allowRedirects : true;
     const maxRedirects = _defaultConfig.maxRedirects || 10;
-    const retry = _defaultConfig.retry !== undefined ? _defaultConfig.retry : 3;
+    const retry = _defaultConfig.retry !== undefined ? _defaultConfig.retry : 0;
     const retryOnStatus = _defaultConfig.retryOnStatus || null;
     const headers = _defaultConfig.headers || {};
 
