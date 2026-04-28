@@ -158,6 +158,14 @@ type H3FingerprintConfig struct {
 	QUICMaxDatagramFrameSize *uint64 // nil = 65536 (Chrome). 0 to use quic-go default (16383).
 	MaxResponseHeaderBytes   *uint64 // nil = 262144
 	SendGreaseFrames         *bool   // nil = true
+
+	// QUIC flow-control windows. quic-go translates these to wire transport
+	// parameters initial_max_data (4) and initial_max_stream_data_* (5/6/7).
+	// nil = quic-go default (~7.5 MB conn, ~512 KB stream). Safari/iOS Chrome
+	// uses larger conn (16 MB) and smaller per-stream (2 MB) — set both to
+	// match.
+	QUICInitialStreamReceiveWindow     *uint64 // nil = quic-go default. iOS Chrome sends 2097152.
+	QUICInitialConnectionReceiveWindow *uint64 // nil = quic-go default. iOS Chrome sends 16777216.
 }
 
 // --- H2 Preset Getters ---
@@ -370,6 +378,26 @@ func (p *Preset) H3SendGreaseFrames() bool {
 		return *p.H3Config.SendGreaseFrames
 	}
 	return true
+}
+
+// H3QUICInitialStreamReceiveWindow returns the quic-go InitialStreamReceiveWindow
+// value (which becomes initial_max_stream_data_* on the wire). 0 means
+// "use quic-go default" (~512 KB). iOS Chrome sets 2 MiB.
+func (p *Preset) H3QUICInitialStreamReceiveWindow() uint64 {
+	if p.H3Config != nil && p.H3Config.QUICInitialStreamReceiveWindow != nil {
+		return *p.H3Config.QUICInitialStreamReceiveWindow
+	}
+	return 0
+}
+
+// H3QUICInitialConnectionReceiveWindow returns the quic-go InitialConnectionReceiveWindow
+// value (which becomes initial_max_data on the wire). 0 means
+// "use quic-go default" (~7.5 MB). iOS Chrome sets 16 MiB.
+func (p *Preset) H3QUICInitialConnectionReceiveWindow() uint64 {
+	if p.H3Config != nil && p.H3Config.QUICInitialConnectionReceiveWindow != nil {
+		return *p.H3Config.QUICInitialConnectionReceiveWindow
+	}
+	return 0
 }
 
 // chromeH2Config returns the explicit H2 fingerprint config for Chrome presets.
@@ -1755,6 +1783,26 @@ func IOSChrome147() *Preset {
 	return IOSChrome146()
 }
 
+// IOSChrome148 returns Chrome 148 on iOS — captured against real iOS Chrome
+// 148.0.7778.47, with deeper changes than the 147 bump:
+//   - User-Agent: iOS 26_4_2, CriOS/148.0.7778.47
+//   - HTTP/2 wire: SettingsOrder [2,3,4,9] (drops MAX_FRAME_SIZE), pseudo-order
+//     m,s,a,p (was m,s,p,a in safariH2Config), ConnectionWindowUpdate 10420225
+//   - HTTP/2 headers: priority added, sec-fetch-user removed, accept-encoding
+//     gains zstd, header order completely reshuffled
+//   - HTTP/3 QUIC: 2 MiB stream / 16 MiB connection flow control, 8 max
+//     incoming uni streams (vs Chrome's 103). TLS bytes (HelloIOS_18,
+//     HelloIOS_18_QUIC) match Chrome 146 iOS exactly — no utls update needed
+//
+// Note: chrome-146-ios and chrome-147-ios are intentionally NOT updated; this
+// preset captures the deeper iOS-Chrome-specific divergences as of 148 only.
+func IOSChrome148() *Preset {
+	if p := LookupCustom("chrome-148-ios"); p != nil {
+		return p
+	}
+	return IOSChrome146()
+}
+
 // AndroidChrome147 returns Chrome 147 on Android. Same diff pattern as
 // desktop (UA bump + sec-ch-ua brand rotation); inherits Linux-flavored
 // TLS from chrome-146-android. Falls back to AndroidChrome146.
@@ -2327,6 +2375,7 @@ var presets = map[string]func() *Preset{
 	"chrome-146-android": AndroidChrome146,
 	"chrome-147-ios":     IOSChrome147,
 	"chrome-147-android": AndroidChrome147,
+	"chrome-148-ios":     IOSChrome148,
 
 	// -latest aliases (always point to the newest version)
 	"chrome-latest":         Chrome147,
@@ -2335,7 +2384,7 @@ var presets = map[string]func() *Preset{
 	"chrome-latest-macos":   Chrome147macOS,
 	"firefox-latest":        Firefox148,
 	"safari-latest":         Safari18,
-	"chrome-latest-ios":     IOSChrome147,
+	"chrome-latest-ios":     IOSChrome148,
 	"safari-latest-ios":     IOSSafari18,
 	"chrome-latest-android": AndroidChrome147,
 
@@ -2345,6 +2394,7 @@ var presets = map[string]func() *Preset{
 	"ios-chrome-145":        IOSChrome145,
 	"ios-chrome-146":        IOSChrome146,
 	"ios-chrome-147":        IOSChrome147,
+	"ios-chrome-148":        IOSChrome148,
 	"ios-safari-17":         IOSSafari17,
 	"ios-safari-18":         IOSSafari18,
 	"android-chrome-143":    AndroidChrome143,
@@ -2352,7 +2402,7 @@ var presets = map[string]func() *Preset{
 	"android-chrome-145":    AndroidChrome145,
 	"android-chrome-146":    AndroidChrome146,
 	"android-chrome-147":    AndroidChrome147,
-	"ios-chrome-latest":     IOSChrome147,
+	"ios-chrome-latest":     IOSChrome148,
 	"ios-safari-latest":     IOSSafari18,
 	"android-chrome-latest": AndroidChrome147,
 }

@@ -264,6 +264,18 @@ func flattenHTTP3(p *Preset) *HTTP3Spec {
 	grease := p.H3SendGreaseFrames()
 	out.SendGreaseFrames = &grease
 
+	// Optional flow-control overrides — only emit when set explicitly so
+	// presets that leave them at quic-go defaults (the vast majority) don't
+	// collect noisy zero-value entries in their describe output.
+	if p.H3Config != nil && p.H3Config.QUICInitialStreamReceiveWindow != nil {
+		v := *p.H3Config.QUICInitialStreamReceiveWindow
+		out.QUICInitialStreamReceiveWindow = &v
+	}
+	if p.H3Config != nil && p.H3Config.QUICInitialConnectionReceiveWindow != nil {
+		v := *p.H3Config.QUICInitialConnectionReceiveWindow
+		out.QUICInitialConnectionReceiveWindow = &v
+	}
+
 	return out
 }
 

@@ -995,7 +995,7 @@ func (t *HTTP3Transport) buildQUICConfig(clientHelloID *utls.ClientHelloID, quic
 	if initialPacketSizeOverride > 0 {
 		initialPacketSize = initialPacketSizeOverride
 	}
-	return &quic.Config{
+	cfg := &quic.Config{
 		MaxIdleTimeout:                quicIdleTimeout,
 		KeepAlivePeriod:               keepAlivePeriod,
 		MaxIncomingStreams:            t.preset.H3QUICMaxIncomingStreams(),
@@ -1013,6 +1013,16 @@ func (t *HTTP3Transport) buildQUICConfig(clientHelloID *utls.ClientHelloID, quic
 		AdditionalTransportParameters:        AdditionalTransportParamsForPreset(t.preset, nil, "", 0),
 		MaxDatagramFrameSize:                 t.preset.H3QUICMaxDatagramFrameSize(),
 	}
+	// Optional per-preset flow-control overrides. Zero means "leave at quic-go
+	// default" — required for Chrome-style presets that match quic-go defaults
+	// out of the box. Only Safari/iOS-Chrome-style presets set non-zero values.
+	if v := t.preset.H3QUICInitialStreamReceiveWindow(); v != 0 {
+		cfg.InitialStreamReceiveWindow = v
+	}
+	if v := t.preset.H3QUICInitialConnectionReceiveWindow(); v != 0 {
+		cfg.InitialConnectionReceiveWindow = v
+	}
+	return cfg
 }
 
 // buildH3AdditionalSettings builds the HTTP/3 additional settings map from preset getters.

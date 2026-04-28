@@ -121,6 +121,13 @@ type HTTP3Spec struct {
 	QUICMaxDatagramFrameSize     *uint64 `json:"quic_max_datagram_frame_size,omitempty"`
 	MaxResponseHeaderBytes       *uint64 `json:"max_response_header_bytes,omitempty"`
 	SendGreaseFrames             *bool   `json:"send_grease_frames,omitempty"`
+
+	// QUIC flow-control windows. These map to quic.Config fields and ultimately
+	// to wire transport parameters initial_max_data (4) and initial_max_stream_data_*
+	// (5/6/7). nil = quic-go default. iOS Chrome / Safari uses larger conn (16 MiB)
+	// + smaller per-stream (2 MiB) than Chrome desktop.
+	QUICInitialStreamReceiveWindow     *uint64 `json:"quic_initial_stream_receive_window,omitempty"`
+	QUICInitialConnectionReceiveWindow *uint64 `json:"quic_initial_connection_receive_window,omitempty"`
 }
 
 // HeaderSpec defines header fingerprint configuration.
@@ -357,6 +364,14 @@ func clonePreset(src *Preset) *Preset {
 		if src.H3Config.SendGreaseFrames != nil {
 			v := *src.H3Config.SendGreaseFrames
 			h3.SendGreaseFrames = &v
+		}
+		if src.H3Config.QUICInitialStreamReceiveWindow != nil {
+			v := *src.H3Config.QUICInitialStreamReceiveWindow
+			h3.QUICInitialStreamReceiveWindow = &v
+		}
+		if src.H3Config.QUICInitialConnectionReceiveWindow != nil {
+			v := *src.H3Config.QUICInitialConnectionReceiveWindow
+			h3.QUICInitialConnectionReceiveWindow = &v
 		}
 		dst.H3Config = &h3
 	}
@@ -756,6 +771,14 @@ func applyHTTP3(p *Preset, spec *HTTP3Spec) {
 	if spec.SendGreaseFrames != nil {
 		v := *spec.SendGreaseFrames
 		h3.SendGreaseFrames = &v
+	}
+	if spec.QUICInitialStreamReceiveWindow != nil {
+		v := *spec.QUICInitialStreamReceiveWindow
+		h3.QUICInitialStreamReceiveWindow = &v
+	}
+	if spec.QUICInitialConnectionReceiveWindow != nil {
+		v := *spec.QUICInitialConnectionReceiveWindow
+		h3.QUICInitialConnectionReceiveWindow = &v
 	}
 }
 
