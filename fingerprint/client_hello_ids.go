@@ -2,6 +2,8 @@ package fingerprint
 
 import (
 	"fmt"
+	"strings"
+	"sync"
 
 	tls "github.com/sardanioss/utls"
 )
@@ -132,4 +134,64 @@ func ResolveClientHelloID(name string) (tls.ClientHelloID, error) {
 		return id, nil
 	}
 	return tls.ClientHelloID{}, fmt.Errorf("unknown client hello ID: %q", name)
+}
+
+// clientHelloIDKey is the (Client, Version) tuple used as the inverse-lookup key.
+// Two utls ClientHelloIDs are considered equivalent when both fields match;
+// Auto aliases share their key with the concrete target they resolve to.
+type clientHelloIDKey struct{ Client, Version string }
+
+var (
+	clientHelloIDNamesOnce sync.Once
+	clientHelloIDNames     map[clientHelloIDKey]string
+)
+
+func buildInverseClientHelloIDMap() {
+	m := make(map[clientHelloIDKey]string, len(clientHelloIDs))
+	// First pass: concrete names take priority. They're the unambiguous
+	// canonical identifiers and the form Describe should round-trip into.
+	for name, id := range clientHelloIDs {
+		if strings.HasSuffix(name, "-auto") {
+			continue
+		}
+		k := clientHelloIDKey{id.Client, id.Version}
+		// Skip empty keys (e.g., HelloGolang/HelloCustom have empty Client/Version).
+		if k.Client == "" && k.Version == "" {
+			continue
+		}
+		// Last write wins among concretes; clientHelloIDs has no duplicates by
+		// construction so this is effectively a single assignment per key.
+		m[k] = name
+	}
+	// Second pass: -auto aliases fill any keys not claimed by a concrete.
+	// This handles e.g. HelloChrome_Auto when no concrete shares its key,
+	// or families where only the -auto entry exists.
+	for name, id := range clientHelloIDs {
+		if !strings.HasSuffix(name, "-auto") {
+			continue
+		}
+		k := clientHelloIDKey{id.Client, id.Version}
+		if k.Client == "" && k.Version == "" {
+			continue
+		}
+		if _, exists := m[k]; !exists {
+			m[k] = name
+		}
+	}
+	clientHelloIDNames = m
+}
+
+// ClientHelloIDName returns the canonical string name for a utls ClientHelloID.
+// Suitable for round-trip JSON via Describe. Concrete names are preferred over
+// "-auto" aliases that resolve to the same (Client, Version) pair.
+//
+// Returns ("", false) for the zero-value ID and for IDs not registered in
+// clientHelloIDs (e.g., randomized variants or hand-built IDs).
+func ClientHelloIDName(id tls.ClientHelloID) (string, bool) {
+	if id.Client == "" && id.Version == "" {
+		return "", false
+	}
+	clientHelloIDNamesOnce.Do(buildInverseClientHelloIDMap)
+	name, ok := clientHelloIDNames[clientHelloIDKey{id.Client, id.Version}]
+	return name, ok
 }
