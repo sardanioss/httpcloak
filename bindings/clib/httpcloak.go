@@ -3523,6 +3523,20 @@ func httpcloak_preset_unregister(name *C.char) {
 	fingerprint.Unregister(C.GoString(name))
 }
 
+//export httpcloak_describe_preset
+// httpcloak_describe_preset returns a fully-resolved JSON dump of a preset's
+// effective state. The returned C string is malloc'd and must be freed by the
+// caller via httpcloak_free_string. On error (preset not registered, unknown
+// ClientHelloID), the result is a JSON object {"error": "..."} also requiring
+// httpcloak_free_string.
+func httpcloak_describe_preset(name *C.char) *C.char {
+	out, err := fingerprint.Describe(C.GoString(name))
+	if err != nil {
+		return makeErrorJSON(err)
+	}
+	return C.CString(out)
+}
+
 // --- Preset Pool Lifecycle ---
 
 //export httpcloak_pool_load_file
