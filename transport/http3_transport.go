@@ -73,8 +73,15 @@ func BuildChromeTransportParams() map[uint64][]byte {
 	binary.BigEndian.PutUint32(googleVersion, 0x00000001) // QUICv1
 	params[tpGoogleVersion] = googleVersion
 
-	// google_connection_options (0x3128 / 12584) - Chrome sends "B2ON"
-	params[tpGoogleConnectionOptions] = []byte("B2ON")
+	// google_connection_options (0x3128 / 12584) - 4-byte QUIC tag(s).
+	// Stable Chrome ships with kQuicOptions default "ORIG" (origin-frame
+	// experiment hint), per Chromium net/base/features.cc:
+	//   BASE_FEATURE_PARAM(std::string, kQuicOptions, &kTryQuicByDefault,
+	//                      "quic_options", "ORIG");
+	// The previous "B2ON" value (Enable BBRv2) only appears when a Chrome
+	// install has --enable-features=QuicConnectionOptions=B2ON or a Finch
+	// override, which is rare on the open web — bot fingerprinters flag it.
+	params[tpGoogleConnectionOptions] = []byte("ORIG")
 
 	// initial_rtt (0x3127) - Chrome sends cached SRTT in microseconds
 	// Default 100ms (100000us); MeasureInitialRTT overrides with real RTT
