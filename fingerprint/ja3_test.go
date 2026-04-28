@@ -487,3 +487,78 @@ func TestJA3HasExtension(t *testing.T) {
 		t.Fatal("expected false for empty JA3")
 	}
 }
+
+// TestParseJA3_HybridPQAutoBumpsKeyShares regression-tests the Firefox 141
+// crash: a JA3 whose first non-GREASE supported group is X25519MLKEM768
+// (4588) used to produce a single MLKEM-only key_share, which trips utls'
+// `keyShareKeys.ecdhe == nil` consistency check at handshake time and
+// surfaces as `local error: tls: internal error`. The fix bumps the default
+// key-share count to 2 in that case so an X25519 share is also sent — what
+// real Firefox and Chrome do anyway.
+func TestParseJA3_HybridPQAutoBumpsKeyShares(t *testing.T) {
+	// User's exact JA3 from the bug report. Curves start with 4588 (MLKEM).
+	// Extension 51 (key_share) is present.
+	ja3 := "772,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-16-5-34-18-51-43-13-45-28-27-65037,4588-29-23-24-25-256-257,0"
+	spec, err := ParseJA3(ja3, &JA3Extras{}) // no KeyShareCurves override
+	if err != nil {
+		t.Fatalf("ParseJA3: %v", err)
+	}
+	var ks *tls.KeyShareExtension
+	for _, ext := range spec.Extensions {
+		if x, ok := ext.(*tls.KeyShareExtension); ok {
+			ks = x
+			break
+		}
+	}
+	if ks == nil {
+		t.Fatal("expected key_share extension in spec")
+	}
+	if got := len(ks.KeyShares); got < 2 {
+		t.Errorf("MLKEM-first JA3 produced %d key_share(s); expected >= 2 so an X25519 share is paired with the MLKEM share (utls otherwise alerts internal_error)", got)
+	}
+	if len(ks.KeyShares) >= 1 && uint16(ks.KeyShares[0].Group) != 4588 {
+		t.Errorf("first key_share group = %d, want 4588 (X25519MLKEM768)", ks.KeyShares[0].Group)
+	}
+	if len(ks.KeyShares) >= 2 && uint16(ks.KeyShares[1].Group) != 29 {
+		t.Errorf("second key_share group = %d, want 29 (X25519)", ks.KeyShares[1].Group)
+	}
+}
+
+// TestParseJA3_HybridPQRespectsExplicitKeyShareCurves verifies the auto-bump
+// only applies when KeyShareCurves <= 1 — explicit user values like 3 are
+// honored as-is.
+func TestParseJA3_HybridPQRespectsExplicitKeyShareCurves(t *testing.T) {
+	ja3 := "772,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-16-5-34-18-51-43-13-45-28-27-65037,4588-29-23-24-25-256-257,0"
+	spec, err := ParseJA3(ja3, &JA3Extras{KeyShareCurves: 3})
+	if err != nil {
+		t.Fatalf("ParseJA3: %v", err)
+	}
+	for _, ext := range spec.Extensions {
+		if ks, ok := ext.(*tls.KeyShareExtension); ok {
+			if got := len(ks.KeyShares); got != 3 {
+				t.Errorf("explicit KeyShareCurves=3 produced %d shares, want 3", got)
+			}
+			return
+		}
+	}
+	t.Fatal("expected key_share extension in spec")
+}
+
+// TestParseJA3_NoBumpWithoutHybridPQ ensures classical-only curve lists
+// (no MLKEM/Kyber) keep the historical default of one key share.
+func TestParseJA3_NoBumpWithoutHybridPQ(t *testing.T) {
+	ja3 := "772,4865-4867-4866-49195-49199,0-23-10-11-16-51-43,29-23-24,0"
+	spec, err := ParseJA3(ja3, &JA3Extras{})
+	if err != nil {
+		t.Fatalf("ParseJA3: %v", err)
+	}
+	for _, ext := range spec.Extensions {
+		if ks, ok := ext.(*tls.KeyShareExtension); ok {
+			if got := len(ks.KeyShares); got != 1 {
+				t.Errorf("classical-only JA3 produced %d shares, want 1 (default)", got)
+			}
+			return
+		}
+	}
+	t.Fatal("expected key_share extension in spec")
+}

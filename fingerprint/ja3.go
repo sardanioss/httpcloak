@@ -295,6 +295,25 @@ func extensionForID(id uint16, extras *JA3Extras, curves []tls.CurveID, pointFor
 		if extras.KeyShareCurves > 0 {
 			maxShares = extras.KeyShareCurves
 		}
+		// Hybrid post-quantum curves (X25519MLKEM768, X25519Kyber768Draft00)
+		// must be paired with a classical X25519 key share — every real Chrome
+		// and Firefox does this, and utls' TLS 1.3 handshake consistency check
+		// requires keyShareKeys.ecdhe to be non-nil even when the spec only
+		// has an MLKEM share, so a single MLKEM share trips
+		// `local error: tls: internal error` before any wire traffic.
+		// Auto-bump to 2 shares when the first non-GREASE curve is hybrid PQ.
+		if maxShares < 2 {
+			for _, curve := range curves {
+				if isGREASE(uint16(curve)) {
+					continue
+				}
+				if uint16(curve) == 0x11EC || uint16(curve) == 0x6399 {
+					// 0x11EC = X25519MLKEM768 (4588), 0x6399 = X25519Kyber768Draft00 (25497)
+					maxShares = 2
+				}
+				break
+			}
+		}
 		var keyShares []tls.KeyShare
 		for _, curve := range curves {
 			if !isGREASE(uint16(curve)) {
