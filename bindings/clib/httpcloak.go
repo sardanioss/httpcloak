@@ -3527,7 +3527,9 @@ func httpcloak_preset_load_file(path *C.char) *C.char {
 	if err != nil {
 		return makeErrorJSON(err)
 	}
-	fingerprint.Register(p.Name, p)
+	if err := fingerprint.RegisterStrict(p.Name, p); err != nil {
+		return makeErrorJSON(err)
+	}
 	data, _ := json.Marshal(map[string]string{"name": p.Name})
 	return C.CString(string(data))
 }
@@ -3538,7 +3540,9 @@ func httpcloak_preset_load_json(jsonData *C.char) *C.char {
 	if err != nil {
 		return makeErrorJSON(err)
 	}
-	fingerprint.Register(p.Name, p)
+	if err := fingerprint.RegisterStrict(p.Name, p); err != nil {
+		return makeErrorJSON(err)
+	}
 	data, _ := json.Marshal(map[string]string{"name": p.Name})
 	return C.CString(string(data))
 }

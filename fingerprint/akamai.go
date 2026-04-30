@@ -6,6 +6,59 @@ import (
 	"strings"
 )
 
+// AkamaiPresence reports which fields a parsed Akamai shorthand actually
+// specified, so callers can distinguish "set to value X" from "absent /
+// default zero". Without this distinction, applyHTTP2 cannot tell whether
+// to let the akamai value override an inherited discrete-field value.
+type AkamaiPresence struct {
+	Settings        *HTTP2Settings
+	PseudoOrder     []string
+	SeenSettings    map[uint16]bool // SETTINGS IDs that appeared in the string
+	HasWindowUpdate bool            // WINDOW_UPDATE field had a value
+	HasStreamWeight bool            // PRIORITY field had a non-zero weight
+}
+
+// ParseAkamaiDetailed parses an Akamai shorthand and reports which fields
+// were actually present. The plain ParseAkamai delegates to this. Callers
+// that need to overlay an akamai shorthand on top of inherited / discrete
+// fields use this so they only override the slots the shorthand specifies.
+func ParseAkamaiDetailed(akamai string) (*AkamaiPresence, error) {
+	settings, pseudoOrder, err := ParseAkamai(akamai)
+	if err != nil {
+		return nil, err
+	}
+	pres := &AkamaiPresence{
+		Settings:     settings,
+		PseudoOrder:  pseudoOrder,
+		SeenSettings: map[uint16]bool{},
+	}
+	parts := strings.Split(akamai, "|")
+	if len(parts) >= 1 && parts[0] != "" {
+		for _, pair := range strings.Split(parts[0], ";") {
+			pair = strings.TrimSpace(pair)
+			if pair == "" {
+				continue
+			}
+			kv := strings.SplitN(pair, ":", 2)
+			if len(kv) == 2 {
+				if id, perr := strconv.ParseUint(strings.TrimSpace(kv[0]), 10, 16); perr == nil {
+					pres.SeenSettings[uint16(id)] = true
+				}
+			}
+		}
+	}
+	if len(parts) >= 2 && strings.TrimSpace(parts[1]) != "" {
+		pres.HasWindowUpdate = true
+	}
+	if len(parts) >= 3 {
+		w := strings.TrimSpace(parts[2])
+		if w != "" && w != "0" {
+			pres.HasStreamWeight = true
+		}
+	}
+	return pres, nil
+}
+
 // ParseAkamai parses an Akamai HTTP/2 fingerprint string into HTTP2Settings
 // and pseudo-header order.
 //

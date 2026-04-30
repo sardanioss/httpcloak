@@ -68,6 +68,7 @@ type Preset struct {
 	H3Config          *H3FingerprintConfig // nil = Chrome defaults for all H3/QUIC fingerprinting
 	JA3               string               // JA3 fingerprint string. When set, parsed fresh per connection instead of using ClientHelloID.
 	JA3Extras         *JA3Extras           // Supplements JA3 parsing. nil = Chrome defaults.
+	BasedOn           string               // For custom presets: name of the parent preset (used by inheritance-loop detection). Empty for built-ins.
 }
 
 // TCPFingerprint contains TCP/IP stack parameters that identify the OS.

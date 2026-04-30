@@ -229,6 +229,38 @@ func BuildPreset(spec *PresetSpec) (*Preset, error) {
 		return nil, fmt.Errorf("preset spec is nil")
 	}
 
+	// Inheritance-loop guard: walk the based_on chain and bail if we revisit
+	// a name we've already seen. Each link must resolve to a registered
+	// preset; the chain terminates at a built-in (which has based_on="").
+	if spec.BasedOn != "" && spec.Name != "" {
+		visited := map[string]bool{spec.Name: true}
+		// Climb from spec.BasedOn upward via the registered customPresets
+		// (built-ins have BasedOn="" so the loop terminates at them).
+		// Note: built-ins have no spec, only customPresets carry chains.
+		cur := spec.BasedOn
+		for cur != "" {
+			if visited[cur] {
+				return nil, fmt.Errorf("based_on inheritance loop detected at %q (chain re-enters %q)", cur, cur)
+			}
+			visited[cur] = true
+			if v, ok := customPresets.Load(cur); ok {
+				if cp, ok := v.(*Preset); ok && cp != nil {
+					cur = cp.BasedOn
+					continue
+				}
+			}
+			break // hit a built-in or unknown — chain terminates
+		}
+	}
+
+	// Pre-validate JA3 string format if provided, so users get a clear
+	// error at load time instead of an opaque TLS handshake failure later.
+	if spec.TLS != nil && spec.TLS.JA3 != "" {
+		if _, err := ParseJA3(spec.TLS.JA3, nil); err != nil {
+			return nil, fmt.Errorf("tls.ja3 is not a valid JA3 string: %w", err)
+		}
+	}
+
 	var p *Preset
 
 	// Start from base preset or empty
@@ -246,6 +278,8 @@ func BuildPreset(spec *PresetSpec) (*Preset, error) {
 	if spec.Name != "" {
 		p.Name = spec.Name
 	}
+	// Track inheritance lineage so future BuildPreset calls can detect loops.
+	p.BasedOn = spec.BasedOn
 
 	// Apply each section
 	if spec.TLS != nil {
@@ -622,52 +656,91 @@ func parseCertCompAlgs(names []string) ([]tls.CertCompressionAlgo, error) {
 }
 
 func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
-	// Parse akamai string first if provided
+	// Parse akamai shorthand if present, but do NOT apply it yet -- discrete
+	// fields go first so that fields the shorthand doesn't touch keep their
+	// inherited value. We then overlay only the slots the shorthand
+	// explicitly specified. (Issue: the previous order applied akamai first
+	// and let discrete fields overwrite; combined with describe_preset
+	// emitting all discrete fields including zero defaults, an inherited
+	// max_concurrent_streams=0 would clobber a captured akamai 3:1000.)
+	var akamai *AkamaiPresence
 	if spec.Akamai != "" {
-		settings, pseudoOrder, err := ParseAkamai(spec.Akamai)
+		var err error
+		akamai, err = ParseAkamaiDetailed(spec.Akamai)
 		if err != nil {
 			return fmt.Errorf("akamai: %w", err)
 		}
-		p.HTTP2Settings = *settings
-		// Apply pseudo order to H2Config
-		if len(pseudoOrder) > 0 {
+	}
+
+	// Individual SETTINGS fields. Skip slots the user-supplied akamai
+	// explicitly covers -- akamai wins for those.
+	if spec.HeaderTableSize != nil && (akamai == nil || !akamai.SeenSettings[1]) {
+		p.HTTP2Settings.HeaderTableSize = *spec.HeaderTableSize
+	}
+	if spec.EnablePush != nil && (akamai == nil || !akamai.SeenSettings[2]) {
+		p.HTTP2Settings.EnablePush = *spec.EnablePush
+	}
+	if spec.MaxConcurrentStreams != nil && (akamai == nil || !akamai.SeenSettings[3]) {
+		p.HTTP2Settings.MaxConcurrentStreams = *spec.MaxConcurrentStreams
+	}
+	if spec.InitialWindowSize != nil && (akamai == nil || !akamai.SeenSettings[4]) {
+		p.HTTP2Settings.InitialWindowSize = *spec.InitialWindowSize
+	}
+	if spec.MaxFrameSize != nil && (akamai == nil || !akamai.SeenSettings[5]) {
+		p.HTTP2Settings.MaxFrameSize = *spec.MaxFrameSize
+	}
+	if spec.MaxHeaderListSize != nil && (akamai == nil || !akamai.SeenSettings[6]) {
+		p.HTTP2Settings.MaxHeaderListSize = *spec.MaxHeaderListSize
+	}
+	if spec.ConnectionWindowUpdate != nil && (akamai == nil || !akamai.HasWindowUpdate) {
+		p.HTTP2Settings.ConnectionWindowUpdate = *spec.ConnectionWindowUpdate
+	}
+	if spec.StreamWeight != nil && (akamai == nil || !akamai.HasStreamWeight) {
+		p.HTTP2Settings.StreamWeight = *spec.StreamWeight
+	}
+	if spec.StreamExclusive != nil && (akamai == nil || !akamai.HasStreamWeight) {
+		p.HTTP2Settings.StreamExclusive = *spec.StreamExclusive
+	}
+	if spec.NoRFC7540Priorities != nil && (akamai == nil || !akamai.SeenSettings[9]) {
+		p.HTTP2Settings.NoRFC7540Priorities = *spec.NoRFC7540Priorities
+	}
+
+	// Now apply the akamai shorthand authoritatively for the slots it specified.
+	if akamai != nil {
+		if akamai.SeenSettings[1] {
+			p.HTTP2Settings.HeaderTableSize = akamai.Settings.HeaderTableSize
+		}
+		if akamai.SeenSettings[2] {
+			p.HTTP2Settings.EnablePush = akamai.Settings.EnablePush
+		}
+		if akamai.SeenSettings[3] {
+			p.HTTP2Settings.MaxConcurrentStreams = akamai.Settings.MaxConcurrentStreams
+		}
+		if akamai.SeenSettings[4] {
+			p.HTTP2Settings.InitialWindowSize = akamai.Settings.InitialWindowSize
+		}
+		if akamai.SeenSettings[5] {
+			p.HTTP2Settings.MaxFrameSize = akamai.Settings.MaxFrameSize
+		}
+		if akamai.SeenSettings[6] {
+			p.HTTP2Settings.MaxHeaderListSize = akamai.Settings.MaxHeaderListSize
+		}
+		if akamai.SeenSettings[9] {
+			p.HTTP2Settings.NoRFC7540Priorities = akamai.Settings.NoRFC7540Priorities
+		}
+		if akamai.HasWindowUpdate {
+			p.HTTP2Settings.ConnectionWindowUpdate = akamai.Settings.ConnectionWindowUpdate
+		}
+		if akamai.HasStreamWeight {
+			p.HTTP2Settings.StreamWeight = akamai.Settings.StreamWeight
+			p.HTTP2Settings.StreamExclusive = akamai.Settings.StreamExclusive
+		}
+		if len(akamai.PseudoOrder) > 0 {
 			if p.H2Config == nil {
 				p.H2Config = &H2FingerprintConfig{}
 			}
-			p.H2Config.PseudoHeaderOrder = pseudoOrder
+			p.H2Config.PseudoHeaderOrder = akamai.PseudoOrder
 		}
-	}
-
-	// Individual SETTINGS fields overlay on top of akamai
-	if spec.HeaderTableSize != nil {
-		p.HTTP2Settings.HeaderTableSize = *spec.HeaderTableSize
-	}
-	if spec.EnablePush != nil {
-		p.HTTP2Settings.EnablePush = *spec.EnablePush
-	}
-	if spec.MaxConcurrentStreams != nil {
-		p.HTTP2Settings.MaxConcurrentStreams = *spec.MaxConcurrentStreams
-	}
-	if spec.InitialWindowSize != nil {
-		p.HTTP2Settings.InitialWindowSize = *spec.InitialWindowSize
-	}
-	if spec.MaxFrameSize != nil {
-		p.HTTP2Settings.MaxFrameSize = *spec.MaxFrameSize
-	}
-	if spec.MaxHeaderListSize != nil {
-		p.HTTP2Settings.MaxHeaderListSize = *spec.MaxHeaderListSize
-	}
-	if spec.ConnectionWindowUpdate != nil {
-		p.HTTP2Settings.ConnectionWindowUpdate = *spec.ConnectionWindowUpdate
-	}
-	if spec.StreamWeight != nil {
-		p.HTTP2Settings.StreamWeight = *spec.StreamWeight
-	}
-	if spec.StreamExclusive != nil {
-		p.HTTP2Settings.StreamExclusive = *spec.StreamExclusive
-	}
-	if spec.NoRFC7540Priorities != nil {
-		p.HTTP2Settings.NoRFC7540Priorities = *spec.NoRFC7540Priorities
 	}
 
 	// Apply SETTINGS from structured list (overrides akamai/individual if same ID)
@@ -704,7 +777,7 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 			p.H2Config.SettingsOrder = make([]uint16, len(spec.SettingsOrder))
 			copy(p.H2Config.SettingsOrder, spec.SettingsOrder)
 		}
-		if spec.PseudoOrder != nil {
+		if spec.PseudoOrder != nil && (akamai == nil || len(akamai.PseudoOrder) == 0) {
 			p.H2Config.PseudoHeaderOrder = make([]string, len(spec.PseudoOrder))
 			copy(p.H2Config.PseudoHeaderOrder, spec.PseudoOrder)
 		}
