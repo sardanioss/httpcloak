@@ -93,4 +93,4 @@ __all__ = [
     "set_ech_dns_servers",
     "get_ech_dns_servers",
 ]
-__version__ = "1.6.1"
+__version__ = "1.6.5"
