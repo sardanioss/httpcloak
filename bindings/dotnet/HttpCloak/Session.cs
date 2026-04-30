@@ -522,12 +522,15 @@ public sealed class Session : IDisposable
         InferContentType(body, headers);
 
         // Body goes through the raw bytes channel, not the JSON payload.
+        // Public API: seconds (matches Session(timeout:) and per-request `timeout:`
+        // on Get/Post/Put/etc — see docstrings). The clib RequestRaw path
+        // expects milliseconds, so convert at the boundary.
         var request = new RequestConfig
         {
             Method = method.ToUpperInvariant(),
             Url = url,
             Headers = headers.Count > 0 ? headers : null,
-            Timeout = timeout,
+            Timeout = timeout * 1000,
             FetchMode = fetchMode,
         };
 

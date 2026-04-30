@@ -1488,8 +1488,21 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 		}
 	}
 
-	// Create cancellable context and store cancel func for this request
+	// Create cancellable context and store cancel func for this request.
+	// Layer the user-supplied timeout on top so per-request timeouts are
+	// actually honored — previously options.Timeout was parsed but never
+	// applied here, silently dropping the value passed by Node.js callers.
+	// Unit matches httpcloak_request_async: seconds.
 	ctx, cancel := context.WithCancel(context.Background())
+	if options.Timeout > 0 {
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, time.Duration(options.Timeout)*time.Second)
+		origCancel := cancel
+		cancel = func() {
+			timeoutCancel()
+			origCancel()
+		}
+	}
 	callbackMu.Lock()
 	cancelFuncs[int64(callbackID)] = cancel
 	callbackMu.Unlock()
@@ -1572,8 +1585,20 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		}
 	}
 
-	// Create cancellable context and store cancel func for this request
+	// Create cancellable context and store cancel func for this request.
+	// Layer the user-supplied timeout on top so per-request timeouts are
+	// actually honored — previously options.Timeout was parsed but never
+	// applied here. Unit matches httpcloak_request_async: seconds.
 	ctx, cancel := context.WithCancel(context.Background())
+	if options.Timeout > 0 {
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, time.Duration(options.Timeout)*time.Second)
+		origCancel := cancel
+		cancel = func() {
+			timeoutCancel()
+			origCancel()
+		}
+	}
 	callbackMu.Lock()
 	cancelFuncs[int64(callbackID)] = cancel
 	callbackMu.Unlock()

@@ -1938,7 +1938,10 @@ class Session:
             headers: Request headers
             cookies: Cookies to send with this request
             auth: Basic auth tuple (username, password)
-            timeout: Request timeout in milliseconds
+            timeout: Request timeout in seconds (matches Session(timeout=) and
+                the per-request `timeout` on get/post/put/patch/delete/head/
+                options). The clib expects milliseconds; the conversion is
+                applied below.
         """
         import json as json_module
 
@@ -1980,7 +1983,8 @@ class Session:
         if merged_headers:
             request_config["headers"] = merged_headers
         if timeout:
-            request_config["timeout"] = timeout
+            # Public API: seconds. clib: milliseconds.
+            request_config["timeout"] = int(timeout * 1000)
         if fetch_mode:
             request_config["fetch_mode"] = fetch_mode
 

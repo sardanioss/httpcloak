@@ -1786,7 +1786,7 @@ class Session {
    * @returns {Promise<Response>} Response object
    */
   get(url, options = {}) {
-    const { headers = null, params = null, cookies = null, auth = null, fetchMode = null } = options;
+    const { headers = null, params = null, cookies = null, auth = null, fetchMode = null, timeout = null } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1802,6 +1802,12 @@ class Session {
     }
     if (fetchMode) {
       reqOptions.fetch_mode = fetchMode;
+    }
+    if (timeout) {
+      // Public API: seconds (matches Session({ timeout }) and the
+      // existing request()/put()/delete()/etc. methods which forward to
+      // httpcloak_request_async — that path also uses time.Second).
+      reqOptions.timeout = timeout;
     }
     const optionsJson = Object.keys(reqOptions).length > 0 ? JSON.stringify(reqOptions) : null;
 
@@ -1823,7 +1829,7 @@ class Session {
    * @returns {Promise<Response>} Response object
    */
   post(url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, fetchMode = null } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, fetchMode = null, timeout = null } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1869,6 +1875,10 @@ class Session {
     }
     if (fetchMode) {
       reqOptions.fetch_mode = fetchMode;
+    }
+    if (timeout) {
+      // Public API: seconds. clib post_async path enforces in seconds.
+      reqOptions.timeout = timeout;
     }
     const optionsJson = Object.keys(reqOptions).length > 0 ? JSON.stringify(reqOptions) : null;
 
