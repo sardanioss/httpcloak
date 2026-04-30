@@ -37,6 +37,8 @@ temp/
 /test_fingerprint
 /test_cookie_isolation
 /test_session_resumption
+/custom-fingerprint
+/streaming
 tests/
 # Internal tests (not published)
 internal_tests/
