@@ -982,20 +982,15 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
-    /// Get all cookies as a flat name-value dictionary.
+    /// Get all cookies from the session with full metadata (domain, path, expiry, flags).
     /// </summary>
     /// <remarks>
-    /// In a future release, this method will return List&lt;Cookie&gt; with full metadata (domain, path, expiry, etc.),
-    /// same as <see cref="GetCookiesDetailed"/>. Update your code accordingly.
+    /// For the older flat name-&gt;value dict, build it yourself:
+    /// <c>session.GetCookies().ToDictionary(c =&gt; c.Name, c =&gt; c.Value)</c>.
     /// </remarks>
-    [Obsolete("In a future release, GetCookies() will return List<Cookie> with full metadata, same as GetCookiesDetailed(). Update your code accordingly.")]
-    public Dictionary<string, string> GetCookies()
+    public List<Cookie> GetCookies()
     {
-        var cookies = GetCookiesDetailed();
-        var result = new Dictionary<string, string>();
-        foreach (var c in cookies)
-            result[c.Name] = c.Value;
-        return result;
+        return GetCookiesDetailed();
     }
 
     /// <summary>
@@ -1043,19 +1038,14 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
-    /// Get a specific cookie value by name.
+    /// Get a specific cookie by name with full metadata (domain, path, expiry, flags).
     /// </summary>
     /// <param name="name">Cookie name</param>
-    /// <returns>Cookie value, or null if not found</returns>
-    /// <remarks>
-    /// In a future release, this method will return Cookie? with full metadata (domain, path, expiry, etc.),
-    /// same as <see cref="GetCookieDetailed"/>. Update your code accordingly.
-    /// </remarks>
-    [Obsolete("In a future release, GetCookie() will return Cookie? with full metadata, same as GetCookieDetailed(). Update your code accordingly.")]
-    public string? GetCookie(string name)
+    /// <returns>Cookie object, or null if not found.
+    /// For just the string value: <c>session.GetCookie("foo")?.Value</c>.</returns>
+    public Cookie? GetCookie(string name)
     {
-        var cookie = GetCookieDetailed(name);
-        return cookie?.Value;
+        return GetCookieDetailed(name);
     }
 
     /// <summary>

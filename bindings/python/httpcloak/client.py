@@ -2330,27 +2330,15 @@ class Session:
             ]
         return []
 
-    def get_cookies(self) -> Dict[str, str]:
+    def get_cookies(self) -> "List[Cookie]":
         """
-        Get all cookies as a flat name-value dict.
+        Get all cookies from the session with full metadata.
 
-        .. deprecated::
-            In a future release, this method will return ``List[Cookie]`` with full metadata,
-            same as :meth:`get_cookies_detailed`.
+        Returns a list of :class:`Cookie` objects (domain, path, expiry, flags).
+        For the older flat name->value dict, build it yourself:
+        ``{c.name: c.value for c in session.get_cookies()}``.
         """
-        if not getattr(Session, "_get_cookies_warned", False):
-            Session._get_cookies_warned = True
-            import warnings
-            warnings.warn(
-                "get_cookies() currently returns a flat {name: value} dict. "
-                "In a future release, it will return List[Cookie] with full metadata "
-                "(domain, path, expiry, etc.), same as get_cookies_detailed(). "
-                "Update your code accordingly.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        cookies = self.get_cookies_detailed()
-        return {c.name: c.value for c in cookies}
+        return self.get_cookies_detailed()
 
     def get_cookie_detailed(self, name: str) -> "Optional[Cookie]":
         """
@@ -2368,33 +2356,20 @@ class Session:
                 return c
         return None
 
-    def get_cookie(self, name: str) -> Optional[str]:
+    def get_cookie(self, name: str) -> "Optional[Cookie]":
         """
-        Get a specific cookie value by name.
+        Get a specific cookie by name with full metadata.
 
-        .. deprecated::
-            In a future release, this method will return ``Optional[Cookie]`` with full metadata,
-            same as :meth:`get_cookie_detailed`.
+        Returns a :class:`Cookie` object (domain, path, expiry, flags) or ``None``
+        if not found. For just the value: ``c = session.get_cookie("foo"); v = c.value if c else None``.
 
         Args:
             name: Cookie name
 
         Returns:
-            Cookie value or None if not found
+            Cookie object or None if not found
         """
-        if not getattr(Session, "_get_cookie_warned", False):
-            Session._get_cookie_warned = True
-            import warnings
-            warnings.warn(
-                "get_cookie() currently returns a string value. "
-                "In a future release, it will return a Cookie object with full metadata "
-                "(domain, path, expiry, etc.), same as get_cookie_detailed(). "
-                "Update your code accordingly.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        cookie = self.get_cookie_detailed(name)
-        return cookie.value if cookie else None
+        return self.get_cookie_detailed(name)
 
     def set_cookie(
         self,

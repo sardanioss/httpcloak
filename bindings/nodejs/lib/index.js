@@ -2013,25 +2013,15 @@ class Session {
   }
 
   /**
-   * Get all cookies as a flat name-value object.
-   * @deprecated getCookies() will return Cookie[] with full metadata (domain, path, expiry) in a future release.
-   *             Use getCookiesDetailed() if you want the new format now.
-   * @returns {Object} Cookies as key-value pairs
+   * Get all cookies from the session with full metadata.
+   *
+   * Returns Cookie[] with domain/path/expiry/flags. For the older flat
+   * name->value object, build it yourself:
+   * `Object.fromEntries(session.getCookies().map(c => [c.name, c.value]))`.
+   * @returns {Cookie[]}
    */
   getCookies() {
-    if (!Session._getCookiesDeprecated) {
-      Session._getCookiesDeprecated = true;
-      process.emitWarning(
-        'getCookies() currently returns a flat {name: value} object. In a future release, it will return Cookie[] with full metadata (domain, path, expiry, etc.), same as getCookiesDetailed(). Update your code accordingly.',
-        'DeprecationWarning'
-      );
-    }
-    const cookies = this.getCookiesDetailed();
-    const result = {};
-    for (const c of cookies) {
-      result[c.name] = c.value;
-    }
-    return result;
+    return this.getCookiesDetailed();
   }
 
   /**
@@ -2045,22 +2035,15 @@ class Session {
   }
 
   /**
-   * Get a specific cookie value by name.
-   * @deprecated getCookie() will return a Cookie object (with domain, path, expiry) instead of a string in a future release.
-   *             Use getCookieDetailed() if you want the new format now.
+   * Get a specific cookie by name.
+   *
+   * Returns a Cookie object (with domain/path/expiry/flags) or null. For just
+   * the string value: `const c = session.getCookie('foo'); const v = c?.value`.
    * @param {string} name - Cookie name
-   * @returns {string|null} Cookie value or null if not found
+   * @returns {Cookie|null}
    */
   getCookie(name) {
-    if (!Session._getCookieDeprecated) {
-      Session._getCookieDeprecated = true;
-      process.emitWarning(
-        'getCookie() currently returns a string value. In a future release, it will return a Cookie object with full metadata (domain, path, expiry, etc.), same as getCookieDetailed(). Update your code accordingly.',
-        'DeprecationWarning'
-      );
-    }
-    const cookie = this.getCookieDetailed(name);
-    return cookie ? cookie.value : null;
+    return this.getCookieDetailed(name);
   }
 
   /**
