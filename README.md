@@ -234,6 +234,42 @@ var r = session.Get("https://httpbin.org/headers",
 
 ## Features
 
+### 🧬 Build Any Browser Fingerprint From JSON
+
+Don't have a preset for your target browser? Capture once, use forever. Visit `tls.peet.ws/api/all` in the browser you want to mimic, paste the JA3 + Akamai fingerprint into a JSON spec, register it, and you have a brand-new preset that emits real wire bytes.
+
+```python
+import json, httpcloak
+
+# 1. Capture: visit tls.peet.ws/api/all in the browser, copy two fields.
+PEET_JA3    = "771,4865-4866-4867-49195-49199-49196-49200-...,29-23-24,0"
+PEET_AKAMAI = "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+
+# 2. Start from any built-in preset, swap in the captured fingerprint.
+spec = json.loads(httpcloak.describe_preset("chrome-latest"))
+spec["preset"]["name"]            = "my-browser"
+spec["preset"]["tls"]             = {"ja3": PEET_JA3}
+spec["preset"]["http2"]["akamai"] = PEET_AKAMAI
+
+# 3. Register, use like any built-in preset.
+httpcloak.load_preset_from_json(json.dumps(spec))
+session = httpcloak.Session(preset="my-browser")
+r = session.get("https://target.com/")
+```
+
+`describe_preset` emits **every effective field** — TLS extensions, HTTP/2 SETTINGS order, HPACK encoding order, per-resource-type stream priority table, QUIC transport params, TCP/IP fingerprint, full header set — so anything you see in the JSON is editable. Mutated specs round-trip byte-equal through `load_preset_from_json` → run → `describe_preset`: same wire mechanics, just the values you changed.
+
+Same workflow across all bindings:
+
+| | Describe | Load | Unregister |
+|---|---|---|---|
+| **Python** | `httpcloak.describe_preset(name)` | `httpcloak.load_preset_from_json(json)` | `httpcloak.unregister_preset(name)` |
+| **Node.js** | `describePreset(name)` | `loadPresetFromJSON(json)` | `unregisterPreset(name)` |
+| **.NET** | `CustomPresets.Describe(name)` | `CustomPresets.LoadFromJson(json)` | `CustomPresets.Unregister(name)` |
+| **Go** | `fingerprint.Describe(name)` | `fingerprint.LoadPresetFromJSON(json)` | `fingerprint.Unregister(name)` |
+
+Pool dozens of fingerprints with `PresetPool` (round-robin / random rotation, all bindings). Drill-down recipes — bumping a single H2 priority, inserting an HPACK header, importing a peet.ws capture, cleaning up — in [examples/python-examples/17_tweak_fingerprint.py](examples/python-examples/17_tweak_fingerprint.py), [examples/js-examples/18_tweak_fingerprint.js](examples/js-examples/18_tweak_fingerprint.js), and [examples/csharp-examples/TweakFingerprint.cs](examples/csharp-examples/TweakFingerprint.cs).
+
 ### 🔐 ECH (Encrypted Client Hello)
 
 Hides which domain you're connecting to from network observers.
@@ -1008,6 +1044,26 @@ response.Protocol
 | `chrome-143-android` | Android | ✅ | ✅ |
 
 **PQ** = Post-Quantum (X25519MLKEM768) · **H3** = HTTP/3
+
+---
+
+## Custom Preset Edit Points
+
+Any field below is editable in the JSON spec produced by `describe_preset` (see the [Build Any Browser Fingerprint From JSON](#-build-any-browser-fingerprint-from-json) section above for the workflow):
+
+| Path | What it controls |
+|------|------------------|
+| `preset.tls.ja3` | JA3 string (cipher suites, extensions, curves) |
+| `preset.http2.akamai` | H2 SETTINGS / WINDOW_UPDATE / PRIORITY / pseudo-order shorthand |
+| `preset.http2.priority_table[dest]` | Per-resource-type H2 stream priority (sec-fetch-dest → urgency) |
+| `preset.http2.hpack_header_order` | HPACK encoding order |
+| `preset.http2.settings_order` | SETTINGS frame ID order |
+| `preset.http2.pseudo_order` | HTTP/2 pseudo-header order |
+| `preset.http3` | HTTP/3 / QUIC parameters |
+| `preset.tcp` | TCP/IP fingerprint |
+| `preset.headers.values` / `preset.headers.order` | Header values and request order |
+
+Round-trip is byte-equal — `describe_preset` → mutate JSON → `load_preset_from_json` → run → `describe_preset` returns identical bytes.
 
 ---
 
