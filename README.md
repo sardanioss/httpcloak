@@ -277,11 +277,11 @@ Hides which domain you're connecting to from network observers.
 ```python
 session = httpcloak.Session(
     preset="chrome-latest",
-    ech_from="cloudflare.com"  # Fetches ECH config from DNS
+    ech_config_domain="cloudflare-ech.com"  # Fetches ECH config from DNS
 )
 ```
 
-Cloudflare trace shows `sni=encrypted` instead of `sni=plaintext`.
+Cloudflare trace shows `sni=encrypted` instead of `sni=plaintext`. Use `cloudflare-ech.com` (the dedicated ECH domain) for any Cloudflare-fronted target.
 
 ### ⚡ Session Resumption (0-RTT)
 
@@ -810,7 +810,7 @@ session = httpcloak.Session(
     proxy="socks5://...",      # Proxy URL
     timeout=30,                # Timeout in seconds
     http_version="h3",         # Force protocol: h1, h2, h3, auto
-    ech_from="cloudflare.com", # ECH config source
+    ech_config_domain="cloudflare-ech.com",  # ECH config source domain
     auth=("user", "pass"),     # Basic auth
 )
 
