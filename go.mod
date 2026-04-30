@@ -14,7 +14,7 @@ require (
 	github.com/miekg/dns v1.1.69
 	github.com/sardanioss/http v1.2.0
 	github.com/sardanioss/net v1.2.6
-	github.com/sardanioss/quic-go v1.2.23
+	github.com/sardanioss/quic-go v1.2.24
 	github.com/sardanioss/udpbara v1.1.0
 	github.com/sardanioss/utls v1.10.3
 	golang.org/x/net v0.48.0
@@ -29,5 +29,3 @@ require (
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
 )
-
-replace github.com/sardanioss/quic-go => /home/saksham/own_tools/quic-go
