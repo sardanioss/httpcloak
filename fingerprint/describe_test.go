@@ -260,6 +260,141 @@ func TestDescribe_HTTP3OnlyWhenSupported(t *testing.T) {
 	}
 }
 
+// TestDescribe_PriorityTableEmittedForRFC7540Presets verifies that
+// Describe() emits the EFFECTIVE priority_table — including the inherited
+// default — for any preset that uses RFC 7540 stream priorities. This is
+// what makes the describe → edit JSON → load_preset_from_json workflow
+// useful for legacy Chrome and Firefox presets: users see the bytes the
+// wire will actually carry and can tweak any entry.
+//
+// Conversely, NoRFC7540Priorities=true presets (Safari, iOS Chrome, iOS
+// Safari) must NOT emit priority_table because they don't carry the
+// RFC 7540 PRIORITY frame at all.
+func TestDescribe_PriorityTableEmittedForRFC7540Presets(t *testing.T) {
+	mustEmit := []string{
+		"chrome-147-windows", // explicit table
+		"chrome-146-windows", // inherits default
+		"chrome-145",         // inherits default
+		"chrome-141",         // inherits default
+		"chrome-133",         // inherits default
+		"firefox-148",        // inherits default
+	}
+	mustOmit := []string{
+		"chrome-147-ios",
+		"chrome-148-ios",
+		"safari-latest",
+		"ios-chrome-latest",
+		"ios-safari-latest",
+	}
+	for _, name := range mustEmit {
+		out, err := Describe(name)
+		if err != nil {
+			t.Errorf("%s: describe error: %v", name, err)
+			continue
+		}
+		var pf PresetFile
+		if err := json.Unmarshal([]byte(out), &pf); err != nil {
+			t.Errorf("%s: unmarshal: %v", name, err)
+			continue
+		}
+		if pf.Preset.HTTP2 == nil || pf.Preset.HTTP2.PriorityTable == nil {
+			t.Errorf("%s: priority_table absent in describe output (want present, RFC 7540 preset must show effective table)", name)
+			continue
+		}
+		if len(pf.Preset.HTTP2.PriorityTable) < 14 {
+			t.Errorf("%s: priority_table has %d entries, want ≥14 (full Chrome 147 table)", name, len(pf.Preset.HTTP2.PriorityTable))
+		}
+		// Sanity-check a known entry round-trips correctly.
+		if rp, ok := pf.Preset.HTTP2.PriorityTable["document"]; ok {
+			if rp.Urgency != 0 || !rp.Incremental || !rp.EmitHeader {
+				t.Errorf("%s: document entry = %+v, want u=0/i=true/emit=true", name, rp)
+			}
+		} else {
+			t.Errorf("%s: priority_table missing 'document' entry", name)
+		}
+	}
+	for _, name := range mustOmit {
+		p := GetStrict(name)
+		if p == nil {
+			continue
+		}
+		out, err := Describe(name)
+		if err != nil {
+			t.Errorf("%s: describe error: %v", name, err)
+			continue
+		}
+		var pf PresetFile
+		if err := json.Unmarshal([]byte(out), &pf); err != nil {
+			t.Errorf("%s: unmarshal: %v", name, err)
+			continue
+		}
+		if pf.Preset.HTTP2 != nil && pf.Preset.HTTP2.PriorityTable != nil {
+			t.Errorf("%s: priority_table present in describe output (want absent, NoRFC7540 preset must not emit)", name)
+		}
+	}
+}
+
+// TestDescribe_PriorityTableSurvivesEditLoadCycle verifies the
+// describe → edit → load_preset_from_json workflow we expose to users
+// for tweaking individual fingerprint values.
+func TestDescribe_PriorityTableSurvivesEditLoadCycle(t *testing.T) {
+	// Start from chrome-146-windows (inherits the default). The user's
+	// expected workflow: describe, mutate one entry, load under a new
+	// name, verify the wire-relevant resolution honors the edit.
+	out, err := Describe("chrome-146-windows")
+	if err != nil {
+		t.Fatalf("describe: %v", err)
+	}
+	var pf PresetFile
+	if err := json.Unmarshal([]byte(out), &pf); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if pf.Preset.HTTP2 == nil || pf.Preset.HTTP2.PriorityTable == nil {
+		t.Fatal("chrome-146-windows describe missing priority_table (precondition)")
+	}
+
+	// Mutate: bump image urgency from u=2 to u=1.
+	pf.Preset.Name = "chrome-146-windows-img-bumped"
+	pf.Preset.HTTP2.PriorityTable["image"] = ResourcePrioritySpec{
+		Urgency: 1, Incremental: true, EmitHeader: true,
+	}
+
+	rebuilt, err := BuildPreset(pf.Preset)
+	if err != nil {
+		t.Fatalf("BuildPreset: %v", err)
+	}
+	t.Cleanup(func() { Unregister("chrome-146-windows-img-bumped") })
+	Register("chrome-146-windows-img-bumped", rebuilt)
+
+	// Verify the modified entry resolves correctly.
+	got := GetStrict("chrome-146-windows-img-bumped")
+	if got == nil {
+		t.Fatal("re-registered preset not found")
+	}
+	weight, _, header, ok := got.H2PriorityFor("image")
+	if !ok {
+		t.Fatal("image dest: ok=false, want true")
+	}
+	if weight != 220 {
+		t.Errorf("image weight after edit = %d, want 220 (u=1)", weight)
+	}
+	if header != "u=1, i" {
+		t.Errorf("image priority header after edit = %q, want %q", header, "u=1, i")
+	}
+
+	// Verify other entries (e.g. document) still resolve to defaults.
+	docWeight, _, docHeader, ok := got.H2PriorityFor("document")
+	if !ok {
+		t.Fatal("document dest: ok=false")
+	}
+	if docWeight != 256 {
+		t.Errorf("document weight after image edit = %d, want 256 (unchanged)", docWeight)
+	}
+	if docHeader != "u=0, i" {
+		t.Errorf("document priority header after image edit = %q, want %q", docHeader, "u=0, i")
+	}
+}
+
 // TestDescribe_TCPSectionOmittedWhenZero verifies the TCP section is dropped
 // when the preset has no TCP fingerprint configured. Round-trip must NOT
 // resurrect zero values via the platform shorthand.

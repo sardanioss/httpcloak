@@ -1496,17 +1496,13 @@ func applyTLSOnlyHeaders(httpReq *http.Request, preset *fingerprint.Preset, req 
 	}
 
 	// Set header order for HTTP/2 and HTTP/3 fingerprinting
-	// Even in TLSOnly mode, header order matters for fingerprinting
+	// Use H2HeaderOrder (full HPACK position table) so user-supplied headers
+	// outside the default emit set (cache-control, content-type, cookie, …)
+	// land in their real-Chrome position instead of being appended at the end.
 	if len(customHeaderOrder) > 0 {
-		// Use custom header order
 		httpReq.Header[http.HeaderOrderKey] = customHeaderOrder
-	} else if len(preset.HeaderOrder) > 0 {
-		// Use preset's header order
-		order := make([]string, len(preset.HeaderOrder))
-		for i, hp := range preset.HeaderOrder {
-			order[i] = hp.Key
-		}
-		httpReq.Header[http.HeaderOrderKey] = order
+	} else {
+		httpReq.Header[http.HeaderOrderKey] = preset.H2HeaderOrder()
 	}
 
 	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)
@@ -1579,26 +1575,13 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 	}
 
 	// Set header order for HTTP/2 and HTTP/3 fingerprinting
-	// Custom order takes precedence, then preset's protocol-specific order, then fallback
+	// Use H2HeaderOrder (full HPACK position table) — see the matching
+	// comment in transport.applyPresetHeaders for the rationale. Caller
+	// override still wins.
 	if len(customHeaderOrder) > 0 {
-		// Use custom header order
 		httpReq.Header[http.HeaderOrderKey] = customHeaderOrder
-	} else if len(preset.HeaderOrder) > 0 {
-		// Use preset's header order (H2/default)
-		order := make([]string, len(preset.HeaderOrder))
-		for i, hp := range preset.HeaderOrder {
-			order[i] = hp.Key
-		}
-		httpReq.Header[http.HeaderOrderKey] = order
 	} else {
-		// Fallback to hardcoded default (Chrome 143 order)
-		httpReq.Header[http.HeaderOrderKey] = []string{
-			"content-length", "sec-ch-ua-platform", "user-agent", "sec-ch-ua",
-			"content-type", "sec-ch-ua-mobile", "accept", "origin",
-			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
-			"referer", "accept-encoding", "accept-language", "priority",
-			"upgrade-insecure-requests", "cookie",
-		}
+		httpReq.Header[http.HeaderOrderKey] = preset.H2HeaderOrder()
 	}
 
 	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)

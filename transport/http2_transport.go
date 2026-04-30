@@ -684,6 +684,33 @@ alpnCheck:
 			}
 			return nil
 		}(),
+		// Per-request priority table override. Chrome 147+ desktop emits a
+		// different stream weight per resource type (sec-fetch-dest), not a
+		// single session-wide value. When the preset defines a PriorityTable,
+		// we install a per-request callback that consults the request's
+		// Sec-Fetch-Dest header and returns the matching wire priority.
+		// The callback returns nil for unknown dest values, in which case the
+		// fork falls back to HeaderPriority above (legacy single-weight). For
+		// presets without a PriorityTable, HeaderPriorityFunc stays nil and
+		// behaviour is identical to the pre-#56 single-weight model.
+		HeaderPriorityFunc: func() func(req *http.Request) *http2.PriorityParam {
+			preset := t.preset
+			if !preset.H2HasPriorityTable() {
+				return nil
+			}
+			return func(req *http.Request) *http2.PriorityParam {
+				dest := req.Header.Get("Sec-Fetch-Dest")
+				weight, exclusive, _, ok := preset.H2PriorityFor(dest)
+				if !ok {
+					return nil // fall back to HeaderPriority static default
+				}
+				return &http2.PriorityParam{
+					Weight:    uint8(weight - 1), // wire format is weight-1; weight is 1..256, never 0
+					Exclusive: exclusive,
+					StreamDep: 0,
+				}
+			}
+		}(),
 		HeaderOrder:         t.preset.H2HeaderOrder(),
 		UserAgent:           userAgent,
 		StreamPriorityMode:  resolveStreamPriorityMode(t.preset.H2StreamPriorityMode()),

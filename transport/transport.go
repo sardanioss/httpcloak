@@ -1777,9 +1777,30 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 		// Sec-Fetch-* headers. WAFs like Akamai flag navigation headers on
 		// API endpoints as bot behavior.
 		if sniffXHRMode(httpReq.Method, userHeaders) {
-			httpReq.Header.Set("Sec-Fetch-Mode", "cors")
-			httpReq.Header.Set("Sec-Fetch-Dest", "empty")
-			httpReq.Header.Set("Sec-Fetch-Site", "cross-site")
+			// Preserve any explicitly user-supplied Sec-Fetch-Mode/Dest/Site;
+			// the sniff coercion is for "user said nothing, infer XHR" — once
+			// they pin a value (e.g. mode=no-cors, dest=image, site=same-origin)
+			// the request shape is intentional and our preset header defaults
+			// (which assume navigation) should yield. Without this, callers
+			// can't request browser sub-resource fetches like preload-as=image.
+			userMode := headerVal(userHeaders, "Sec-Fetch-Mode")
+			userDest := headerVal(userHeaders, "Sec-Fetch-Dest")
+			userSite := headerVal(userHeaders, "Sec-Fetch-Site")
+			if userMode != "" {
+				httpReq.Header.Set("Sec-Fetch-Mode", userMode)
+			} else {
+				httpReq.Header.Set("Sec-Fetch-Mode", "cors")
+			}
+			if userDest != "" {
+				httpReq.Header.Set("Sec-Fetch-Dest", userDest)
+			} else {
+				httpReq.Header.Set("Sec-Fetch-Dest", "empty")
+			}
+			if userSite != "" {
+				httpReq.Header.Set("Sec-Fetch-Site", userSite)
+			} else {
+				httpReq.Header.Set("Sec-Fetch-Site", "cross-site")
+			}
 			httpReq.Header.Del("Sec-Fetch-User")
 			httpReq.Header.Del("sec-fetch-user")
 			httpReq.Header.Del("Upgrade-Insecure-Requests")
@@ -1791,11 +1812,41 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 				httpReq.Header.Set("Accept", "*/*")
 			}
 			// CORS uses u=1,i priority (lower urgency than navigation's u=0,i)
+			// — used as the static fallback when the preset has no per-dest
+			// PriorityTable. Presets that ship a PriorityTable (Chrome 147+)
+			// override this below.
 			if httpReq.Header.Get("Priority") != "" {
 				httpReq.Header.Set("Priority", "u=1, i")
 			}
 			if httpReq.Header.Get("priority") != "" {
 				httpReq.Header.Set("priority", "u=1, i")
+			}
+		}
+
+		// Per-resource-type priority: HTTP header. Chrome 147+ desktop emits
+		// a distinct urgency per sec-fetch-dest (style→u=0, script→u=1,
+		// manifest→u=2, image→u=2/i, fetch→u=1/i, prefetch→u=4/i, …). Presets
+		// that ship a PriorityTable apply that mapping here AFTER the XHR
+		// detector runs (so Sec-Fetch-Dest is final). Presets without a table
+		// retain the static priority set by HeaderOrder / sniffXHRMode above.
+		//
+		// Skip on HTTP/1.1 — Chrome never sends the priority: header on H1;
+		// the H1 strip below handles cleanup either way.
+		if (protocol == "h2" || protocol == "h3") && preset.H2HasPriorityTable() {
+			dest := httpReq.Header.Get("Sec-Fetch-Dest")
+			if _, _, hv, ok := preset.H2PriorityFor(dest); ok {
+				if hv == "" {
+					// Chrome omits the header for this dest (e.g. async/defer scripts).
+					httpReq.Header.Del("Priority")
+					httpReq.Header.Del("priority")
+				} else {
+					httpReq.Header.Set("Priority", hv)
+					// Mirror the lowercase form for callers that bypassed Set's
+					// canonicalization when constructing the request.
+					if _, hasLower := httpReq.Header["priority"]; hasLower {
+						httpReq.Header["priority"] = []string{hv}
+					}
+				}
 			}
 		}
 
@@ -1814,23 +1865,20 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 
 	// Set header order for HTTP/2 and HTTP/3 fingerprinting
 	// Chrome uses the same header order for both H2 and H3 (same request_->extra_headers vector)
+	//
+	// Important: use H2HeaderOrder() (the full HPACK position table) — NOT
+	// preset.HeaderOrder (the default emit set). The two differ: HeaderOrder
+	// only lists headers Chrome sends on every request, while H2HeaderOrder
+	// also reserves slots for situational headers (cache-control on F5,
+	// content-type/content-length on POST, origin/referer on cross-origin,
+	// cookie on subsequent requests). Using HeaderOrder here was a real
+	// fingerprinting bug — when callers added cache-control/content-type/
+	// cookie, the fork couldn't slot them and appended them after `priority`
+	// instead of placing them where real Chrome does.
 	if len(customHeaderOrder) > 0 {
 		httpReq.Header[http.HeaderOrderKey] = customHeaderOrder
-	} else if len(preset.HeaderOrder) > 0 {
-		order := make([]string, len(preset.HeaderOrder))
-		for i, hp := range preset.HeaderOrder {
-			order[i] = hp.Key
-		}
-		httpReq.Header[http.HeaderOrderKey] = order
 	} else {
-		// Fallback to hardcoded default (Chrome 143 order)
-		httpReq.Header[http.HeaderOrderKey] = []string{
-			"content-length", "sec-ch-ua-platform", "user-agent", "sec-ch-ua",
-			"content-type", "sec-ch-ua-mobile", "accept", "origin",
-			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
-			"referer", "accept-encoding", "accept-language", "priority",
-			"upgrade-insecure-requests", "cookie",
-		}
+		httpReq.Header[http.HeaderOrderKey] = preset.H2HeaderOrder()
 	}
 
 	// Set pseudo-header order: custom (Akamai) > preset H2Config > heuristic

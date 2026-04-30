@@ -225,6 +225,39 @@ func flattenHTTP2(p *Preset) *HTTP2Spec {
 		out.PseudoOrder = append([]string(nil), po...)
 	}
 
+	// PriorityTable: emit the EFFECTIVE table (explicit override OR
+	// inherited package default). This means describe_preset always shows
+	// the user the priority bytes the wire will carry, including for
+	// presets that inherit the default — no surprises after a Describe →
+	// edit JSON → LoadPresetFromJSON round-trip.
+	//
+	// Resolution mirrors H2HasPriorityTable / H2PriorityFor:
+	//   - explicit populated PriorityTable wins.
+	//   - else, if the preset uses RFC 7540, emit the package default.
+	//   - else (NoRFC7540Priorities=true: Safari, iOS Chrome, iOS Safari),
+	//     omit the field — those presets don't emit RFC 7540 PRIORITY
+	//     frames at all.
+	//
+	// json.Marshal sorts map keys alphabetically, giving deterministic
+	// output without extra work.
+	var srcTable map[string]ResourcePriority
+	switch {
+	case p.H2Config != nil && len(p.H2Config.PriorityTable) > 0:
+		srcTable = p.H2Config.PriorityTable
+	case !p.HTTP2Settings.NoRFC7540Priorities:
+		srcTable = defaultPriorityTable
+	}
+	if srcTable != nil {
+		out.PriorityTable = make(map[string]ResourcePrioritySpec, len(srcTable))
+		for dest, rp := range srcTable {
+			out.PriorityTable[dest] = ResourcePrioritySpec{
+				Urgency:     rp.Urgency,
+				Incremental: rp.Incremental,
+				EmitHeader:  rp.EmitHeader,
+			}
+		}
+	}
+
 	return out
 }
 

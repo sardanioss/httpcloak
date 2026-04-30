@@ -3,6 +3,24 @@
   "preset": {
     "name": "chrome-147-macos",
     "based_on": "chrome-146-macos",
+    "http2": {
+      "priority_table": {
+        "audio":    {"urgency": 3, "incremental": true,  "emit_header": true},
+        "document": {"urgency": 0, "incremental": true,  "emit_header": true},
+        "embed":    {"urgency": 0, "incremental": true,  "emit_header": true},
+        "empty":    {"urgency": 1, "incremental": true,  "emit_header": true},
+        "font":     {"urgency": 1, "incremental": false, "emit_header": true},
+        "iframe":   {"urgency": 0, "incremental": true,  "emit_header": true},
+        "image":    {"urgency": 2, "incremental": true,  "emit_header": true},
+        "manifest": {"urgency": 2, "incremental": false, "emit_header": true},
+        "object":   {"urgency": 0, "incremental": true,  "emit_header": true},
+        "script":   {"urgency": 1, "incremental": false, "emit_header": true},
+        "style":    {"urgency": 0, "incremental": false, "emit_header": true},
+        "track":    {"urgency": 3, "incremental": true,  "emit_header": true},
+        "video":    {"urgency": 3, "incremental": true,  "emit_header": true},
+        "worker":   {"urgency": 4, "incremental": true,  "emit_header": true}
+      }
+    },
     "headers": {
       "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
       "values": {

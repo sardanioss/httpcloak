@@ -136,6 +136,148 @@ type H2FingerprintConfig struct {
 	DisableCookieSplit  *bool    // nil = true (Chrome sends single cookie entry).
 	SettingsOrder       []uint16 // H2 SETTINGS frame ID order. nil = dynamic from HTTP2Settings.
 	PseudoHeaderOrder   []string // Pseudo-header order. nil = heuristic (Chrome m,a,s,p / Safari m,s,p,a).
+
+	// PriorityTable maps sec-fetch-dest values to RFC 7540 stream priorities and
+	// the matching RFC 9218 priority: header value. Populated for browsers (e.g.
+	// Chrome 147 desktop) that emit a different urgency per resource type.
+	//
+	// When nil, the transport uses HTTP2Settings.StreamWeight / StreamExclusive
+	// for every request — the legacy single-weight behaviour. When non-nil, the
+	// transport selects an entry based on the request's sec-fetch-dest header,
+	// derives the H2 wire weight from urgency via PriorityFromUrgency, and
+	// injects the priority: header per the RFC 9218 emission rules.
+	//
+	// Map keys are sec-fetch-dest values exactly as Chrome emits them
+	// ("document", "image", "script", "empty", etc.). Lookups are case-sensitive.
+	PriorityTable map[string]ResourcePriority
+}
+
+// ResourcePriority describes a single browser priority decision for one
+// resource class (sec-fetch-dest). Three orthogonal facts:
+//
+//   - Urgency (0–7) drives the RFC 7540 H2 stream weight via the formula
+//     weight = 256 - (urgency * 73) / 2. 3 is Chrome's internal default and
+//     emits no `u=` parameter on the priority: header.
+//   - Incremental flag drives the RFC 9218 `i` parameter on the priority:
+//     header. The H2 wire frame ignores it (RFC 7540 has no incremental).
+//   - EmitHeader controls whether the priority: HTTP header is sent at all.
+//     Chrome omits the header entirely on async/defer scripts even though
+//     the wire weight defaults to 147 (urgency=3). The wire frame is still
+//     emitted; only the HTTP header is suppressed.
+type ResourcePriority struct {
+	Urgency     uint8 // 0–7; 3 = default (no `u=` on header)
+	Incremental bool  // RFC 9218 `i` parameter
+	EmitHeader  bool  // false → suppress the priority: HTTP header entirely
+}
+
+// chromePriorityDefaultUrgency is Chrome's internal default urgency when no
+// resource-type override applies. The header omits `u=N` at this value.
+const chromePriorityDefaultUrgency uint8 = 3
+
+// defaultPriorityTable is the Chrome 147 desktop priority mapping captured
+// from real Chrome traffic. It serves as the implicit fallback for any
+// preset that uses RFC 7540 priorities (NoRFC7540Priorities=false) and
+// doesn't define its own H2Config.PriorityTable. Presets with
+// NoRFC7540Priorities=true (Safari, iOS Chrome, iOS Safari) opt out
+// entirely — those don't emit the RFC 7540 PRIORITY frame at all.
+//
+// Rationale: real browsers vary the H2 stream weight per resource type;
+// emitting a constant weight on every HEADERS frame is detectable by
+// passive H2 fingerprinters. The Chrome 147 table is the best per-dest
+// approximation we have ground-truth captures for. Firefox has slightly
+// different urgencies in its RFC 9218 emission; until we have Firefox
+// captures, Firefox will inherit this Chrome-shaped table — a closer
+// approximation than the prior single-weight fallback, but not byte-exact
+// to real Firefox. Override per-preset by setting H2Config.PriorityTable
+// to either an explicit table (use that) or an empty map (disable
+// priority emission entirely).
+var defaultPriorityTable = map[string]ResourcePriority{
+	"audio":    {Urgency: 3, Incremental: true, EmitHeader: true},
+	"document": {Urgency: 0, Incremental: true, EmitHeader: true},
+	"embed":    {Urgency: 0, Incremental: true, EmitHeader: true},
+	"empty":    {Urgency: 1, Incremental: true, EmitHeader: true},
+	"font":     {Urgency: 1, Incremental: false, EmitHeader: true},
+	"iframe":   {Urgency: 0, Incremental: true, EmitHeader: true},
+	"image":    {Urgency: 2, Incremental: true, EmitHeader: true},
+	"manifest": {Urgency: 2, Incremental: false, EmitHeader: true},
+	"object":   {Urgency: 0, Incremental: true, EmitHeader: true},
+	"script":   {Urgency: 1, Incremental: false, EmitHeader: true},
+	"style":    {Urgency: 0, Incremental: false, EmitHeader: true},
+	"track":    {Urgency: 3, Incremental: true, EmitHeader: true},
+	"video":    {Urgency: 3, Incremental: true, EmitHeader: true},
+	"worker":   {Urgency: 4, Incremental: true, EmitHeader: true},
+}
+
+// DefaultPriorityTable returns a copy of the package-level default
+// priority table. Callers can use this as a starting point when
+// constructing custom per-preset tables, or to inspect the values that
+// will be emitted for presets that don't define their own.
+//
+// The returned map is a fresh copy; mutating it does not affect future
+// preset lookups.
+func DefaultPriorityTable() map[string]ResourcePriority {
+	out := make(map[string]ResourcePriority, len(defaultPriorityTable))
+	for k, v := range defaultPriorityTable {
+		out[k] = v
+	}
+	return out
+}
+
+// PriorityFromUrgency converts an RFC 9218 urgency value into the RFC 7540
+// stream weight Chrome emits on the H2 HEADERS frame. Verified against
+// Chrome 147 captures for urgency 0–4; the formula extrapolates linearly
+// for 5–7 (Chrome doesn't emit those values in practice).
+//
+// Formula: weight = 256 - (urgency * 73) / 2  (integer division).
+//
+// Mapping: 0→256, 1→220, 2→183, 3→147, 4→110, 5→74, 6→37, 7→1.
+//
+// The returned weight is the *effective* weight (1–256). Wire format uses
+// weight-1; conversion happens at the transport boundary.
+func PriorityFromUrgency(urgency uint8) uint16 {
+	if urgency > 7 {
+		urgency = 7
+	}
+	return uint16(256 - (uint32(urgency)*73)/2)
+}
+
+// PriorityHeaderFromResource renders the RFC 9218 priority: HTTP header
+// value for a ResourcePriority, applying Chrome's emission rules:
+//
+//	urgency=3 (default) + !incremental → ""        (omit the header)
+//	urgency=3 (default) +  incremental → "i"
+//	urgency≠3           + !incremental → "u=N"
+//	urgency≠3           +  incremental → "u=N, i"
+//
+// EmitHeader=false short-circuits to "" regardless of urgency/incremental
+// (Chrome's async/defer-script behaviour). Caller must skip injection when
+// the result is empty.
+func PriorityHeaderFromResource(rp ResourcePriority) string {
+	if !rp.EmitHeader {
+		return ""
+	}
+	uIsDefault := rp.Urgency == chromePriorityDefaultUrgency
+	switch {
+	case uIsDefault && !rp.Incremental:
+		return ""
+	case uIsDefault && rp.Incremental:
+		return "i"
+	case !uIsDefault && !rp.Incremental:
+		return "u=" + uint8ToASCII(rp.Urgency)
+	default: // !uIsDefault && rp.Incremental
+		return "u=" + uint8ToASCII(rp.Urgency) + ", i"
+	}
+}
+
+// uint8ToASCII formats a small uint8 (0–9 expected for urgency) without the
+// strconv dependency cost. Falls back to direct conversion for >9 (which
+// shouldn't occur — urgency is 0–7).
+func uint8ToASCII(v uint8) string {
+	if v <= 9 {
+		return string([]byte{'0' + v})
+	}
+	// Two-digit fallback for safety; never reached for valid urgency.
+	return string([]byte{'0' + v/10, '0' + v%10})
 }
 
 // H3FingerprintConfig controls HTTP/3 and QUIC fingerprinting behavior.
@@ -239,6 +381,70 @@ func (p *Preset) H2PseudoHeaderOrder() []string {
 		return p.H2Config.PseudoHeaderOrder
 	}
 	return nil
+}
+
+// H2HasPriorityTable reports whether this preset will resolve per-dest
+// priority data. Three states:
+//
+//   - H2Config.PriorityTable populated (len > 0) → true (explicit override).
+//   - H2Config.PriorityTable nil or empty AND NoRFC7540Priorities=false →
+//     true (inherits the package-level defaultPriorityTable).
+//   - NoRFC7540Priorities=true → false (Safari / iOS Chrome / iOS Safari
+//     opt out of RFC 7540 priorities entirely; the wire frame is not
+//     emitted).
+//
+// When false, callers fall back to the legacy HTTP2Settings.StreamWeight
+// / StreamExclusive single-weight behaviour. To genuinely disable priority
+// emission for a single preset, set NoRFC7540Priorities=true on its
+// HTTP2Settings — the priority_table mechanism is purely additive.
+func (p *Preset) H2HasPriorityTable() bool {
+	if p.H2Config != nil && len(p.H2Config.PriorityTable) > 0 {
+		return true
+	}
+	if p.HTTP2Settings.NoRFC7540Priorities {
+		return false
+	}
+	return len(defaultPriorityTable) > 0
+}
+
+// H2PriorityFor returns the resolved (weight, exclusive, headerValue) for
+// a given sec-fetch-dest. Resolution order:
+//
+//  1. Preset's explicit H2Config.PriorityTable (when populated, len > 0).
+//  2. Package-level defaultPriorityTable, but only if the preset uses
+//     RFC 7540 priorities (NoRFC7540Priorities=false).
+//
+// ok=false in two cases:
+//   - the preset opts out of RFC 7540 priorities entirely (Safari etc.), or
+//   - the dest is not registered in whichever table applies.
+//
+// In both cases the caller should fall back to
+// HTTP2Settings.StreamWeight / StreamExclusive (legacy behaviour).
+//
+// weight is the effective weight (1–256). The transport converts to wire
+// format (weight-1) at the boundary.
+//
+// headerValue is the RFC 9218 priority: header value rendered per the
+// emission rules; empty string means "do not inject the header" (caller
+// must skip Set/Add for this request).
+//
+// Lookup is case-sensitive — Chrome emits "document", "image", etc. as
+// lowercase ASCII. Pass req.Header.Get("Sec-Fetch-Dest") directly.
+func (p *Preset) H2PriorityFor(dest string) (weight uint16, exclusive bool, headerValue string, ok bool) {
+	var table map[string]ResourcePriority
+	switch {
+	case p.H2Config != nil && len(p.H2Config.PriorityTable) > 0:
+		table = p.H2Config.PriorityTable
+	case p.HTTP2Settings.NoRFC7540Priorities:
+		return 0, false, "", false
+	default:
+		table = defaultPriorityTable
+	}
+	rp, found := table[dest]
+	if !found {
+		return 0, false, "", false
+	}
+	return PriorityFromUrgency(rp.Urgency), true, PriorityHeaderFromResource(rp), true
 }
 
 // --- H3 Preset Getters ---

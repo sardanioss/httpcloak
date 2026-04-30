@@ -96,6 +96,24 @@ type HTTP2Spec struct {
 	HPACKNeverIndex     []string `json:"hpack_never_index,omitempty"`
 	StreamPriorityMode  *string  `json:"stream_priority_mode,omitempty"` // "chrome","default"
 	DisableCookieSplit  *bool    `json:"disable_cookie_split,omitempty"`
+
+	// PriorityTable maps sec-fetch-dest values to per-resource priority
+	// settings. When populated, the transport emits a per-request RFC 7540
+	// stream weight (derived from urgency) and RFC 9218 priority: header
+	// for each request based on its sec-fetch-dest. When omitted, the
+	// preset's static StreamWeight / StreamExclusive is used for every
+	// request (legacy single-weight behaviour).
+	PriorityTable map[string]ResourcePrioritySpec `json:"priority_table,omitempty"`
+}
+
+// ResourcePrioritySpec is the JSON shape of fingerprint.ResourcePriority.
+// All three fields are required for a complete entry; partial entries
+// inherit zero values (urgency=0 → highest, incremental=false, emit_header=false)
+// which is rarely what a real preset wants — populate explicitly.
+type ResourcePrioritySpec struct {
+	Urgency     uint8 `json:"urgency"`
+	Incremental bool  `json:"incremental"`
+	EmitHeader  bool  `json:"emit_header"`
 }
 
 // HTTP2SettingSpec represents a single HTTP/2 SETTINGS frame entry.
@@ -302,6 +320,12 @@ func clonePreset(src *Preset) *Preset {
 		if src.H2Config.DisableCookieSplit != nil {
 			v := *src.H2Config.DisableCookieSplit
 			h2.DisableCookieSplit = &v
+		}
+		if src.H2Config.PriorityTable != nil {
+			h2.PriorityTable = make(map[string]ResourcePriority, len(src.H2Config.PriorityTable))
+			for dest, rp := range src.H2Config.PriorityTable {
+				h2.PriorityTable[dest] = rp // ResourcePriority is a value type with no inner pointers
+			}
 		}
 		dst.H2Config = &h2
 	}
@@ -670,7 +694,7 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 	if spec.SettingsOrder != nil || spec.PseudoOrder != nil ||
 		spec.HPACKHeaderOrder != nil || spec.HPACKIndexingPolicy != nil ||
 		spec.HPACKNeverIndex != nil || spec.StreamPriorityMode != nil ||
-		spec.DisableCookieSplit != nil {
+		spec.DisableCookieSplit != nil || spec.PriorityTable != nil {
 		if p.H2Config == nil {
 			p.H2Config = &H2FingerprintConfig{}
 		}
@@ -701,6 +725,16 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 		if spec.DisableCookieSplit != nil {
 			v := *spec.DisableCookieSplit
 			p.H2Config.DisableCookieSplit = &v
+		}
+		if spec.PriorityTable != nil {
+			p.H2Config.PriorityTable = make(map[string]ResourcePriority, len(spec.PriorityTable))
+			for dest, rps := range spec.PriorityTable {
+				p.H2Config.PriorityTable[dest] = ResourcePriority{
+					Urgency:     rps.Urgency,
+					Incremental: rps.Incremental,
+					EmitHeader:  rps.EmitHeader,
+				}
+			}
 		}
 	}
 
