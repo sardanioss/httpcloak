@@ -508,7 +508,9 @@ func WithSessionPreferIPv4() SessionOption {
 
 // WithLocalAddress binds outgoing connections to a specific local IP address.
 // Useful for IPv6 rotation when you have a large IPv6 prefix and want to
-// rotate source IPs per session. Works with IP_FREEBIND on Linux.
+// rotate source IPs per session. On Linux, freebind is automatically applied
+// so you can bind to any address from a routed prefix without configuring
+// each one on the interface.
 // Supports both IPv4 and IPv6 addresses (e.g., "192.168.1.100" or "2001:db8::1").
 func WithLocalAddress(addr string) SessionOption {
 	return func(c *sessionConfig) {

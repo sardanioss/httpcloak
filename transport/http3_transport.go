@@ -417,7 +417,7 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 	} else {
 		localUDPAddr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
 	}
-	udpConn, err := net.ListenUDP("udp", localUDPAddr)
+	udpConn, err := ListenUDPWithLocalAddr("udp", localUDPAddr, t.localAddr)
 	if err != nil {
 		if t.localAddr != "" {
 			// localAddr is set — retrying with the same IP on "udp6" won't help
@@ -425,7 +425,7 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		}
 		// Fallback to IPv6 if IPv4 fails (no localAddr — try IPv6zero)
 		localUDPAddr = &net.UDPAddr{IP: net.IPv6zero, Port: 0}
-		udpConn, err = net.ListenUDP("udp6", localUDPAddr)
+		udpConn, err = ListenUDPWithLocalAddr("udp6", localUDPAddr, t.localAddr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create UDP socket (IPv4 and IPv6 both failed): %w", err)
 		}
@@ -1409,13 +1409,13 @@ func (t *HTTP3Transport) Refresh() error {
 		} else {
 			localUDPAddr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
 		}
-		udpConn, err := net.ListenUDP("udp", localUDPAddr)
+		udpConn, err := ListenUDPWithLocalAddr("udp", localUDPAddr, t.localAddr)
 		if err != nil {
 			if t.localAddr != "" {
 				return fmt.Errorf("failed to create UDP socket for %s: %w", t.localAddr, err)
 			}
 			localUDPAddr = &net.UDPAddr{IP: net.IPv6zero, Port: 0}
-			udpConn, err = net.ListenUDP("udp6", localUDPAddr)
+			udpConn, err = ListenUDPWithLocalAddr("udp6", localUDPAddr, t.localAddr)
 			if err != nil {
 				return fmt.Errorf("failed to create UDP socket (IPv4 and IPv6 both failed): %w", err)
 			}

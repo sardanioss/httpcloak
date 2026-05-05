@@ -411,6 +411,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			KeepAlive: 30 * time.Second,
 		}
 		SetDialerControl(dialer, &t.preset.TCPFingerprint)
+		ApplyLocalAddrControl(dialer, t.localAddr)
 		if t.localAddr != "" {
 			localIP := net.ParseIP(t.localAddr)
 			dialer.LocalAddr = &net.TCPAddr{IP: localIP}
@@ -638,7 +639,7 @@ func (t *HTTP1Transport) dialThroughSOCKS5(ctx context.Context, targetHost, targ
 	if t.localAddr != "" {
 		socks5Dialer.SetLocalAddr(t.localAddr)
 	}
-	socks5Dialer.Control = BuildDialerControl(&t.preset.TCPFingerprint)
+	socks5Dialer.Control = BuildDialControl(&t.preset.TCPFingerprint, t.localAddr)
 
 	targetAddr := net.JoinHostPort(targetHost, targetPort)
 	conn, err := socks5Dialer.DialContext(ctx, "tcp", targetAddr)
@@ -684,6 +685,7 @@ func (t *HTTP1Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, t
 		KeepAlive: 30 * time.Second,
 	}
 	SetDialerControl(dialer, &t.preset.TCPFingerprint)
+	ApplyLocalAddrControl(dialer, t.localAddr)
 	if t.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
@@ -750,6 +752,7 @@ func (t *HTTP1Transport) dialHTTPProxyBlockingFresh(ctx context.Context, targetH
 		KeepAlive: 30 * time.Second,
 	}
 	SetDialerControl(dialer, &t.preset.TCPFingerprint)
+	ApplyLocalAddrControl(dialer, t.localAddr)
 	if t.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
