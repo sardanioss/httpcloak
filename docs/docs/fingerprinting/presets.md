@@ -15,7 +15,7 @@ A preset is a full bundle of fingerprint state for one specific browser version 
 - Default HTTP headers in the exact order Chrome / Firefox / Safari sends them.
 - RFC 7540 stream priorities and the RFC 9218 priority table per Sec-Fetch-Dest.
 - HTTP/3 / QUIC transport parameters (only on presets that support h3).
-- TCP/IP fingerprint hints (TTL, MSS, window size — for OS-level matching).
+- TCP/IP fingerprint hints (TTL, MSS, window size: for OS-level matching).
 
 You pick a preset by name, send a request, that's it. The wire bytes match the real browser.
 
@@ -57,7 +57,7 @@ When we ship Chrome 149, those aliases bump in lockstep. Code that uses `chrome-
 
 ### Firefox
 
-`firefox-133`, `firefox-148`, `firefox-latest`. No per-OS variants — Firefox doesn't include enough OS info in its fingerprint to make per-OS variants useful. Doesn't support h3 (Firefox has its own h3 quirks we haven't built out yet).
+`firefox-133`, `firefox-148`, `firefox-latest`. No per-OS variants, Firefox doesn't include enough OS info in its fingerprint to make per-OS variants useful. Doesn't support h3 (Firefox has its own h3 quirks we haven't built out yet).
 
 ### Safari
 
@@ -83,7 +83,7 @@ Both forms resolve to the same preset.
 
 ## Inheritance: how a new Chrome version ships in 30 seconds
 
-Each Chrome minor bump is usually pure UA + sec-ch-ua delta. The TLS fingerprint, H2 SETTINGS, header order, priority table — all the same as the previous version. So we don't ship Chrome 148 as a from-scratch Go file. We ship it as a JSON delta over Chrome 147:
+Each Chrome minor bump is usually pure UA + sec-ch-ua delta. The TLS fingerprint, H2 SETTINGS, header order, priority table, all the same as the previous version. So we don't ship Chrome 148 as a from-scratch Go file. We ship it as a JSON delta over Chrome 147:
 
 ```json
 {

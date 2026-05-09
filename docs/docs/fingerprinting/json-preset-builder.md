@@ -22,7 +22,7 @@ The idea: take any built-in preset, dump it as fully-resolved JSON, mutate the f
 
 ## Round-trip is byte-identical
 
-Calling `describe_preset` then `load_preset_from_json` then `describe_preset` again produces byte-for-byte identical JSON. We rely on that property internally — it's why our embedded Chrome 148 presets are JSON files instead of Go code. We tested it for every shipped preset.
+Calling `describe_preset` then `load_preset_from_json` then `describe_preset` again produces byte-for-byte identical JSON. We rely on that property internally, it's why our embedded Chrome 148 presets are JSON files instead of Go code. We tested it for every shipped preset.
 
 What this means for you: you can describe, edit, load, describe, diff. The diff shows exactly what changed. No surprise drift from defaults being lost.
 
@@ -256,7 +256,7 @@ You don't have to dump and edit. You can write a thin patch JSON that just lists
 }
 ```
 
-This is what our embedded `chrome-148-windows.json` does — it's a 28-line patch on top of `chrome-147-windows`. Inheritance is recursive and we have a loop guard, so cycles are caught at load time.
+This is what our embedded `chrome-148-windows.json` does, it's a 28-line patch on top of `chrome-147-windows`. Inheritance is recursive and we have a loop guard, so cycles are caught at load time.
 
 When to use which:
 
@@ -265,14 +265,14 @@ When to use which:
 
 ## Strict registration vs overwrite
 
-`load_preset_from_json` registers the preset by name and silently overwrites any existing custom registration with the same name. Built-in preset names are blocked — you can't shadow `chrome-latest`.
+`load_preset_from_json` registers the preset by name and silently overwrites any existing custom registration with the same name. Built-in preset names are blocked, you can't shadow `chrome-latest`.
 
 If you want hard collision errors instead of silent overwrites, the Go API exposes `RegisterStrict`:
 
 ```go
 p, _ := fingerprint.BuildPreset(spec)
 if err := fingerprint.RegisterStrict(p.Name, p); err != nil {
-    // name already taken — bail
+    // name already taken, bail
 }
 ```
 

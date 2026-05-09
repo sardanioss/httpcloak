@@ -38,11 +38,11 @@ Five comma-separated lists. Inside each list, values are dash-separated decimal 
 771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0
 ```
 
-- `771` — TLS 1.2 protocol field (everything modern uses TLS 1.2 advertised, then upgrades to 1.3 inside extensions).
-- `4865-4866-...` — cipher suite IDs (`TLS_AES_128_GCM_SHA256` is 4865, etc).
-- `0-23-65281-...` — TLS extension IDs (0=server_name, 23=session_ticket, 65281=renegotiation_info, ...). The order here matters for the JA3 hash but real Chrome shuffles this list per connection.
-- `29-23-24` — supported groups / curves (29=x25519, 23=secp256r1, 24=secp384r1).
-- `0` — EC point formats (0=uncompressed).
+- `771`: TLS 1.2 protocol field (everything modern uses TLS 1.2 advertised, then upgrades to 1.3 inside extensions).
+- `4865-4866-...`: cipher suite IDs (`TLS_AES_128_GCM_SHA256` is 4865, etc).
+- `0-23-65281-...`: TLS extension IDs (0=server_name, 23=session_ticket, 65281=renegotiation_info, ...). The order here matters for the JA3 hash but real Chrome shuffles this list per connection.
+- `29-23-24`: supported groups / curves (29=x25519, 23=secp256r1, 24=secp384r1).
+- `0`: EC point formats (0=uncompressed).
 
 :::caution
 Chrome being a lil bitch won't show you header order, you can check tls.peet.ws/api/all for it. Same applies to TLS extensions: the live JA3 you see in DevTools won't match what hits the wire because Chrome shuffles. Capture from `tls.peet.ws` or a passive observer, not from devtools.
@@ -50,7 +50,7 @@ Chrome being a lil bitch won't show you header order, you can check tls.peet.ws/
 
 ## API
 
-`CustomFingerprint` carries the JA3 plus a few uTLS-level extras. Setting `JA3` automatically enables TLS-only mode — preset HTTP headers won't be applied, you supply your own per request.
+`CustomFingerprint` carries the JA3 plus a few uTLS-level extras. Setting `JA3` automatically enables TLS-only mode, preset HTTP headers won't be applied, you supply your own per request.
 
 <Tabs groupId="lang">
 <TabItem value="go" label="Go">
@@ -162,7 +162,7 @@ OUTPUT akamai:     1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p
 OUTPUT akamai_hash: 52d84b11737d980aef856699f885ca86
 ```
 
-The `ja3` reflected back is byte-identical to the input. `ja3_hash` is a stable MD5 of that string, so it's stable across runs (unlike preset Chrome where extensions shuffle). `ja4` differs from the underlying `chrome-148-windows` (`d8a2da3f94cd` vs `f37e75b10bcc`) because we used a different extension list — that's expected and shows our override took effect.
+The `ja3` reflected back is byte-identical to the input. `ja3_hash` is a stable MD5 of that string, so it's stable across runs (unlike preset Chrome where extensions shuffle). `ja4` differs from the underlying `chrome-148-windows` (`d8a2da3f94cd` vs `f37e75b10bcc`) because we used a different extension list, that's expected and shows our override took effect.
 
 ## TLS-only mode is automatic
 
@@ -205,6 +205,6 @@ If you want JA3 override **and** preset headers, use the JSON Preset Builder app
 
 ## Limitations
 
-- JA3 is deprecated for a reason. Modern anti-bot stacks key on JA4 / peetprint / akamai. Mirroring a Chrome JA3 string but inheriting Chrome's H2 SETTINGS gets you the right JA4 / peetprint / akamai too — that's the case shown above. But if your JA3 says one browser and your H2 says another, you're inconsistent and detectable.
-- Setting `JA3` clears the preset's `client_hello` ID. The session will rebuild a ClientHello from the JA3 string every connection. uTLS handles this — it's lossy compared to a real browser ClientHelloID (the JA3 doesn't capture extension data like ALPS, key share groups, application-settings) so the resulting handshake is close-but-not-identical to a real Chrome handshake. For full byte-exact Chrome bytes, use a preset.
+- JA3 is deprecated for a reason. Modern anti-bot stacks key on JA4 / peetprint / akamai. Mirroring a Chrome JA3 string but inheriting Chrome's H2 SETTINGS gets you the right JA4 / peetprint / akamai too: that's the case shown above. But if your JA3 says one browser and your H2 says another, you're inconsistent and detectable.
+- Setting `JA3` clears the preset's `client_hello` ID. The session will rebuild a ClientHello from the JA3 string every connection. uTLS handles this: it's lossy compared to a real browser ClientHelloID (the JA3 doesn't capture extension data like ALPS, key share groups, application-settings) so the resulting handshake is close-but-not-identical to a real Chrome handshake. For full byte-exact Chrome bytes, use a preset.
 - The `extras` (ALPN, SignatureAlgorithms, CertCompression, PermuteExtensions) are uTLS-specific knobs that supplement the JA3. They don't appear in the JA3 string itself but they do appear on the wire.

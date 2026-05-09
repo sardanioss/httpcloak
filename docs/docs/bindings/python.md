@@ -17,7 +17,7 @@ pip install httpcloak
 
 The wheel ships the prebuilt shared library for your platform. Linux x86_64 / arm64, macOS x86_64 / arm64, Windows x86_64 are covered. Python 3.8 and up.
 
-If pip's resolver picks the right wheel you're done. If you're on something unusual you'll need to build from source — see the GitHub README for that.
+If pip's resolver picks the right wheel you're done. If you're on something unusual you'll need to build from source, see the GitHub README for that.
 
 ## Quick start
 
@@ -155,7 +155,7 @@ session.request_fast(method, url, ...) -> FastResponse
 session.put_fast(...) / delete_fast(...) / patch_fast(...) -> FastResponse
 ```
 
-`FastResponse` skips a few allocations and exposes `.content` as a `memoryview` instead of `bytes`. Use this when you're downloading huge bodies and want zero-copy access. Read the docstring before relying on the buffer — it can be reused on later requests, so copy with `bytes(r.content)` if you need to keep it around.
+`FastResponse` skips a few allocations and exposes `.content` as a `memoryview` instead of `bytes`. Use this when you're downloading huge bodies and want zero-copy access. Read the docstring before relying on the buffer, it can be reused on later requests, so copy with `bytes(r.content)` if you need to keep it around.
 
 ### Lifecycle
 
@@ -166,7 +166,7 @@ session.warmup(url: str, timeout: Optional[int] = None)
 session.fork(n: int = 1) -> List[Session]
 ```
 
-`refresh()` mirrors a browser F5 — keeps cookies and TLS tickets, drops connections. Pass `switch_protocol="h2"` to also flip to a different wire protocol. `warmup()` simulates a real page load. `fork(n)` returns `n` sibling sessions that share cookies and TLS state but have their own connection pools.
+`refresh()` mirrors a browser F5, keeps cookies and TLS tickets, drops connections. Pass `switch_protocol="h2"` to also flip to a different wire protocol. `warmup()` simulates a real page load. `fork(n)` returns `n` sibling sessions that share cookies and TLS state but have their own connection pools.
 
 ### Persistence
 
@@ -193,7 +193,7 @@ session.delete_cookie(name, domain="")
 session.clear_cookies()
 ```
 
-The `_detailed` variants return full `Cookie` objects with `domain`, `path`, `expires`, `max_age`, `secure`, `http_only`, `same_site`. The flat-dict variants will eventually return the detailed shape too — that's why they're marked deprecated. Migrate when you can.
+The `_detailed` variants return full `Cookie` objects with `domain`, `path`, `expires`, `max_age`, `secure`, `http_only`, `same_site`. The flat-dict variants will eventually return the detailed shape too, that's why they're marked deprecated. Migrate when you can.
 
 ### Proxy management
 
@@ -314,6 +314,6 @@ httpcloak.get_ech_dns_servers()
 
 ## See also
 
-- [Options reference](/reference/options) — every kwarg with one line each.
+- [Options reference](/reference/options): every kwarg with one line each.
 - [Cookies and state](/cookies-and-state).
 - [Proxies](/proxies).

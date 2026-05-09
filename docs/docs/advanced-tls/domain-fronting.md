@@ -33,7 +33,7 @@ your CDN provider's policy before relying on this for production.
 httpcloak gives you two things that look similar but solve different
 problems.
 
-### `WithConnectTo(requestHost, connectHost)` — IP-level rerouting
+### `WithConnectTo(requestHost, connectHost)`, IP-level rerouting
 
 This maps a request hostname to a different TCP-connect target. The
 TLS SNI and the Host header both stay as `requestHost`. Only the IP
@@ -45,7 +45,7 @@ open the TCP socket to host B's IP, but otherwise pretend nothing
 changed". Useful for hitting a specific CDN edge node, testing a
 new origin, or pinning to a known-good IP.
 
-### Per-request `Host` header — classic SNI != Host fronting
+### Per-request `Host` header, classic SNI != Host fronting
 
 For real domain fronting (SNI=A, Host=B), set the `Host` header
 explicitly on the request. The URL you pass determines the TCP dial

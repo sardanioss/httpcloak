@@ -118,7 +118,7 @@ HTTP/2 frames or the H1 request line.
 
 For H3 (QUIC), the same keys are written but the Wireshark setting
 to enable is QUIC TLS Decryption. As of Wireshark 4.x, pointing the
-TLS keylog at your file is enough — QUIC inherits from it.
+TLS keylog at your file is enough, QUIC inherits from it.
 
 ## Override priority
 

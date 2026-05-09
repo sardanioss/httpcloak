@@ -301,10 +301,10 @@ Works for IPv4 too. For the rotation patterns and freebind details, see [Source 
 
 ## What's not on this page
 
-- Proxies (HTTP CONNECT, SOCKS5, MASQUE, split TCP/UDP) — see [Proxies](/proxies).
-- Fingerprint customization (custom JA3, Akamai shorthand, JSON presets) — see [Fingerprinting](/fingerprinting).
-- Advanced TLS knobs (ECH, key logging, session resumption) — see [Advanced TLS](/advanced-tls).
-- Streaming uploads/downloads, multipart, redirect history details — see [Requests and Responses](/requests-and-responses).
+- Proxies (HTTP CONNECT, SOCKS5, MASQUE, split TCP/UDP): see [Proxies](/proxies).
+- Fingerprint customization (custom JA3, Akamai shorthand, JSON presets): see [Fingerprinting](/fingerprinting).
+- Advanced TLS knobs (ECH, key logging, session resumption): see [Advanced TLS](/advanced-tls).
+- Streaming uploads/downloads, multipart, redirect history details: see [Requests and Responses](/requests-and-responses).
 
 :::info Full option list
 The options here are the everyday set. For everything else (`WithForceHTTP3`, `WithKeyLogFile`, `WithECHFrom`, `WithCustomFingerprint`, `WithSessionCache`, etc.), see [Reference: Options](/reference/options).

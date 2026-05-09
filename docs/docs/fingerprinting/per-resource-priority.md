@@ -38,7 +38,7 @@ The transport reads `Sec-Fetch-Dest` from the outgoing request and looks it up i
 | `track`    | 3 | true  | `i` |
 | `worker`   | 4 | true  | `u=4, i` |
 
-This table is captured from real Chrome 147+ desktop traffic. Each Chrome / Firefox / Safari preset can override it via the `priority_table` field in the JSON spec. Presets that opt out entirely (Safari, iOS Chrome, iOS Safari — `no_rfc7540_priorities: true`) don't emit the H2 PRIORITY frame at all and only emit the priority header.
+This table is captured from real Chrome 147+ desktop traffic. Each Chrome / Firefox / Safari preset can override it via the `priority_table` field in the JSON spec. Presets that opt out entirely (Safari, iOS Chrome, iOS Safari, `no_rfc7540_priorities: true`) don't emit the H2 PRIORITY frame at all and only emit the priority header.
 
 The wire weight on the H2 HEADERS frame is derived from the urgency. So `Sec-Fetch-Dest: image` produces wire weight 183 (urgency 2), and `Sec-Fetch-Dest: style` produces wire weight 256 (urgency 0). The priority HTTP header carries the same urgency value.
 
@@ -154,7 +154,7 @@ If you don't set `Sec-Fetch-Dest`, httpcloak's auto-detect will set it for you. 
 
 ## Capturing the wire-level frame
 
-The HTTP header is easy to verify (`tls.peet.ws/api/all` reflects it). The H2 PRIORITY frame on the wire takes more work — it's part of the HEADERS frame, not a separate frame, and `tls.peet.ws` doesn't expose it. To see the actual wire weight you need a Wireshark capture with the TLS keylog file, or one of the H2 fingerprinting test sites like `cf.erika.cool` that decode and reflect the priority frame.
+The HTTP header is easy to verify (`tls.peet.ws/api/all` reflects it). The H2 PRIORITY frame on the wire takes more work, it's part of the HEADERS frame, not a separate frame, and `tls.peet.ws` doesn't expose it. To see the actual wire weight you need a Wireshark capture with the TLS keylog file, or one of the H2 fingerprinting test sites like `cf.erika.cool` that decode and reflect the priority frame.
 
 For setting up the keylog, see [TLS Keylog](../advanced-tls/tls-keylog).
 
@@ -196,7 +196,7 @@ Example: clamp every resource to urgency 1 (so all wire weights become 220 and t
 }
 ```
 
-Set `emit_header: false` for any resource where you want the priority HTTP header suppressed but the wire frame still emitted. Chrome does this for async / defer scripts — the wire weight is still 147 (urgency 3) but the priority header is dropped.
+Set `emit_header: false` for any resource where you want the priority HTTP header suppressed but the wire frame still emitted. Chrome does this for async / defer scripts, the wire weight is still 147 (urgency 3) but the priority header is dropped.
 
 To disable per-resource priority entirely on a preset (so every request gets the static `stream_weight` from the H2 SETTINGS), set `priority_table` to an empty object `{}`. The transport falls back to the static weight.
 
@@ -207,7 +207,7 @@ To disable per-resource priority entirely on a preset (so every request gets the
 | Chrome desktop 147+ (incl. 148) | yes | yes | 14-dest table above |
 | Chrome desktop 146 and below | yes (static weight 256, exclusive) | no | n/a |
 | Chrome Android 148 | yes | yes | 14-dest table above |
-| Firefox 148 | yes | yes (different urgencies, currently uses Chrome table — capture pending) | inherits Chrome table |
+| Firefox 148 | yes | yes (different urgencies, currently uses Chrome table, capture pending) | inherits Chrome table |
 | Safari 18 desktop | no | yes | inherits Chrome table for header values; never emits H2 PRIORITY frame |
 | iOS Chrome / iOS Safari | no | yes | same |
 
@@ -215,6 +215,6 @@ When you build a custom preset, you get the 14-dest table for free if you don't 
 
 ## Why this matters
 
-A constant H2 stream weight on every request is one of the easiest H2 fingerprint giveaways. Cloudflare and Akamai both check it. The priority header check is more recent — RFC 9218 only stabilized in 2022 — but is becoming standard at major edge providers. httpcloak handles both automatically as long as your preset is one of the modern ones (Chrome 147+, Firefox 148+, Safari 18+).
+A constant H2 stream weight on every request is one of the easiest H2 fingerprint giveaways. Cloudflare and Akamai both check it. The priority header check is more recent, RFC 9218 only stabilized in 2022, but is becoming standard at major edge providers. httpcloak handles both automatically as long as your preset is one of the modern ones (Chrome 147+, Firefox 148+, Safari 18+).
 
-If you're seeing edge-vendor challenges that don't reproduce in a real browser session, capture the wire-level H2 frames from both, diff the priority weights, and check if your preset's `priority_table` matches. Chrome 146 and below will produce a constant `weight=256, exclusive=true` on every request — that's our oldest behaviour and it's flagged by modern Cloudflare. Use `chrome-latest` or any 147+ for new code.
+If you're seeing edge-vendor challenges that don't reproduce in a real browser session, capture the wire-level H2 frames from both, diff the priority weights, and check if your preset's `priority_table` matches. Chrome 146 and below will produce a constant `weight=256, exclusive=true` on every request, that's our oldest behaviour and it's flagged by modern Cloudflare. Use `chrome-latest` or any 147+ for new code.

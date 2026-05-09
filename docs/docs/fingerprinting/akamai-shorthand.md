@@ -58,7 +58,7 @@ The connection-level WINDOW_UPDATE increment sent immediately after SETTINGS. Ch
 
 ### PRIORITY
 
-The H2 PRIORITY frame value. `0` means no PRIORITY frame is sent (which is what Chrome / Firefox / Safari all do as of 2026 — they signal priority via the priority HTTP header instead). Older Chrome versions sent a stream weight here.
+The H2 PRIORITY frame value. `0` means no PRIORITY frame is sent (which is what Chrome / Firefox / Safari all do as of 2026, they signal priority via the priority HTTP header instead). Older Chrome versions sent a stream weight here.
 
 ### PSEUDO_HEADER_ORDER
 
@@ -79,7 +79,7 @@ Use the akamai shorthand override when you want to keep the preset's TLS handsha
 - You captured an akamai string from a real browser and want to mirror it exactly.
 - You're trying to mimic a Chrome version we haven't shipped yet that bumped a single SETTINGS value.
 
-When you need anything beyond H2 SETTINGS — like overriding the priority table, the HPACK header order, or per-request priorities — the [JSON Preset Builder](./json-preset-builder) is the right path.
+When you need anything beyond H2 SETTINGS, like overriding the priority table, the HPACK header order, or per-request priorities, the [JSON Preset Builder](./json-preset-builder) is the right path.
 
 ## API
 
@@ -190,7 +190,7 @@ output akamai (peet):   1:65536;2:0;4:8388608;6:262144|15663105|0|m,a,s,p
 output akamai_hash:     <stable MD5 over the string>
 ```
 
-If the reflected akamai string doesn't match exactly, the parser dropped a field. Most common cause: typo in the SETTINGS pair list (`1:65536;2:0` is fine, `1=65536,2=0` is not — the parser expects colon-separated pairs joined by semicolons).
+If the reflected akamai string doesn't match exactly, the parser dropped a field. Most common cause: typo in the SETTINGS pair list (`1:65536;2:0` is fine, `1=65536,2=0` is not, the parser expects colon-separated pairs joined by semicolons).
 
 :::warning
 The `akamai_fingerprint_hash` is an MD5 of the akamai string with sorted SETTINGS keys. Two strings that differ only in SETTINGS order produce the same hash. So `1:65536;4:6291456` and `4:6291456;1:65536` hash identically even though they're different strings. The wire-level SETTINGS frame order matters for some H2 fingerprinters that go beyond the basic akamai hash; those care about the unsorted string. Always send fields in the order the real browser does.

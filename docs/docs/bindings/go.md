@@ -94,7 +94,7 @@ func LoadSession(path string) (*Session, error)
 func UnmarshalSession(data []byte) (*Session, error)
 ```
 
-`NewSession` is the normal entry point. `LoadSession` and `UnmarshalSession` rebuild a session from a file or JSON blob saved earlier — see [Session save & restore](/connection-lifecycle/session-save-restore).
+`NewSession` is the normal entry point. `LoadSession` and `UnmarshalSession` rebuild a session from a file or JSON blob saved earlier, see [Session save & restore](/connection-lifecycle/session-save-restore).
 
 ### Core request
 
@@ -277,7 +277,7 @@ The session owns network resources. The response body is an `io.ReadCloser` you 
 
 ### Pass context
 
-Always thread a `context.Context` through. It's how cancellation, deadlines, and request-scoped values move around in Go. httpcloak honours `ctx.Done()` everywhere — at dial, at TLS handshake, at body reads.
+Always thread a `context.Context` through. It's how cancellation, deadlines, and request-scoped values move around in Go. httpcloak honours `ctx.Done()` everywhere, at dial, at TLS handshake, at body reads.
 
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -310,7 +310,7 @@ The session is safe for concurrent use. Internally it holds a `sync.RWMutex` aro
 What that means in practice:
 
 - One `*Session`, many goroutines making requests at once. Fine.
-- One `*Session`, one goroutine calling `SetProxy()` while another calls `Get()`. Also fine — the lock orders them.
+- One `*Session`, one goroutine calling `SetProxy()` while another calls `Get()`. Also fine: the lock orders them.
 - Reading the `Response.Body` from multiple goroutines simultaneously. Don't. Each response is single-reader.
 
 If you want true parallelism with shared cookie state, use `Fork(n)` to get sibling sessions. Each fork has its own connection pool but inherits the parent's cookies and TLS tickets. That's the closest to "browser tabs" behaviour.
@@ -334,7 +334,7 @@ The same `Session.Get`, `Session.Do`, etc. The transport picks the protocol via 
 
 ## See also
 
-- [Options reference](/reference/options) — every `SessionOption` flag with a one-line description.
-- [Connection lifecycle](/connection-lifecycle) — refresh, warmup, fork, save, load.
-- [Cookies and state](/cookies-and-state) — jar internals and per-request overrides.
-- [Proxies](/proxies) — HTTP, SOCKS5, MASQUE, source-IP binding.
+- [Options reference](/reference/options): every `SessionOption` flag with a one-line description.
+- [Connection lifecycle](/connection-lifecycle): refresh, warmup, fork, save, load.
+- [Cookies and state](/cookies-and-state): jar internals and per-request overrides.
+- [Proxies](/proxies): HTTP, SOCKS5, MASQUE, source-IP binding.

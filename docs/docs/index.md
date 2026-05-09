@@ -80,71 +80,71 @@ Console.WriteLine(resp.StatusCode);
 
 ### Connection lifecycle
 
-- **`Refresh()`** — sever every live connection while keeping TLS session
+- **`Refresh()`**: sever every live connection while keeping TLS session
   tickets, the way a browser tab does on reload. Next request resumes 0-RTT
   on the same preset.
-- **`RefreshWithProtocol()` / `WithSwitchProtocol`** — switch between H1, H2,
+- **`RefreshWithProtocol()` / `WithSwitchProtocol`**: switch between H1, H2,
   and H3 mid-session and re-handshake on the chosen transport.
-- **`Save()` / `LoadSession()`** — persist the session (tickets, cookies,
+- **`Save()` / `LoadSession()`**: persist the session (tickets, cookies,
   preset state) to disk and resume across processes.
-- **`Warmup(ctx, url)`** — multi-hop browser-style warmup before the real
+- **`Warmup(ctx, url)`**: multi-hop browser-style warmup before the real
   request, populating cookies, ECH state, and session tickets.
 
 ### Fingerprint customization
 
-- **JSON preset describe / load** — `describe_preset(name)` emits the full
+- **JSON preset describe / load**: `describe_preset(name)` emits the full
   preset spec as JSON; `load_preset_from_json(json)` registers a mutated
   copy at runtime. Round-trips byte-for-byte.
-- **Per-resource priority table** — RFC 7540 stream weights and RFC 9218
+- **Per-resource priority table**: RFC 7540 stream weights and RFC 9218
   `priority:` headers selected per request from `Sec-Fetch-Dest`. Default
   14-dest table inherited by every RFC 7540 preset; overridable per preset.
-- **Custom JA3 + Akamai shorthand** — `WithCustomFingerprint` accepts a JA3
+- **Custom JA3 + Akamai shorthand**: `WithCustomFingerprint` accepts a JA3
   string and an Akamai HTTP/2 fingerprint string for fine-grained override
   without writing a full preset.
-- **Cookie jar opt-out** — `WithoutCookieJar()` disables the internal jar
+- **Cookie jar opt-out**: `WithoutCookieJar()` disables the internal jar
   entirely; caller manages cookies via per-request headers.
 
 ### Privacy and advanced TLS
 
-- **ECH (Encrypted Client Hello)** — on by default; encrypts SNI on the
+- **ECH (Encrypted Client Hello)**: on by default; encrypts SNI on the
   wire. `WithDisableECH()` skips the DNS lookup; `WithECHFrom(domain)`
   borrows an ECH config from another domain (e.g. `cloudflare-ech.com`).
-- **MASQUE** — HTTP/3 CONNECT-UDP proxy support for tunneling QUIC over a
+- **MASQUE**: HTTP/3 CONNECT-UDP proxy support for tunneling QUIC over a
   remote endpoint.
-- **Speculative TLS for proxy CONNECT** — `WithEnableSpeculativeTLS()`
+- **Speculative TLS for proxy CONNECT**: `WithEnableSpeculativeTLS()`
   pipelines the CONNECT request with the inner ClientHello, saving one RTT
   on every proxied connection.
-- **TLS keylog** — `WithKeyLogFile(path)` writes a Wireshark-compatible
+- **TLS keylog**: `WithKeyLogFile(path)` writes a Wireshark-compatible
   SSLKEYLOGFILE for offline decryption.
 
 ### Network and proxy
 
-- **Proxy types** — HTTP CONNECT, SOCKS5, SOCKS5 with UDP ASSOCIATE, and
+- **Proxy types**: HTTP CONNECT, SOCKS5, SOCKS5 with UDP ASSOCIATE, and
   MASQUE. Split-config supported via `WithSessionTCPProxy` +
   `WithSessionUDPProxy` (e.g. HTTP proxy for H1/H2, MASQUE for H3).
-- **Source-address binding** — `WithLocalAddress(string)` and
+- **Source-address binding**: `WithLocalAddress(string)` and
   `WithLocalAddrIP(net.IP)` bind every dial socket to a chosen local IP.
   `IP_FREEBIND` / `IPV6_FREEBIND` is set on Linux so non-locally-configured
   addresses (e.g. routed IPv6 prefix rotation) work without
   `CAP_NET_ADMIN`.
-- **`WithSessionPreferIPv4()`** — opt out of Happy Eyeballs and force v4.
+- **`WithSessionPreferIPv4()`**: opt out of Happy Eyeballs and force v4.
 
 ### Presets
 
-- **Chrome** — 133, 141, 143, 144, 145, 146, 147, 148, with per-OS variants
+- **Chrome**: 133, 141, 143, 144, 145, 146, 147, 148, with per-OS variants
   (Windows / Linux / macOS / Android / iOS) where applicable.
-- **Firefox** — 133, 148.
-- **Safari** — 18 (desktop), 17 / 18 (iOS).
-- **`chrome-latest` aliases** — `chrome-latest`, `chrome-latest-windows`,
+- **Firefox**: 133, 148.
+- **Safari**: 18 (desktop), 17 / 18 (iOS).
+- **`chrome-latest` aliases**: `chrome-latest`, `chrome-latest-windows`,
   `chrome-latest-linux`, `chrome-latest-macos`, `chrome-latest-android`,
   `chrome-latest-ios`. Auto-track the most recent shipped Chrome major.
 
 ### Bindings
 
-- **Go** — `go get github.com/sardanioss/httpcloak`
-- **Python** — `pip install httpcloak`
-- **Node.js** — `npm install httpcloak`
-- **.NET** — `dotnet add package HttpCloak`
+- **Go**: `go get github.com/sardanioss/httpcloak`
+- **Python**: `pip install httpcloak`
+- **Node.js**: `npm install httpcloak`
+- **.NET**: `dotnet add package HttpCloak`
 
 ## Where to next
 

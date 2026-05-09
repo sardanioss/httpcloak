@@ -305,7 +305,7 @@ HttpCloak.FastResponse
 The native lib is a cgo shared library. A few things to keep in mind:
 
 - The lib is loaded once per process. Loading it from multiple `AppDomain`s is not supported.
-- The lib calls back into managed code for the distributed session cache. Pin the delegates as the `SessionCacheBackend` class already does — don't roll your own without reading that source.
+- The lib calls back into managed code for the distributed session cache. Pin the delegates as the `SessionCacheBackend` class already does: don't roll your own without reading that source.
 - `Native.cs` exposes the raw P/Invoke surface but is internal. You should never need to touch it from app code; the `Session` / `LocalProxy` / `PresetPool` classes wrap everything.
 
 ## See also
