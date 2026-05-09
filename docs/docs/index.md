@@ -148,7 +148,10 @@ Console.WriteLine(resp.StatusCode);
 
 ## Where to next
 
-- New here? Read the [tutorial](/tutorial).
-- Looking up something specific? See the [reference](/reference).
-- Want to understand WHY a feature exists? Read the [concepts](/concepts).
-- Recipes for common tasks? See the [how-to guides](/how-to).
+- New here? Start at [Getting Started](/getting-started).
+- Looking up something specific? See the [Reference](/reference).
+- Need a proxy? See [Proxies](/proxies).
+- Want to dial in the fingerprint? See [Fingerprinting](/fingerprinting).
+- Long-running session, Refresh, Warmup, Save/Restore? See [Connection Lifecycle](/connection-lifecycle).
+- ECH, keylog, speculative TLS? See [Advanced TLS](/advanced-tls).
+- End-to-end patterns for real builds? See [Recipes](/recipes).
