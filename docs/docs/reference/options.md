@@ -39,6 +39,7 @@ Session-level state. The cookie jar, header memory, and the protocol the session
 | Signature | Default | What it does |
 |---|---|---|
 | `WithoutCookieJar() SessionOption` | jar enabled | Disables the internal cookie jar entirely. `Set-Cookie` is not stored, jar contents are not auto-injected as `Cookie:` headers. Caller-provided `Cookie` headers always pass through. Use when you have your own jar (database, shared cache). See [Disabling the cookie jar](/cookies-and-state/disabling-cookie-jar). |
+| `WithoutConditionalCache() SessionOption` | cache enabled | Disables the session's ETag / If-Modified-Since handling for the session's lifetime. No validators get injected, no validators get stored. Runtime toggle: `Session.SetConditionalCacheEnabled(bool)`. Per-request opt-out: `Request.DisableConditionalCache bool`. See [Conditional Cache](/connection-lifecycle/conditional-cache). |
 | `WithSwitchProtocol(proto string) SessionOption` | `""` (no switch) | Protocol the session switches to on the next `Refresh()`. Valid values: `"h1"`, `"h2"`, `"h3"`. Useful for warming TLS on H3 then serving on H2 with resumption. |
 | `WithKeyLogFile(path string) SessionOption` | `SSLKEYLOGFILE` env | Per-session override for the TLS key log path. Wireshark / Chrome use this to decrypt captured traffic. |
 
@@ -101,6 +102,8 @@ Pin or disable specific HTTP versions.
 |---|---|---|
 | `WithoutRedirects() SessionOption` | follow on | Don't follow redirects. The first 3xx response returns to caller. |
 | `WithRedirects(follow bool, maxRedirects int) SessionOption` | follow=true, max=10 | Toggle follow + cap the chain. `maxRedirects=0` with `follow=true` falls back to the package default. |
+
+Runtime toggles (no ctor option required) live on `*Session`: `SetFollowRedirects(bool)` / `FollowRedirects()`, `SetMaxRedirects(int)` / `MaxRedirects()`. Per-request override: set `Request.FollowRedirects *bool` before `Do`. See [Conditional Cache](/connection-lifecycle/conditional-cache) for the parallel surface on ETag handling.
 
 ### Custom fingerprint struct (`CustomFingerprint`)
 

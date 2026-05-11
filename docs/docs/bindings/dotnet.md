@@ -167,6 +167,41 @@ Session[] Fork(int n = 1);
 
 `Refresh` keeps cookies and TLS tickets while dropping connections. `Warmup` runs a browser-style page load. `Fork(n)` returns sibling sessions sharing cookies and TLS state.
 
+### Per-request redirect and cache overrides
+
+Every `Get/Post/Put/Delete/Patch/Head/Options/Request` (and the binary / Stream / Json variants) and every `*Async` sibling takes two optional kwargs:
+
+```csharp
+bool? allowRedirects = null;            // true/false overrides session default; null defers
+bool disableConditionalCache = false;   // true skips ETag / If-Modified-Since for this call
+```
+
+```csharp
+var r = session.Get(url, allowRedirects: false);
+var r2 = session.PostJson(url, new { x = 1 }, disableConditionalCache: true);
+var r3 = await session.PutAsync(url, body, allowRedirects: false, disableConditionalCache: true);
+```
+
+The session-wide settings stay untouched; the override applies only to that one call.
+
+### Session-level toggles
+
+```csharp
+using var s = new Session(preset: "chrome-latest", withoutConditionalCache: true);
+
+s.SetConditionalCache(false);
+s.SetConditionalCache(true);
+bool on = s.GetConditionalCache();
+
+s.SetFollowRedirects(false);
+s.SetMaxRedirects(3);
+int n = s.GetMaxRedirects();
+
+s.ClearCache();
+```
+
+See [Conditional Cache](../connection-lifecycle/conditional-cache) for the full design.
+
 ### Persistence
 
 ```csharp

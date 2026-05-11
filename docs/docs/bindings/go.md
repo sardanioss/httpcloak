@@ -203,6 +203,19 @@ func (s *Session) GetTransport() *transport.Transport
 
 `SetSessionIdentifier` tags this session for distributed TLS cache key isolation when running behind a `LocalProxy`. The other methods are observability and lifecycle helpers covered fully in [Observability](/connection-lifecycle/observability) and [Session Manager](/connection-lifecycle/session-manager).
 
+### Conditional cache and redirect runtime control
+
+```go
+func (s *Session) SetConditionalCacheEnabled(enabled bool)
+func (s *Session) ConditionalCacheEnabled() bool
+func (s *Session) SetFollowRedirects(enabled bool)
+func (s *Session) FollowRedirects() bool
+func (s *Session) SetMaxRedirects(max int)
+func (s *Session) MaxRedirects() int
+```
+
+Flip the session's redirect-following policy or its ETag / If-Modified-Since handling at runtime; pair with `ClearCache()` when wiping cached validators too. The `WithoutConditionalCache()` SessionOption disables conditional caching for the whole session at construction time. For per-request control, set `Request.FollowRedirects *bool` and / or `Request.DisableConditionalCache bool` before calling `Do`. See [Conditional Cache](/connection-lifecycle/conditional-cache) for the full design.
+
 ### Top-level helpers
 
 ```go

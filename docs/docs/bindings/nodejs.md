@@ -228,6 +228,41 @@ session.clearCookies(): void;
 
 The flat `Record<string, string>` shape was removed in v1.6.5; both `getCookies()` and the `cookies` getter now return `Cookie[]` with full metadata. `getCookiesDetailed` / `getCookieDetailed` are kept as aliases so callers that migrated early during the deprecation window keep compiling.
 
+### Per-request redirect and cache overrides
+
+Every request method (`get`, `post`, `put`, `delete`, `patch`, `head`, `options`, `request`, `getSync`, `postSync`, `requestSync`, `getStream`, `postStream`, `requestStream`) accepts two extra options:
+
+```ts
+allowRedirects?: boolean | null;        // true/false overrides session default; null defers
+disableConditionalCache?: boolean;      // true skips ETag / If-Modified-Since for this call
+```
+
+```js
+const r = await s.get(url, { allowRedirects: false });
+const r2 = await s.post(url, { json: { x: 1 }, disableConditionalCache: true });
+const r3 = s.getSync(url, { disableConditionalCache: true });
+```
+
+The session-wide settings stay untouched; the override applies only to that one call. Stream methods carry the same kwargs through to the wire, but the stream layer itself doesn't follow redirects regardless of `allowRedirects`; use the async or sync entry points when you need redirect handling.
+
+### Session-level toggles
+
+```ts
+const s = new Session({ preset: "chrome-latest", withoutConditionalCache: true });
+
+s.setConditionalCache(false);
+s.setConditionalCache(true);
+const on = s.getConditionalCache();
+
+s.setFollowRedirects(false);
+s.setMaxRedirects(3);
+const n = s.getMaxRedirects();
+
+s.clearCache();
+```
+
+See [Conditional Cache](../connection-lifecycle/conditional-cache) for the full design.
+
 ### Proxies
 
 ```ts

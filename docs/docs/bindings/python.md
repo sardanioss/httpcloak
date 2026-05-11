@@ -274,7 +274,43 @@ async def options_async(url, **kw) -> Response: ...
 async def request_async(method: str, url: str, **kw) -> Response: ...
 ```
 
-`post_async` takes `json_data=` (not `json=`) to avoid shadowing the `json` module. The `*_async` family doesn't accept a per-call `timeout=` or `allow_redirects=`; both are configured at the `Session` constructor level (`Session(timeout=..., allow_redirects=...)`) and apply to the whole session. The `**kw` in the trailing async methods (`put_async` and friends) forwards to `request_async`, which accepts the same kwarg surface as `post_async`.
+`post_async` takes `json_data=` (not `json=`) to avoid shadowing the `json` module. The `*_async` family doesn't accept a per-call `timeout=`; the session-level setting applies to every async call. Per-request `allow_redirects=` and `disable_conditional_cache=` ARE accepted on every `*_async` method (and every sync method); see the section below. The `**kw` in the trailing async methods (`put_async` and friends) forwards to `request_async`, which accepts the same kwarg surface as `post_async`.
+
+### Per-request redirect and cache overrides
+
+Every request method (sync and async, every verb) accepts two extra kwargs:
+
+```python
+allow_redirects: Optional[bool] = None        # True/False overrides session default; None defers
+disable_conditional_cache: bool = False       # True skips ETag / If-Modified-Since for this call
+```
+
+```python
+r = s.get(url, allow_redirects=False)                # don't follow 3xx
+r = s.post(url, json_data={"x": 1}, disable_conditional_cache=True)
+r = await s.put_async(url, allow_redirects=False, disable_conditional_cache=True)
+```
+
+Available on `get`, `post`, `put`, `delete`, `patch`, `head`, `options`, `request` and every `*_async` sibling. The session-wide settings stay untouched; the override applies only to that one call.
+
+### Session-level toggles
+
+```python
+s = httpcloak.Session(preset="chrome-latest",
+                      without_conditional_cache=True)   # ctor: ETag handling off for life
+
+s.set_conditional_cache(False)        # runtime toggle
+s.set_conditional_cache(True)
+on = s.get_conditional_cache()
+
+s.set_follow_redirects(False)         # runtime redirect policy
+s.set_max_redirects(3)
+n = s.get_max_redirects()
+
+s.clear_cache()                       # wipe stored ETag / Last-Modified entries
+```
+
+See [Conditional Cache](../connection-lifecycle/conditional-cache) for the full design.
 
 Use them directly inside an asyncio event loop:
 
