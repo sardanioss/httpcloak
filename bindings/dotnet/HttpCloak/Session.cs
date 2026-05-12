@@ -995,6 +995,139 @@ public sealed class Session : IDisposable
         => RequestAsync("OPTIONS", url, null, headers, timeout, auth, parameters, cookies, cancellationToken, fetchMode, allowRedirects, disableConditionalCache);
 
     // =========================================================================
+    // Async binary / Stream / multipart overloads (mirror the sync byte[]+Stream
+    // surface above). All route through RequestBinaryAsync which base64-encodes
+    // the body and sets body_encoding=base64 so binary payloads survive the cgo
+    // boundary intact.
+    // =========================================================================
+
+    /// <summary>
+    /// Perform an async HTTP request with a binary body using native Go goroutines.
+    /// </summary>
+    public Task<Response> RequestBinaryAsync(string method, string url, byte[] body, Dictionary<string, string>? headers = null, int? timeout = null, (string, string)? auth = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false)
+    {
+        ThrowIfDisposed();
+
+        url = AddParamsToUrl(url, parameters);
+        headers = ApplyAuth(headers, auth);
+        headers = ApplyCookies(headers, cookies);
+
+        var request = new RequestConfig
+        {
+            Method = method.ToUpperInvariant(),
+            Url = url,
+            Body = body != null && body.Length > 0 ? Convert.ToBase64String(body) : null,
+            BodyEncoding = body != null && body.Length > 0 ? "base64" : null,
+            Headers = headers.Count > 0 ? headers : null,
+            Timeout = timeout,
+            FetchMode = fetchMode,
+            FollowRedirects = allowRedirects,
+            DisableConditionalCache = disableConditionalCache,
+        };
+
+        string requestJson = JsonSerializer.Serialize(request, JsonContext.Relaxed.RequestConfig);
+
+        var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest(cancellationToken);
+        Native.RequestAsync(_handle, requestJson, callbackId);
+
+        return task;
+    }
+
+    /// <summary>
+    /// Perform an async HTTP request with a Stream body using native Go goroutines.
+    /// The entire stream is read into memory before sending. For very large uploads
+    /// (>50 MB) prefer the upload-state-machine API once it ships in .NET.
+    /// </summary>
+    public async Task<Response> RequestStreamAsync(string method, string url, Stream bodyStream, Dictionary<string, string>? headers = null, int? timeout = null, (string, string)? auth = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false)
+    {
+        using var ms = new MemoryStream();
+        await bodyStream.CopyToAsync(ms, 81920, cancellationToken).ConfigureAwait(false);
+        return await RequestBinaryAsync(method, url, ms.ToArray(), headers, timeout, auth, parameters, cookies, cancellationToken, fetchMode, allowRedirects, disableConditionalCache).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Perform an async POST request with a binary body using native Go goroutines.
+    /// </summary>
+    public Task<Response> PostAsync(string url, byte[] body, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false)
+        => RequestBinaryAsync("POST", url, body, headers, timeout, auth, parameters, cookies, cancellationToken, fetchMode, allowRedirects, disableConditionalCache);
+
+    /// <summary>
+    /// Perform an async POST request with a Stream body. The stream is read fully
+    /// into memory before sending.
+    /// </summary>
+    public Task<Response> PostAsync(string url, Stream bodyStream, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false)
+        => RequestStreamAsync("POST", url, bodyStream, headers, timeout, auth, parameters, cookies, cancellationToken, fetchMode, allowRedirects, disableConditionalCache);
+
+    /// <summary>
+    /// Perform an async PUT request with a binary body using native Go goroutines.
+    /// </summary>
+    public Task<Response> PutAsync(string url, byte[] body, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false)
+        => RequestBinaryAsync("PUT", url, body, headers, timeout, auth, parameters, cookies, cancellationToken, fetchMode, allowRedirects, disableConditionalCache);
+
+    /// <summary>
+    /// Perform an async PUT request with a Stream body. The stream is read fully
+    /// into memory before sending.
+    /// </summary>
+    public Task<Response> PutAsync(string url, Stream bodyStream, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false)
+        => RequestStreamAsync("PUT", url, bodyStream, headers, timeout, auth, parameters, cookies, cancellationToken, fetchMode, allowRedirects, disableConditionalCache);
+
+    /// <summary>
+    /// Perform an async PATCH request with a binary body using native Go goroutines.
+    /// </summary>
+    public Task<Response> PatchAsync(string url, byte[] body, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false)
+        => RequestBinaryAsync("PATCH", url, body, headers, timeout, auth, parameters, cookies, cancellationToken, fetchMode, allowRedirects, disableConditionalCache);
+
+    /// <summary>
+    /// Perform an async PATCH request with a Stream body. The stream is read fully
+    /// into memory before sending.
+    /// </summary>
+    public Task<Response> PatchAsync(string url, Stream bodyStream, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false)
+        => RequestStreamAsync("PATCH", url, bodyStream, headers, timeout, auth, parameters, cookies, cancellationToken, fetchMode, allowRedirects, disableConditionalCache);
+
+    /// <summary>
+    /// Perform an async multipart POST request. Builds the multipart body in
+    /// memory, then ships the bytes through RequestBinaryAsync.
+    /// </summary>
+    public Task<Response> PostMultipartAsync(string url, Dictionary<string, string>? fields = null, Dictionary<string, MultipartFile>? files = null, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string Username, string Password)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false)
+    {
+        var boundary = "----HttpCloakBoundary" + Guid.NewGuid().ToString("N");
+        var ms = new MemoryStream();
+        var encoding = new System.Text.UTF8Encoding(false);
+        void WriteStr(string s) { var b = encoding.GetBytes(s); ms.Write(b, 0, b.Length); }
+
+        if (fields != null)
+            foreach (var kvp in fields)
+                WriteStr($"--{boundary}\r\nContent-Disposition: form-data; name=\"{kvp.Key}\"\r\n\r\n{kvp.Value}\r\n");
+
+        if (files != null)
+            foreach (var kvp in files)
+            {
+                WriteStr($"--{boundary}\r\nContent-Disposition: form-data; name=\"{kvp.Key}\"; filename=\"{kvp.Value.Filename}\"\r\nContent-Type: {kvp.Value.ContentType}\r\n\r\n");
+                ms.Write(kvp.Value.Content, 0, kvp.Value.Content.Length);
+                WriteStr("\r\n");
+            }
+
+        WriteStr($"--{boundary}--\r\n");
+
+        headers ??= new Dictionary<string, string>();
+        headers["Content-Type"] = $"multipart/form-data; boundary={boundary}";
+
+        (string, string)? authTuple = auth.HasValue ? (auth.Value.Username, auth.Value.Password) : ((string, string)?)null;
+        return PostAsync(url, ms.ToArray(), headers, parameters, cookies, authTuple, timeout, cancellationToken, fetchMode, allowRedirects, disableConditionalCache);
+    }
+
+    /// <summary>
+    /// Perform an async warmup. Wraps the synchronous native warmup call in
+    /// Task.Run so it doesn't block the calling thread. timeoutMs = 0 uses the
+    /// session default.
+    /// </summary>
+    public Task WarmupAsync(string url, long timeoutMs = 0, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        return Task.Run(() => Warmup(url, timeoutMs), cancellationToken);
+    }
+
+    // =========================================================================
     // Cookie Management
     // =========================================================================
 

@@ -103,6 +103,23 @@ Common kwargs across all of them: `headers`, `parameters`, `cookies`, `auth`, `t
 var r = await s.PostJsonAsync("https://httpbin.org/post", new { hello = "world" });
 ```
 
+Binary and Stream body overloads (use these for file uploads, multipart, or any non-string payload):
+
+```csharp
+Task<Response> PostAsync(string url, byte[] body, ...);
+Task<Response> PostAsync(string url, Stream bodyStream, ...);
+Task<Response> PutAsync(string url, byte[] body, ...);
+Task<Response> PutAsync(string url, Stream bodyStream, ...);
+Task<Response> PatchAsync(string url, byte[] body, ...);
+Task<Response> PatchAsync(string url, Stream bodyStream, ...);
+Task<Response> RequestBinaryAsync(string method, string url, byte[] body, ...);
+Task<Response> RequestStreamAsync(string method, string url, Stream bodyStream, ...);
+Task<Response> PostMultipartAsync(string url, Dictionary<string,string>? fields = null, Dictionary<string, MultipartFile>? files = null, ...);
+Task WarmupAsync(string url, long timeoutMs = 0, ...);
+```
+
+`PostAsync(byte[])` and the binary overload family route through the base64-encoded body path so NUL bytes and non-UTF-8 sequences survive the cgo boundary intact. The Stream overloads read the entire stream into memory before sending; for very large uploads (>50 MB) prefer the chunked upload API once it ships in .NET.
+
 ### Sync variants
 
 ```csharp
