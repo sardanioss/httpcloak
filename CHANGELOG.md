@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.8-beta.1] - 2026-06-05
+
 ### Fixed
 
 - **High-entropy client hints are now coherent with the rest of the fingerprint, and you can turn them off**: once a host asks for the detailed UA client hints (it advertises `Accept-CH` for things like `sec-ch-ua-full-version-list`, `sec-ch-ua-platform-version`, `sec-ch-ua-arch`), the session started sending them on the next request. The problem was that those detailed hints were built from a stale hardcoded table that had fallen behind: the full version list reported an older browser version with a mismatched brand token and brand order, while the `User-Agent` and the always-on `sec-ch-ua` reported the current version. A server that reads both could see the contradiction and tell the client apart from a real browser. On Linux the platform version was also a made-up value where a real browser sends an empty one. All of these now come straight from the chosen preset, so the detailed hints always line up with `sec-ch-ua` and the `User-Agent`: same version, same brand names, same order, same GREASE brand token, with Linux sending the empty platform version like the real browser does. Adding a future browser version is now a one-place change. Two more fixes ride along: the detailed hints are now sent on streaming requests too (the streaming path used to skip them, so a host that saw both a normal and a streaming request from the same session got the hints on one and not the other), and overriding any `sec-ch-*` header per request now reliably wins instead of sometimes losing to the injected value. Finally there are real controls to stop the library adding these headers at all: a session option (and per-request flag) to drop every `sec-ch-*` header except the ones you set yourself, and a softer one that keeps the always-on `sec-ch-ua` / `sec-ch-ua-mobile` / `sec-ch-ua-platform` trio but suppresses only the detailed hints, both with runtime toggles, wired through Python, Node, and C#. Locked by a coherence test across every browser preset plus end-to-end checks for the opt-outs, the streaming parity, and the override behaviour.
@@ -320,6 +322,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Baseline release. This changelog begins tracking changes from this version forward.
 
+[1.6.8-beta.1]: https://github.com/sardanioss/httpcloak/compare/v1.6.7...v1.6.8-beta.1
 [1.6.1-beta.3]: https://github.com/sardanioss/httpcloak/compare/v1.6.1-beta.2...v1.6.1-beta.3
 [1.6.1-beta.2]: https://github.com/sardanioss/httpcloak/compare/v1.6.1-beta.1...v1.6.1-beta.2
 [1.6.1-beta.1]: https://github.com/sardanioss/httpcloak/compare/v1.6.0...v1.6.1-beta.1
