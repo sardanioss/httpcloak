@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -172,5 +173,25 @@ func TestDoStreamAutoFallsBackToHTTP1OnALPNMismatch(t *testing.T) {
 	}
 	if resp.Protocol != "h1" {
 		t.Fatalf("protocol = %q, want h1", resp.Protocol)
+	}
+}
+
+func TestDoStreamForcedHTTP2DoesNotFallbackToHTTP1(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	tr := NewTransport("chrome-latest")
+	defer tr.Close()
+	tr.SetInsecureSkipVerify(true)
+	tr.SetProtocol(ProtocolHTTP2)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := tr.DoStream(ctx, &Request{Method: "GET", URL: srv.URL})
+	if !errors.Is(err, ErrALPNMismatch) {
+		t.Fatalf("err = %v, want ALPN mismatch", err)
 	}
 }
