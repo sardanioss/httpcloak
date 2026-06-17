@@ -6,6 +6,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/url"
 	"strings"
@@ -171,9 +172,11 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 				// the H3 error instead of silently sending a truncated request.
 				return nil, err
 			}
-			return t.doStreamHTTP2(ctx, req)
-		case ProtocolHTTP2, ProtocolHTTP1:
-			return t.doStreamHTTP2(ctx, req)
+			return t.doStreamHTTP2OrHTTP1(ctx, req)
+		case ProtocolHTTP2:
+			return t.doStreamHTTP2OrHTTP1(ctx, req)
+		case ProtocolHTTP1:
+			return t.doStreamHTTP1(ctx, req)
 		}
 	}
 
@@ -188,9 +191,12 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 		case decision.err != nil:
 			return nil, decision.err
 		case decision.alpnErr != nil:
-			// Streaming has no H1-conn-reuse path; drop the probe conn and let
-			// the H2 attempt below negotiate on its own.
 			decision.alpnErr.TLSConn.Close()
+			resp, err := t.doStreamHTTP1(ctx, req)
+			if err == nil {
+				t.cacheProtocol(host, ProtocolHTTP1)
+			}
+			return resp, err
 		case decision.protocol == ProtocolHTTP3:
 			resp, err := t.doStreamHTTP3(ctx, req)
 			if err == nil {
@@ -205,11 +211,28 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 		}
 	}
 
-	resp, err := t.doStreamHTTP2(ctx, req)
+	resp, err := t.doStreamHTTP2OrHTTP1(ctx, req)
 	if err == nil {
-		t.cacheProtocol(host, ProtocolHTTP2)
+		if resp.Protocol == "h1" {
+			t.cacheProtocol(host, ProtocolHTTP1)
+		} else {
+			t.cacheProtocol(host, ProtocolHTTP2)
+		}
 	}
 	return resp, err
+}
+
+func (t *Transport) doStreamHTTP2OrHTTP1(ctx context.Context, req *Request) (*StreamResponse, error) {
+	resp, err := t.doStreamHTTP2(ctx, req)
+	if err == nil {
+		return resp, nil
+	}
+	var alpnErr *ALPNMismatchError
+	if errors.As(err, &alpnErr) {
+		alpnErr.TLSConn.Close()
+		return t.doStreamHTTP1(ctx, req)
+	}
+	return nil, err
 }
 
 // doStreamHTTP1 executes a streaming request over HTTP/1.1

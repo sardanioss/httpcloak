@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
@@ -137,5 +141,36 @@ func TestSetupStreamDecompressor_CaseInsensitive(t *testing.T) {
 	}
 	if string(result) != "test" {
 		t.Errorf("Case insensitive test failed")
+	}
+}
+
+func TestDoStreamAutoFallsBackToHTTP1OnALPNMismatch(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	tr := NewTransport("chrome-latest")
+	defer tr.Close()
+	tr.SetInsecureSkipVerify(true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := tr.DoStream(ctx, &Request{Method: "GET", URL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Close()
+
+	body, err := io.ReadAll(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "ok" {
+		t.Fatalf("body = %q, want ok", body)
+	}
+	if resp.Protocol != "h1" {
+		t.Fatalf("protocol = %q, want h1", resp.Protocol)
 	}
 }
