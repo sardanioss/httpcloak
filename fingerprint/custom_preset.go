@@ -188,6 +188,11 @@ type TCPSpec struct {
 // ProtocolSpec defines protocol support.
 type ProtocolSpec struct {
 	HTTP3 *bool `json:"http3,omitempty"`
+	// Aliases / extra toggles. H3 is an alias for HTTP3. H2=false disables HTTP/2
+	// in auto mode (the preset goes straight to HTTP/1.1). Accepting "h2"/"h3"
+	// matches what users naturally write; previously only "http3" was honored.
+	H3 *bool `json:"h3,omitempty"`
+	H2 *bool `json:"h2,omitempty"`
 }
 
 // --- Loading Functions ---
@@ -988,6 +993,12 @@ func applyTCP(p *Preset, spec *TCPSpec) error {
 func applyProtocols(p *Preset, spec *ProtocolSpec) {
 	if spec.HTTP3 != nil {
 		p.SupportHTTP3 = *spec.HTTP3
+	}
+	if spec.H3 != nil { // alias for http3
+		p.SupportHTTP3 = *spec.H3
+	}
+	if spec.H2 != nil {
+		p.DisableHTTP2 = !*spec.H2
 	}
 }
 

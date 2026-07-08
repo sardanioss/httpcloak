@@ -81,6 +81,7 @@ type Preset struct {
 	HTTP2Settings     HTTP2Settings
 	TCPFingerprint    TCPFingerprint
 	SupportHTTP3      bool
+	DisableHTTP2      bool // When true, auto mode skips HTTP/2 and goes straight to HTTP/1.1 (zero value = H2 enabled)
 	H2Config          *H2FingerprintConfig // nil = Chrome defaults for all H2 fingerprinting
 	H3Config          *H3FingerprintConfig // nil = Chrome defaults for all H3/QUIC fingerprinting
 	JA3               string               // JA3 fingerprint string. When set, parsed fresh per connection instead of using ClientHelloID.
@@ -336,15 +337,20 @@ func (p *Preset) H2HeaderOrder() []string {
 	if p.H2Config != nil && p.H2Config.HPACKHeaderOrder != nil {
 		return p.H2Config.HPACKHeaderOrder
 	}
-	// Chrome 143 header order (verified via tls.peet.ws)
+	// Chrome 143 header order (verified via tls.peet.ws). Kept in lockstep with
+	// chromeH2Config().HPACKHeaderOrder so the nil-H2Config fallback path emits
+	// the session-injected client hints in the same deterministic wire order.
 	return []string{
 		"cache-control",
-		"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
+		"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
+		"sec-ch-ua-mobile", "sec-ch-ua-model",
+		"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-wow64",
 		"upgrade-insecure-requests", "user-agent",
 		"content-type", "content-length",
 		"accept", "origin",
 		"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
 		"referer",
+		"if-none-match", "if-modified-since",
 		"accept-encoding", "accept-language",
 		"cookie", "priority",
 	}
@@ -633,12 +639,24 @@ func chromeH2Config() *H2FingerprintConfig {
 	return &H2FingerprintConfig{
 		HPACKHeaderOrder: []string{
 			"cache-control",
-			"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
+			// Low- AND high-entropy UA client hints emit as one fixed cluster.
+			// The session injects the high-entropy set (sec-ch-ua-arch, -bitness,
+			// -full-version-list, -model, -platform-version, -wow64) once a host
+			// advertises Accept-CH; without them in this table they'd fall through
+			// to Go map iteration = random wire order per request = a stable tell.
+			// Real Chrome groups the high-entropy hints with the trio in this
+			// sequence, so we mirror it here.
+			"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
+			"sec-ch-ua-mobile", "sec-ch-ua-model",
+			"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-wow64",
 			"upgrade-insecure-requests", "user-agent",
 			"content-type", "content-length",
 			"accept", "origin",
 			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
 			"referer",
+			// Conditional-cache validators in a fixed slot (ETag validator first),
+			// so the session-injected If-None-Match / If-Modified-Since don't shuffle.
+			"if-none-match", "if-modified-since",
 			"accept-encoding", "accept-language",
 			"cookie", "priority",
 		},
