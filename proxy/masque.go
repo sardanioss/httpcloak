@@ -39,6 +39,16 @@ type MASQUEConn struct {
 	// QUIC connection to the MASQUE proxy
 	quicConn *quic.Conn
 
+	// Underlying UDP socket the QUIC conn runs over. quic-go does NOT close this
+	// when the QUIC conn closes, so we track it to close it ourselves (otherwise
+	// the socket + its read goroutine leak on every Close/Reset).
+	udpConn *net.UDPConn
+
+	// quic.Transport that owns udpConn. Each dial attempt gets its own Transport
+	// (quic-go allows only one Transport per socket); we retain the winning one
+	// so Close/Reset can stop its read goroutine before releasing the socket.
+	quicTransport *quic.Transport
+
 	// HTTP/3 client connection for Extended CONNECT
 	clientConn *http3.ClientConn
 
@@ -122,6 +132,14 @@ func (c *MASQUEConn) EstablishWithQUICConfig(ctx context.Context, targetHost str
 	defer c.mu.Unlock()
 
 	if c.established {
+		// A MASQUEConn is a single UDP tunnel bound to one target. Silently
+		// reusing it for a different target would send traffic to the wrong
+		// host (the target is baked into the CONNECT-UDP path). Fail loudly
+		// instead — the caller should open a tunnel per target.
+		if c.targetHost != targetHost || c.targetPort != targetPort {
+			return fmt.Errorf("MASQUE tunnel already bound to %s:%d, cannot reuse for %s:%d",
+				c.targetHost, c.targetPort, targetHost, targetPort)
+		}
 		return nil
 	}
 
@@ -150,15 +168,27 @@ func (c *MASQUEConn) EstablishWithQUICConfig(ctx context.Context, targetHost str
 		return fmt.Errorf("invalid proxy port %s: %w", c.proxyPort, err)
 	}
 
-	// Create UDP address from resolved IP
-	proxyIP := net.ParseIP(proxyIPs[0])
-	proxyUDPAddr := &net.UDPAddr{IP: proxyIP, Port: port}
-
-	// Create local UDP socket
-	udpConn, err := net.ListenUDP("udp", nil)
-	if err != nil {
-		return fmt.Errorf("failed to create UDP socket: %w", err)
-	}
+	// The winning attempt's socket + Transport (retained below) and a guard so
+	// every error path after this point closes the QUIC conn, its Transport, and
+	// the socket — otherwise the socket and its receive goroutine leak on every
+	// failed establish.
+	var udpConn *net.UDPConn
+	var quicTransport *quic.Transport
+	established := false
+	defer func() {
+		if established {
+			return
+		}
+		if c.quicConn != nil {
+			c.quicConn.CloseWithError(0, "establish failed")
+		}
+		if quicTransport != nil {
+			quicTransport.Close()
+		}
+		if udpConn != nil {
+			udpConn.Close()
+		}
+	}()
 
 	// Create TLS config for proxy connection
 	proxyTLSConfig := tlsConfig.Clone()
@@ -172,10 +202,47 @@ func (c *MASQUEConn) EstablishWithQUICConfig(ctx context.Context, targetHost str
 		proxyCfg.InitialPacketSize = defaultInitialPacketSize
 	}
 
-	// Use quic.Dial with pre-resolved address to avoid DNS lookup in quic-go
-	quicConn, err := quic.Dial(ctx, udpConn, proxyUDPAddr, proxyTLSConfig, proxyCfg)
-	if err != nil {
-		return fmt.Errorf("failed to dial QUIC to proxy: %w", err)
+	// Try every resolved proxy address (IPv4 first) so an unreachable address
+	// (e.g. a dead IPv6 listed first) doesn't fail the tunnel outright. Each
+	// attempt MUST get its own UDP socket + quic.Transport: quic-go allows only
+	// one Transport per socket and keeps a read goroutine running on it, so
+	// reusing a single socket across attempts lets a failed dial's Transport
+	// swallow the next attempt's handshake packets — the IPv4 fallback would then
+	// stall until the ctx deadline instead of connecting. We open a fresh socket
+	// per address and fully tear down every loser (Transport + socket) before
+	// moving on; only the winning pair is retained.
+	var quicConn *quic.Conn
+	var dialErr error
+	for _, ipStr := range orderIPv4First(proxyIPs) {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			continue
+		}
+		sock, sockErr := net.ListenUDP("udp", nil)
+		if sockErr != nil {
+			dialErr = fmt.Errorf("failed to create UDP socket: %w", sockErr)
+			continue
+		}
+		tr := &quic.Transport{Conn: sock}
+		conn, err := tr.Dial(ctx, &net.UDPAddr{IP: ip, Port: port}, proxyTLSConfig, proxyCfg)
+		if err != nil {
+			dialErr = err
+			// Tear down the failed attempt fully: stop the Transport's read
+			// goroutine on this socket, then release the fd, before the next addr.
+			tr.Close()
+			sock.Close()
+			continue
+		}
+		udpConn = sock
+		quicTransport = tr
+		quicConn = conn
+		break
+	}
+	if quicConn == nil {
+		if dialErr == nil {
+			dialErr = fmt.Errorf("no usable proxy address")
+		}
+		return fmt.Errorf("failed to dial QUIC to proxy: %w", dialErr)
 	}
 	c.quicConn = quicConn
 
@@ -209,11 +276,19 @@ func (c *MASQUEConn) EstablishWithQUICConfig(ctx context.Context, targetHost str
 		return fmt.Errorf("CONNECT-UDP request failed: %w", err)
 	}
 
-	// Step 4: Start datagram receiver goroutine
+	// Step 4: Start datagram receiver goroutine. Hand the receiver its own
+	// stable copies of ctx and the request stream (captured here under c.mu) so
+	// a concurrent Reset()/re-Establish that reassigns c.ctx or nils
+	// c.requestStream can't mutate what the running receiver is reading — the
+	// old receiver drains on its snapshotted ctx and exits cleanly when that
+	// snapshot's cancel fires.
 	c.ctx, c.cancel = context.WithCancel(context.Background())
-	go c.receiveDatagrams()
+	go c.receiveDatagrams(c.ctx, c.requestStream)
 
 	c.established = true
+	c.udpConn = udpConn             // track so Close/Reset can release the socket
+	c.quicTransport = quicTransport // track so Close/Reset can stop its read goroutine
+	established = true              // tunnel owns udpConn now; skip the cleanup defer
 	return nil
 }
 
@@ -276,10 +351,39 @@ func (c *MASQUEConn) sendConnectUDP(ctx context.Context) error {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 
-	// Read the response
-	rsp, err := rstr.ReadResponse()
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+	// Read the response — bounded by the caller's ctx. Without this the read
+	// blocks until the QUIC MaxIdleTimeout (~30s, extendable by keepalives) when
+	// the proxy completes the handshake but never answers the Extended CONNECT,
+	// ignoring the dial ctx's shorter deadline. Same class as the SOCKS5
+	// ReadResponse bug fixed elsewhere. We push the ctx deadline onto the stream
+	// so a blocking read wakes, and also watch ctx.Done() so a deadline-less
+	// cancellation still tears the stream down and fails fast.
+	if dl, ok := ctx.Deadline(); ok {
+		rstr.SetReadDeadline(dl)
+		defer rstr.SetReadDeadline(time.Time{})
+	}
+	type connectUDPResult struct {
+		rsp *http.Response
+		err error
+	}
+	respCh := make(chan connectUDPResult, 1)
+	go func() {
+		rsp, err := rstr.ReadResponse()
+		respCh <- connectUDPResult{rsp: rsp, err: err}
+	}()
+
+	var rsp *http.Response
+	select {
+	case <-ctx.Done():
+		// Abandon the parked read so ReadResponse unblocks, then fail fast.
+		rstr.CancelRead(quic.StreamErrorCode(http3.ErrCodeRequestCanceled))
+		rstr.CancelWrite(quic.StreamErrorCode(http3.ErrCodeRequestCanceled))
+		return fmt.Errorf("CONNECT-UDP response timed out: %w", ctx.Err())
+	case res := <-respCh:
+		if res.err != nil {
+			return fmt.Errorf("failed to read response: %w", res.err)
+		}
+		rsp = res.rsp
 	}
 
 	// Check for success (2xx status code)
@@ -305,18 +409,22 @@ func (c *MASQUEConn) sendConnectUDP(ctx context.Context) error {
 	return nil
 }
 
-// receiveDatagrams runs in a goroutine to receive datagrams from the QUIC connection
-func (c *MASQUEConn) receiveDatagrams() {
+// receiveDatagrams runs in a goroutine to receive datagrams from the QUIC
+// connection. It takes ctx and rstr as parameters (snapshotted under c.mu by the
+// launcher) rather than reading c.ctx/c.requestStream directly, so a concurrent
+// Reset()/re-Establish that reassigns those fields can't race with — or nil out
+// from under — the running receiver.
+func (c *MASQUEConn) receiveDatagrams(ctx context.Context, rstr *http3.RequestStream) {
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
 		default:
 		}
 
 		// Receive datagram from RequestStream (handles quarter stream ID)
 		// The datagram may include a context ID prefix per RFC 9298
-		data, err := c.requestStream.ReceiveDatagram(c.ctx)
+		data, err := rstr.ReceiveDatagram(ctx)
 		if err != nil {
 			// Connection closed or context cancelled
 			return
@@ -479,10 +587,51 @@ func (c *MASQUEConn) Close() error {
 		}
 	}
 
+	// Stop the Transport's read goroutine, then close the underlying UDP socket —
+	// quic-go won't do either, so skipping this leaks the socket and its goroutine.
+	if c.quicTransport != nil {
+		c.quicTransport.Close()
+		c.quicTransport = nil
+	}
+	if c.udpConn != nil {
+		c.udpConn.Close()
+		c.udpConn = nil
+	}
+
 	if len(errs) > 0 {
 		return errs[0]
 	}
 	return nil
+}
+
+// Reset tears down the current tunnel so the next Establish dials a fresh one.
+// Used by a transport Refresh: without it the stale tunnel (established == true
+// over an already-closed QUIC connection, plus a leaked datagram-receive
+// goroutine and UDP socket) would be reused after refresh.
+func (c *MASQUEConn) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
+	if c.cancel != nil {
+		c.cancel()
+	}
+	if c.quicConn != nil {
+		c.quicConn.CloseWithError(0, "reset")
+		c.quicConn = nil
+	}
+	if c.quicTransport != nil {
+		c.quicTransport.Close()
+		c.quicTransport = nil
+	}
+	if c.udpConn != nil {
+		c.udpConn.Close()
+		c.udpConn = nil
+	}
+	c.clientConn = nil
+	c.requestStream = nil
+	c.established = false
 }
 
 // LocalAddr returns the local address (simulated for net.PacketConn interface)

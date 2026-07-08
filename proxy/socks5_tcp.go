@@ -89,8 +89,8 @@ func (d *SOCKS5Dialer) DialContext(ctx context.Context, network, addr string) (n
 		return nil, fmt.Errorf("no IP addresses found for proxy host %s", d.proxyHost)
 	}
 
-	// Connect to proxy
-	proxyAddr := net.JoinHostPort(proxyIPs[0], d.proxyPort)
+	// Connect to proxy, trying every resolved address (IPv4 first) so an
+	// unreachable address doesn't fail the dial outright.
 	dialer := &net.Dialer{Timeout: d.timeout}
 	if d.localAddr != "" {
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(d.localAddr)}
@@ -98,14 +98,18 @@ func (d *SOCKS5Dialer) DialContext(ctx context.Context, network, addr string) (n
 	if d.Control != nil {
 		dialer.Control = d.Control
 	}
-	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
+	conn, err := dialTCPFirstReachable(ctx, dialer, proxyIPs, d.proxyPort, d.timeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to SOCKS5 proxy: %w", err)
 	}
 
-	// Set deadline for handshake
+	// Set deadline for the handshake reads. Fall back to the dialer timeout when
+	// the caller's context has no deadline, so a proxy that accepts TCP then
+	// stalls mid-handshake can't hang the read forever.
 	if deadline, ok := ctx.Deadline(); ok {
 		conn.SetDeadline(deadline)
+	} else if d.timeout > 0 {
+		conn.SetDeadline(time.Now().Add(d.timeout))
 	}
 
 	// Perform SOCKS5 handshake

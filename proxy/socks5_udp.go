@@ -214,19 +214,22 @@ func (c *SOCKS5UDPConn) tryEstablish(ctx context.Context) error {
 		return fmt.Errorf("no IP addresses found for proxy host %s", c.proxyHost)
 	}
 
-	// Connect to SOCKS5 proxy via TCP using resolved IP
-	proxyAddr := net.JoinHostPort(proxyIPs[0], c.proxyPort)
+	// Connect to SOCKS5 proxy via TCP, trying every resolved address (IPv4
+	// first) so an unreachable address doesn't fail the dial outright.
+	const udpCtrlTimeout = 30 * time.Second
 	dialer := &net.Dialer{}
-	tcpConn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
+	tcpConn, err := dialTCPFirstReachable(ctx, dialer, proxyIPs, c.proxyPort, udpCtrlTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to connect to SOCKS5 proxy: %w", err)
 	}
 	c.tcpConn = tcpConn
 
-	// Set deadline for handshake
-	deadline, ok := ctx.Deadline()
-	if ok {
+	// Set deadline for the handshake, falling back to a default when the caller
+	// supplied no deadline so a stalling proxy can't hang the handshake reads.
+	if deadline, ok := ctx.Deadline(); ok {
 		c.tcpConn.SetDeadline(deadline)
+	} else {
+		c.tcpConn.SetDeadline(time.Now().Add(udpCtrlTimeout))
 	}
 
 	// Step 2: SOCKS5 greeting and authentication
