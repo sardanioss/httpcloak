@@ -2266,6 +2266,7 @@ class Session:
         disable_conditional_cache: bool = False,
         disable_client_hints: bool = False,
         disable_high_entropy_client_hints: bool = False,
+        timeout: Optional[int] = None,
     ) -> Response:
         """
         Async GET request using native Go goroutines.
@@ -2304,6 +2305,10 @@ class Session:
             options["disable_client_hints"] = True
         if disable_high_entropy_client_hints:
             options["disable_high_entropy_client_hints"] = True
+        if timeout is not None:
+            # The async clib exports read timeout in SECONDS (unlike the sync
+            # *_raw exports, which use milliseconds).
+            options["timeout"] = timeout
         options_json = json.dumps(options).encode("utf-8") if options else None
 
         # Start async request
@@ -2331,6 +2336,7 @@ class Session:
         disable_conditional_cache: bool = False,
         disable_client_hints: bool = False,
         disable_high_entropy_client_hints: bool = False,
+        timeout: Optional[int] = None,
     ) -> Response:
         """
         Async POST request using native Go goroutines.
@@ -2376,6 +2382,16 @@ class Session:
         manager = _get_async_manager()
         callback_id, future = manager.register_request(self._lib)
 
+        # The body is passed to post_async as a separate C string, which the clib
+        # reads via C.GoString — that stops at the first NUL byte and silently
+        # truncates any body containing 0x00 (binary uploads, some payloads).
+        # base64-encode in that case and flag body_encoding so the bytes survive
+        # the cgo boundary intact. NUL-free bodies pass through unchanged.
+        body_encoding = ""
+        if body is not None and b"\x00" in body:
+            body = base64.b64encode(body)
+            body_encoding = "base64"
+
         # Build options JSON with headers wrapper (clib expects {"headers": {...}})
         options = {}
         if merged_headers:
@@ -2390,6 +2406,12 @@ class Session:
             options["disable_client_hints"] = True
         if disable_high_entropy_client_hints:
             options["disable_high_entropy_client_hints"] = True
+        if body_encoding:
+            options["body_encoding"] = body_encoding
+        if timeout is not None:
+            # The async clib exports read timeout in SECONDS (the sync *_raw
+            # exports use milliseconds).
+            options["timeout"] = timeout
         options_json = json.dumps(options).encode("utf-8") if options else None
 
         # Start async request
@@ -2419,6 +2441,7 @@ class Session:
         disable_conditional_cache: bool = False,
         disable_client_hints: bool = False,
         disable_high_entropy_client_hints: bool = False,
+        timeout: Optional[int] = None,
     ) -> Response:
         """
         Async custom HTTP request using native Go goroutines.
@@ -2486,6 +2509,9 @@ class Session:
             request_config["disable_client_hints"] = True
         if disable_high_entropy_client_hints:
             request_config["disable_high_entropy_client_hints"] = True
+        if timeout is not None:
+            # httpcloak_request_async reads RequestConfig.timeout in SECONDS.
+            request_config["timeout"] = timeout
 
         # Get async manager and register this request (each request gets unique ID)
         manager = _get_async_manager()
@@ -4636,9 +4662,31 @@ class SessionCacheBackend:
         self._c_put_ech = None
         self._c_error = None
 
+        # Persistent buffers for the get/get_ech callbacks. The Go side does
+        # NOT free the bytes we return and copies via C.GoString AFTER the
+        # callback frame unwinds, so a transient `result.encode()` would be
+        # freed by CPython before Go reads it (use-after-free).
+        #
+        # A single per-instance slot fixes the serial case but re-introduces
+        # the UAF when ONE backend is shared across sessions/threads (a common
+        # cache-pool pattern): a concurrent get on another thread overwrites
+        # the slot before Go copies the previous result. Instead we retain the
+        # last N encoded buffers in a bounded, lock-guarded ring. Each fresh
+        # buffer stays referenced until N more get calls happen — far more than
+        # the microsecond window between returning to Go and its C.GoString
+        # copy — so recent buffers survive concurrent shared-backend use
+        # without unbounded growth.
+        from collections import deque
+
+        self._get_buf_lock = Lock()
+        self._get_buf_ring = deque(maxlen=128)
+        self._ech_get_buf_lock = Lock()
+        self._ech_get_buf_ring = deque(maxlen=128)
+
     def _make_get_callback(self):
         """Create C callback wrapper for get."""
         get_fn = self._get
+        owner = self
 
         def callback(key_ptr):
             if get_fn is None:
@@ -4648,7 +4696,14 @@ class SessionCacheBackend:
                 result = get_fn(key)
                 if result is None:
                     return None
-                return result.encode("utf-8")
+                # Retain the encoded bytes in the bounded ring so the buffer
+                # outlives this callback frame — Go copies it via C.GoString
+                # after we return and does not free it. The lock-guarded ring
+                # keeps recent buffers referenced under concurrent shared use.
+                buf = result.encode("utf-8")
+                with owner._get_buf_lock:
+                    owner._get_buf_ring.append(buf)
+                return buf
             except Exception:
                 return None
 
@@ -4688,6 +4743,7 @@ class SessionCacheBackend:
     def _make_get_ech_callback(self):
         """Create C callback wrapper for ECH get."""
         get_fn = self._get_ech
+        owner = self
 
         def callback(key_ptr):
             if get_fn is None:
@@ -4697,7 +4753,14 @@ class SessionCacheBackend:
                 result = get_fn(key)
                 if result is None:
                     return None
-                return result.encode("utf-8")
+                # Retain the encoded bytes in the bounded ring so the buffer
+                # outlives this callback frame — Go copies it via C.GoString
+                # after we return and does not free it. The lock-guarded ring
+                # keeps recent buffers referenced under concurrent shared use.
+                buf = result.encode("utf-8")
+                with owner._ech_get_buf_lock:
+                    owner._ech_get_buf_ring.append(buf)
+                return buf
             except Exception:
                 return None
 

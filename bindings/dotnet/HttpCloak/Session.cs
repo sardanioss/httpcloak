@@ -761,7 +761,11 @@ public sealed class Session : IDisposable
             Method = method.ToUpperInvariant(),
             Url = url,
             Headers = headers.Count > 0 ? headers : null,
-            Timeout = timeout,
+            // Public API: seconds. The clib RequestRaw path expects milliseconds
+            // (matches the text Request() path above), so convert at the boundary.
+            // Without the *1000 a per-request timeout fired 1000x too early for
+            // every sync binary/multipart/stream body.
+            Timeout = timeout * 1000,
             FetchMode = fetchMode,
             FollowRedirects = allowRedirects,
             DisableConditionalCache = disableConditionalCache,
@@ -873,6 +877,19 @@ public sealed class Session : IDisposable
         if (timeout != null)
             return RequestAsync("POST", url, body, headers, timeout, null, null, null, cancellationToken, fetchMode, allowRedirects, disableConditionalCache, disableClientHints, disableHighEntropyClientHints);
 
+        // The body is passed to PostAsync as a separate C string, which the native
+        // side reads via C.GoString — that stops at the first NUL, silently
+        // truncating any body with embedded NUL bytes (binary payloads, some JSON).
+        // Base64-encode in that case and flag body_encoding so the bytes survive
+        // the cgo boundary intact. Normal NUL-free bodies pass through unchanged.
+        string? wireBody = body;
+        string? bodyEncoding = null;
+        if (body != null && body.IndexOf('\0') >= 0)
+        {
+            wireBody = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(body));
+            bodyEncoding = "base64";
+        }
+
         // Wrap headers in RequestOptions structure (Go expects {"headers": {...}, "timeout": ...})
         var options = new RequestOptions {
             Headers = headers.Count > 0 ? headers : null,
@@ -881,14 +898,15 @@ public sealed class Session : IDisposable
             DisableConditionalCache = disableConditionalCache,
             DisableClientHints = disableClientHints,
             DisableHighEntropyClientHints = disableHighEntropyClientHints,
+            BodyEncoding = bodyEncoding,
         };
-        bool hasOptions = options.Headers != null || options.FetchMode != null || options.FollowRedirects != null || options.DisableConditionalCache || options.DisableClientHints || options.DisableHighEntropyClientHints;
+        bool hasOptions = options.Headers != null || options.FetchMode != null || options.FollowRedirects != null || options.DisableConditionalCache || options.DisableClientHints || options.DisableHighEntropyClientHints || options.BodyEncoding != null;
         string? optionsJson = hasOptions
             ? JsonSerializer.Serialize(options, JsonContext.Relaxed.RequestOptions)
             : null;
 
         var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest(cancellationToken);
-        Native.PostAsync(_handle, url, body, optionsJson, callbackId);
+        Native.PostAsync(_handle, url, wireBody, optionsJson, callbackId);
 
         return task;
     }
@@ -3574,6 +3592,14 @@ internal class RequestOptions
     [JsonPropertyName("headers")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, string>? Headers { get; set; }
+
+    // "base64" flags that the separately-passed body string is base64-encoded so
+    // the native side decodes it back to the exact bytes. Set this whenever the
+    // body could contain NUL bytes, which would otherwise terminate the C string
+    // early (post_async reads the body via C.GoString) and truncate the upload.
+    [JsonPropertyName("body_encoding")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BodyEncoding { get; set; }
 
     [JsonPropertyName("timeout")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

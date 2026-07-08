@@ -116,6 +116,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -165,9 +167,19 @@ var (
 // Stream handle management for streaming responses
 var (
 	streamMu      sync.RWMutex
-	streams       = make(map[int64]*httpcloak.StreamResponse)
+	streams       = make(map[int64]*streamEntry)
 	streamCounter int64
 )
+
+// streamEntry pairs an open stream with the cancel func of the context that
+// bounds it, so closing the stream also releases the context timer. Storing only
+// the StreamResponse (the previous behaviour) leaked the WithTimeout timer until
+// it fired, and the cancel func was never called despite the close path claiming
+// it would be.
+type streamEntry struct {
+	resp   *httpcloak.StreamResponse
+	cancel context.CancelFunc
+}
 
 // Upload stream handle management for streaming uploads
 var (
@@ -224,7 +236,13 @@ type RequestConfig struct {
 	Headers      map[string]string `json:"headers,omitempty"`
 	Body         string            `json:"body,omitempty"`
 	BodyEncoding string            `json:"body_encoding,omitempty"` // "text" (default) or "base64"
-	Timeout      int               `json:"timeout,omitempty"`       // seconds
+	// Timeout's UNIT DEPENDS ON THE ENTRY POINT: httpcloak_request_raw reads it
+	// as MILLISECONDS; httpcloak_request and httpcloak_request_async (and
+	// httpcloak_stream_request) read it as SECONDS. Bindings must convert to
+	// match the export they call. (This split is a known wart — see also
+	// RequestOptions.Timeout — kept as-is to avoid a coordinated cross-binding
+	// flag day; unify only with per-binding integration tests in place.)
+	Timeout int `json:"timeout,omitempty"`
 	// FetchMode explicitly forces Sec-Fetch-Mode and bypasses auto-sniffing.
 	// Valid values: "cors", "no-cors", "navigate", "websocket". Empty = auto.
 	FetchMode string `json:"fetch_mode,omitempty"`
@@ -249,8 +267,8 @@ type Cookie struct {
 	Value    string `json:"value"`
 	Domain   string `json:"domain,omitempty"`
 	Path     string `json:"path,omitempty"`
-	Expires  string `json:"expires,omitempty"`  // RFC1123 format or empty
-	MaxAge   int    `json:"max_age,omitempty"`  // seconds, 0 means not set
+	Expires  string `json:"expires,omitempty"` // RFC1123 format or empty
+	MaxAge   int    `json:"max_age,omitempty"` // seconds, 0 means not set
 	Secure   bool   `json:"secure,omitempty"`
 	HttpOnly bool   `json:"http_only,omitempty"`
 	SameSite string `json:"same_site,omitempty"` // "Strict", "Lax", "None", or empty
@@ -300,42 +318,42 @@ var (
 
 // Session configuration
 type SessionConfig struct {
-	Preset          string            `json:"preset"`
-	Proxy           string            `json:"proxy,omitempty"`
-	TCPProxy        string            `json:"tcp_proxy,omitempty"`         // Proxy for TCP (HTTP/1.1, HTTP/2)
-	UDPProxy        string            `json:"udp_proxy,omitempty"`         // Proxy for UDP (HTTP/3 via MASQUE)
-	Timeout         int               `json:"timeout,omitempty"`           // seconds
-	HTTPVersion     string            `json:"http_version,omitempty"`      // "auto", "h1", "h2", "h3"
-	Verify          *bool             `json:"verify,omitempty"`            // SSL verification (default: true)
-	AllowRedirects  *bool             `json:"allow_redirects,omitempty"`   // Follow redirects (default: true)
-	MaxRedirects    int               `json:"max_redirects,omitempty"`     // Max redirects (default: 10)
-	Retry           int               `json:"retry,omitempty"`             // Retry count (default: 0)
-	RetryWaitMin    int               `json:"retry_wait_min,omitempty"`    // Min wait between retries in ms
-	RetryWaitMax    int               `json:"retry_wait_max,omitempty"`    // Max wait between retries in ms
-	RetryOnStatus   []int             `json:"retry_on_status,omitempty"`   // Status codes to retry on
-	PreferIPv4      bool              `json:"prefer_ipv4,omitempty"`       // Prefer IPv4 over IPv6
-	ConnectTo       map[string]string `json:"connect_to,omitempty"`        // Domain fronting: request_host -> connect_host
-	ECHConfigDomain string            `json:"ech_config_domain,omitempty"` // Domain to fetch ECH config from
-	TLSOnly         bool              `json:"tls_only,omitempty"`          // TLS-only mode: skip preset headers, set all manually
-	QuicIdleTimeout int               `json:"quic_idle_timeout,omitempty"` // QUIC idle timeout in seconds (default: 30)
-	LocalAddress    string            `json:"local_address,omitempty"`     // Local IP to bind outgoing connections (IPv6 rotation)
-	KeyLogFile      string            `json:"key_log_file,omitempty"`      // Path to write TLS key log for Wireshark decryption
-	DisableECH            bool              `json:"disable_ech,omitempty"`             // Disable ECH lookup for faster first request
-	DisableHTTP3          bool              `json:"disable_http3,omitempty"`           // Disable HTTP/3 racing while keeping H1/H2 negotiation
-	EnableSpeculativeTLS bool              `json:"enable_speculative_tls,omitempty"` // Enable speculative TLS optimization for proxy connections
-	SwitchProtocol        string            `json:"switch_protocol,omitempty"`         // Protocol to switch to after Refresh()
-	WithoutCookieJar      bool              `json:"without_cookie_jar,omitempty"`      // Disable internal cookie jar (caller manages cookies via headers)
-	WithoutConditionalCache bool            `json:"without_conditional_cache,omitempty"` // Disable ETag / If-Modified-Since handling entirely
-	WithoutClientHints            bool      `json:"without_client_hints,omitempty"`             // Disable all UA client hints (trio + high-entropy)
-	WithoutHighEntropyClientHints bool      `json:"without_high_entropy_client_hints,omitempty"` // Disable only the high-entropy UA client hints
-	JA3               string                 `json:"ja3,omitempty"`                    // Custom JA3 fingerprint string
-	Akamai            string                 `json:"akamai,omitempty"`                 // Custom Akamai HTTP/2 fingerprint string
-	ExtraFP           map[string]interface{} `json:"extra_fp,omitempty"`               // Extra fingerprint options
-	TCPTTL            *int                   `json:"tcp_ttl,omitempty"`                // Override TCP/IP TTL (128=Windows, 64=Linux/macOS)
-	TCPMSS            *int                   `json:"tcp_mss,omitempty"`                // Override TCP MSS (1460=Ethernet)
-	TCPWindowSize     *int                   `json:"tcp_window_size,omitempty"`        // Override TCP window size (64240=Windows, 65535=Linux)
-	TCPWindowScale    *int                   `json:"tcp_window_scale,omitempty"`       // Override TCP window scale (8=Win, 7=Linux, 6=macOS)
-	TCPDFBit          *bool                  `json:"tcp_df,omitempty"`                 // Override IP Don't Fragment flag
+	Preset                        string                 `json:"preset"`
+	Proxy                         string                 `json:"proxy,omitempty"`
+	TCPProxy                      string                 `json:"tcp_proxy,omitempty"`                         // Proxy for TCP (HTTP/1.1, HTTP/2)
+	UDPProxy                      string                 `json:"udp_proxy,omitempty"`                         // Proxy for UDP (HTTP/3 via MASQUE)
+	Timeout                       int                    `json:"timeout,omitempty"`                           // seconds
+	HTTPVersion                   string                 `json:"http_version,omitempty"`                      // "auto", "h1", "h2", "h3"
+	Verify                        *bool                  `json:"verify,omitempty"`                            // SSL verification (default: true)
+	AllowRedirects                *bool                  `json:"allow_redirects,omitempty"`                   // Follow redirects (default: true)
+	MaxRedirects                  int                    `json:"max_redirects,omitempty"`                     // Max redirects (default: 10)
+	Retry                         int                    `json:"retry,omitempty"`                             // Retry count (default: 0)
+	RetryWaitMin                  int                    `json:"retry_wait_min,omitempty"`                    // Min wait between retries in ms
+	RetryWaitMax                  int                    `json:"retry_wait_max,omitempty"`                    // Max wait between retries in ms
+	RetryOnStatus                 []int                  `json:"retry_on_status,omitempty"`                   // Status codes to retry on
+	PreferIPv4                    bool                   `json:"prefer_ipv4,omitempty"`                       // Prefer IPv4 over IPv6
+	ConnectTo                     map[string]string      `json:"connect_to,omitempty"`                        // Domain fronting: request_host -> connect_host
+	ECHConfigDomain               string                 `json:"ech_config_domain,omitempty"`                 // Domain to fetch ECH config from
+	TLSOnly                       bool                   `json:"tls_only,omitempty"`                          // TLS-only mode: skip preset headers, set all manually
+	QuicIdleTimeout               int                    `json:"quic_idle_timeout,omitempty"`                 // QUIC idle timeout in seconds (default: 30)
+	LocalAddress                  string                 `json:"local_address,omitempty"`                     // Local IP to bind outgoing connections (IPv6 rotation)
+	KeyLogFile                    string                 `json:"key_log_file,omitempty"`                      // Path to write TLS key log for Wireshark decryption
+	DisableECH                    bool                   `json:"disable_ech,omitempty"`                       // Disable ECH lookup for faster first request
+	DisableHTTP3                  bool                   `json:"disable_http3,omitempty"`                     // Disable HTTP/3 racing while keeping H1/H2 negotiation
+	EnableSpeculativeTLS          bool                   `json:"enable_speculative_tls,omitempty"`            // Enable speculative TLS optimization for proxy connections
+	SwitchProtocol                string                 `json:"switch_protocol,omitempty"`                   // Protocol to switch to after Refresh()
+	WithoutCookieJar              bool                   `json:"without_cookie_jar,omitempty"`                // Disable internal cookie jar (caller manages cookies via headers)
+	WithoutConditionalCache       bool                   `json:"without_conditional_cache,omitempty"`         // Disable ETag / If-Modified-Since handling entirely
+	WithoutClientHints            bool                   `json:"without_client_hints,omitempty"`              // Disable all UA client hints (trio + high-entropy)
+	WithoutHighEntropyClientHints bool                   `json:"without_high_entropy_client_hints,omitempty"` // Disable only the high-entropy UA client hints
+	JA3                           string                 `json:"ja3,omitempty"`                               // Custom JA3 fingerprint string
+	Akamai                        string                 `json:"akamai,omitempty"`                            // Custom Akamai HTTP/2 fingerprint string
+	ExtraFP                       map[string]interface{} `json:"extra_fp,omitempty"`                          // Extra fingerprint options
+	TCPTTL                        *int                   `json:"tcp_ttl,omitempty"`                           // Override TCP/IP TTL (128=Windows, 64=Linux/macOS)
+	TCPMSS                        *int                   `json:"tcp_mss,omitempty"`                           // Override TCP MSS (1460=Ethernet)
+	TCPWindowSize                 *int                   `json:"tcp_window_size,omitempty"`                   // Override TCP window size (64240=Windows, 65535=Linux)
+	TCPWindowScale                *int                   `json:"tcp_window_scale,omitempty"`                  // Override TCP window scale (8=Win, 7=Linux, 6=macOS)
+	TCPDFBit                      *bool                  `json:"tcp_df,omitempty"`                            // Override IP Don't Fragment flag
 }
 
 // Error response
@@ -349,6 +367,64 @@ func makeErrorJSON(err error) *C.char {
 	resp := ErrorResponse{Error: err.Error()}
 	data, _ := json.Marshal(resp)
 	return C.CString(string(data))
+}
+
+// --- cgo panic guards (P0) ---
+//
+// A Go panic that unwinds across the cgo boundary aborts the entire host
+// process (SIGABRT) — the C/.NET/Python/Node caller gets no error, no stack,
+// just a dead process. Every //export function and every goroutine it spawns
+// must therefore convert panics into ordinary error returns. The guard* helpers
+// are installed as the first deferred call in each export so a nil deref, an
+// out-of-range index, a type assertion, or a bad JSON shape becomes a normal
+// failure value instead of a crash. logClibPanic records the panic + stack to
+// stderr so the failure is still diagnosable.
+func logClibPanic(where string, r interface{}) {
+	fmt.Fprintf(os.Stderr, "httpcloak: recovered panic in %s: %v\n%s\n", where, r, debug.Stack())
+}
+
+func guardCharP(where string, ret **C.char) {
+	if r := recover(); r != nil {
+		logClibPanic(where, r)
+		*ret = makeErrorJSON(fmt.Errorf("internal panic: %v", r))
+	}
+}
+
+func guardInt64(where string, ret *C.int64_t) {
+	if r := recover(); r != nil {
+		logClibPanic(where, r)
+		*ret = -1
+	}
+}
+
+func guardInt(where string, ret *C.int) {
+	if r := recover(); r != nil {
+		logClibPanic(where, r)
+		*ret = 0
+	}
+}
+
+func guardPtr(where string, ret *unsafe.Pointer) {
+	if r := recover(); r != nil {
+		logClibPanic(where, r)
+		*ret = nil
+	}
+}
+
+func guardVoid(where string) {
+	if r := recover(); r != nil {
+		logClibPanic(where, r)
+	}
+}
+
+// guardAsync recovers a panic inside an async request goroutine and reports it
+// back through the registered callback, so the caller's pending future fails
+// cleanly instead of hanging forever (or crashing the process).
+func guardAsync(where string, callbackID int64) {
+	if r := recover(); r != nil {
+		logClibPanic(where, r)
+		invokeCallback(callbackID, "", fmt.Sprintf("internal panic: %v", r))
+	}
 }
 
 // parseSetCookieHeaders parses Set-Cookie headers into Cookie structs
@@ -688,7 +764,8 @@ func makeRawResponse(resp *httpcloak.Response) int64 {
 }
 
 //export httpcloak_response_get_metadata
-func httpcloak_response_get_metadata(handle C.int64_t) *C.char {
+func httpcloak_response_get_metadata(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_response_get_metadata", &hcRet)
 	rawResponsesMu.RLock()
 	resp, exists := rawResponses[int64(handle)]
 	rawResponsesMu.RUnlock()
@@ -701,7 +778,8 @@ func httpcloak_response_get_metadata(handle C.int64_t) *C.char {
 }
 
 //export httpcloak_response_get_body
-func httpcloak_response_get_body(handle C.int64_t, outLen *C.int) unsafe.Pointer {
+func httpcloak_response_get_body(handle C.int64_t, outLen *C.int) (hcRet unsafe.Pointer) {
+	defer guardPtr("httpcloak_response_get_body", &hcRet)
 	rawResponsesMu.RLock()
 	resp, exists := rawResponses[int64(handle)]
 	rawResponsesMu.RUnlock()
@@ -720,7 +798,8 @@ func httpcloak_response_get_body(handle C.int64_t, outLen *C.int) unsafe.Pointer
 // The caller must NOT free this pointer - it's managed by Go.
 //
 //export httpcloak_response_get_body_ptr
-func httpcloak_response_get_body_ptr(handle C.int64_t, outLen *C.int) unsafe.Pointer {
+func httpcloak_response_get_body_ptr(handle C.int64_t, outLen *C.int) (hcRet unsafe.Pointer) {
+	defer guardPtr("httpcloak_response_get_body_ptr", &hcRet)
 	rawResponsesMu.RLock()
 	resp, exists := rawResponses[int64(handle)]
 	rawResponsesMu.RUnlock()
@@ -736,7 +815,8 @@ func httpcloak_response_get_body_ptr(handle C.int64_t, outLen *C.int) unsafe.Poi
 }
 
 //export httpcloak_response_get_body_len
-func httpcloak_response_get_body_len(handle C.int64_t) C.int {
+func httpcloak_response_get_body_len(handle C.int64_t) (hcRet C.int) {
+	defer guardInt("httpcloak_response_get_body_len", &hcRet)
 	rawResponsesMu.RLock()
 	resp, exists := rawResponses[int64(handle)]
 	rawResponsesMu.RUnlock()
@@ -748,7 +828,8 @@ func httpcloak_response_get_body_len(handle C.int64_t) C.int {
 }
 
 //export httpcloak_response_copy_body_to
-func httpcloak_response_copy_body_to(handle C.int64_t, dest unsafe.Pointer, destLen C.int) C.int {
+func httpcloak_response_copy_body_to(handle C.int64_t, dest unsafe.Pointer, destLen C.int) (hcRet C.int) {
+	defer guardInt("httpcloak_response_copy_body_to", &hcRet)
 	rawResponsesMu.RLock()
 	resp, exists := rawResponses[int64(handle)]
 	rawResponsesMu.RUnlock()
@@ -772,6 +853,7 @@ func httpcloak_response_copy_body_to(handle C.int64_t, dest unsafe.Pointer, dest
 
 //export httpcloak_response_free
 func httpcloak_response_free(handle C.int64_t) {
+	defer guardVoid("httpcloak_response_free")
 	rawResponsesMu.Lock()
 	if _, exists := rawResponses[int64(handle)]; exists {
 		delete(rawResponses, int64(handle))
@@ -783,7 +865,8 @@ func httpcloak_response_free(handle C.int64_t) {
 // This combines get_metadata + get_body_len + copy_body_to + response_free into one FFI call
 //
 //export httpcloak_response_finalize
-func httpcloak_response_finalize(handle C.int64_t, dest unsafe.Pointer, destLen C.int) *C.char {
+func httpcloak_response_finalize(handle C.int64_t, dest unsafe.Pointer, destLen C.int) (hcRet *C.char) {
+	defer guardCharP("httpcloak_response_finalize", &hcRet)
 	rawResponsesMu.Lock()
 	resp, exists := rawResponses[int64(handle)]
 	if !exists || resp == nil {
@@ -812,7 +895,8 @@ func httpcloak_response_finalize(handle C.int64_t, dest unsafe.Pointer, destLen 
 }
 
 //export httpcloak_get_raw
-func httpcloak_get_raw(handle C.int64_t, url *C.char, optionsJSON *C.char) C.int64_t {
+func httpcloak_get_raw(handle C.int64_t, url *C.char, optionsJSON *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_get_raw", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return -1
@@ -838,11 +922,11 @@ func httpcloak_get_raw(handle C.int64_t, url *C.char, optionsJSON *C.char) C.int
 	defer cancel()
 
 	req := &httpcloak.Request{
-		Method:                  "GET",
-		URL:                     urlStr,
-		Headers:                 buildHeaders(options.Headers, options.FetchMode),
-		FollowRedirects:         options.FollowRedirects,
-		DisableConditionalCache: options.DisableConditionalCache,
+		Method:                        "GET",
+		URL:                           urlStr,
+		Headers:                       buildHeaders(options.Headers, options.FetchMode),
+		FollowRedirects:               options.FollowRedirects,
+		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
 	}
@@ -856,7 +940,8 @@ func httpcloak_get_raw(handle C.int64_t, url *C.char, optionsJSON *C.char) C.int
 }
 
 //export httpcloak_post_raw
-func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.int, optionsJSON *C.char) C.int64_t {
+func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.int, optionsJSON *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_post_raw", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return -1
@@ -891,12 +976,12 @@ func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.i
 	}
 
 	req := &httpcloak.Request{
-		Method:                  "POST",
-		URL:                     urlStr,
-		Headers:                 buildHeaders(options.Headers, options.FetchMode),
-		Body:                    bodyReader,
-		FollowRedirects:         options.FollowRedirects,
-		DisableConditionalCache: options.DisableConditionalCache,
+		Method:                        "POST",
+		URL:                           urlStr,
+		Headers:                       buildHeaders(options.Headers, options.FetchMode),
+		Body:                          bodyReader,
+		FollowRedirects:               options.FollowRedirects,
+		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
 	}
@@ -910,7 +995,8 @@ func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.i
 }
 
 //export httpcloak_request_raw
-func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, bodyLen C.int) C.int64_t {
+func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, bodyLen C.int) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_request_raw", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return -1
@@ -953,12 +1039,12 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 	}
 
 	req := &httpcloak.Request{
-		Method:                  method,
-		URL:                     config.URL,
-		Headers:                 buildHeaders(config.Headers, config.FetchMode),
-		Body:                    bodyReader,
-		FollowRedirects:         config.FollowRedirects,
-		DisableConditionalCache: config.DisableConditionalCache,
+		Method:                        method,
+		URL:                           config.URL,
+		Headers:                       buildHeaders(config.Headers, config.FetchMode),
+		Body:                          bodyReader,
+		FollowRedirects:               config.FollowRedirects,
+		DisableConditionalCache:       config.DisableConditionalCache,
 		DisableClientHints:            config.DisableClientHints,
 		DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
 	}
@@ -976,7 +1062,8 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 // ============================================================================
 
 //export httpcloak_session_new
-func httpcloak_session_new(configJSON *C.char) C.int64_t {
+func httpcloak_session_new(configJSON *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_session_new", &hcRet)
 	config := SessionConfig{
 		Preset:      "chrome-146",
 		Timeout:     30,
@@ -1012,7 +1099,7 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 		opts = append(opts, httpcloak.WithForceHTTP2())
 	case "h3", "http3", "3":
 		opts = append(opts, httpcloak.WithForceHTTP3())
-	// "auto" or empty = default behavior
+		// "auto" or empty = default behavior
 	}
 
 	// Explicit disable_http3 flag: disables H3 racing while keeping H1/H2
@@ -1046,9 +1133,10 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 		opts = append(opts, httpcloak.WithSessionPreferIPv4())
 	}
 
-	// Handle retry configuration
-	// Note: We need to explicitly handle retry=0 to disable retry,
-	// since Go's NewSession enables retry by default
+	// Handle retry configuration. Retry is opt-in: the Go core defaults to 0
+	// retries (changed from 3 per issue #57, to stop silently re-sending
+	// non-idempotent POST/PUT/PATCH on 5xx), so retry==0 simply adds no retry
+	// option. Bindings also default retry to 0.
 	if config.Retry > 0 {
 		if config.RetryWaitMin > 0 || config.RetryWaitMax > 0 || len(config.RetryOnStatus) > 0 {
 			waitMin := time.Duration(config.RetryWaitMin) * time.Millisecond
@@ -1215,6 +1303,7 @@ func httpcloak_session_new(configJSON *C.char) C.int64_t {
 
 //export httpcloak_session_free
 func httpcloak_session_free(handle C.int64_t) {
+	defer guardVoid("httpcloak_session_free")
 	sessionMu.Lock()
 	session, exists := sessions[int64(handle)]
 	if exists {
@@ -1229,6 +1318,7 @@ func httpcloak_session_free(handle C.int64_t) {
 
 //export httpcloak_session_refresh
 func httpcloak_session_refresh(handle C.int64_t) {
+	defer guardVoid("httpcloak_session_refresh")
 	session := getSession(handle)
 	if session != nil {
 		session.Refresh()
@@ -1236,7 +1326,8 @@ func httpcloak_session_refresh(handle C.int64_t) {
 }
 
 //export httpcloak_session_refresh_protocol
-func httpcloak_session_refresh_protocol(handle C.int64_t, protocol *C.char) *C.char {
+func httpcloak_session_refresh_protocol(handle C.int64_t, protocol *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_refresh_protocol", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -1251,7 +1342,8 @@ func httpcloak_session_refresh_protocol(handle C.int64_t, protocol *C.char) *C.c
 }
 
 //export httpcloak_session_warmup
-func httpcloak_session_warmup(handle C.int64_t, url *C.char, timeoutMs C.int64_t) *C.char {
+func httpcloak_session_warmup(handle C.int64_t, url *C.char, timeoutMs C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_warmup", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -1282,7 +1374,8 @@ func getSession(handle C.int64_t) *httpcloak.Session {
 }
 
 //export httpcloak_session_fork
-func httpcloak_session_fork(handle C.int64_t) C.int64_t {
+func httpcloak_session_fork(handle C.int64_t) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_session_fork", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return -1
@@ -1309,7 +1402,12 @@ func httpcloak_session_fork(handle C.int64_t) C.int64_t {
 // RequestOptions for httpcloak_get/post JSON parsing
 type RequestOptions struct {
 	Headers map[string]string `json:"headers,omitempty"`
-	Timeout int               `json:"timeout,omitempty"` // milliseconds
+	// Timeout's UNIT DEPENDS ON THE ENTRY POINT: the sync httpcloak_get/
+	// httpcloak_post (and the _raw + stream variants) read it as MILLISECONDS,
+	// but httpcloak_get_async / httpcloak_post_async read it as SECONDS. Bindings
+	// must convert to match the export they call (this mismatch is why the .NET
+	// binary path once sent seconds to an ms export — a 1000x-too-short timeout).
+	Timeout int `json:"timeout,omitempty"`
 	// FetchMode explicitly forces Sec-Fetch-Mode and bypasses auto-sniffing.
 	// Valid values: "cors", "no-cors", "navigate", "websocket". Empty = auto.
 	FetchMode string `json:"fetch_mode,omitempty"`
@@ -1337,7 +1435,8 @@ type RequestOptions struct {
 }
 
 //export httpcloak_get
-func httpcloak_get(handle C.int64_t, url *C.char, optionsJSON *C.char) *C.char {
+func httpcloak_get(handle C.int64_t, url *C.char, optionsJSON *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_get", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -1366,11 +1465,11 @@ func httpcloak_get(handle C.int64_t, url *C.char, optionsJSON *C.char) *C.char {
 	defer cancel()
 
 	req := &httpcloak.Request{
-		Method:                  "GET",
-		URL:                     urlStr,
-		Headers:                 buildHeaders(options.Headers, options.FetchMode),
-		FollowRedirects:         options.FollowRedirects,
-		DisableConditionalCache: options.DisableConditionalCache,
+		Method:                        "GET",
+		URL:                           urlStr,
+		Headers:                       buildHeaders(options.Headers, options.FetchMode),
+		FollowRedirects:               options.FollowRedirects,
+		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
 	}
@@ -1384,7 +1483,8 @@ func httpcloak_get(handle C.int64_t, url *C.char, optionsJSON *C.char) *C.char {
 }
 
 //export httpcloak_post
-func httpcloak_post(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.char) *C.char {
+func httpcloak_post(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_post", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -1418,16 +1518,24 @@ func httpcloak_post(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.
 
 	var bodyReader io.Reader
 	if bodyStr != "" {
-		bodyReader = bytes.NewReader([]byte(bodyStr))
+		// Honor body_encoding (e.g. "base64") so callers can pass bodies with
+		// embedded NUL bytes without C.GoString truncating them at the first NUL.
+		rawBody, decodeErr := decodeRequestBody(bodyStr, options.BodyEncoding)
+		if decodeErr != nil {
+			return makeErrorJSON(fmt.Errorf("invalid base64 body: %w", decodeErr))
+		}
+		if len(rawBody) > 0 {
+			bodyReader = bytes.NewReader(rawBody)
+		}
 	}
 
 	req := &httpcloak.Request{
-		Method:                  "POST",
-		URL:                     urlStr,
-		Headers:                 buildHeaders(options.Headers, options.FetchMode),
-		Body:                    bodyReader,
-		FollowRedirects:         options.FollowRedirects,
-		DisableConditionalCache: options.DisableConditionalCache,
+		Method:                        "POST",
+		URL:                           urlStr,
+		Headers:                       buildHeaders(options.Headers, options.FetchMode),
+		Body:                          bodyReader,
+		FollowRedirects:               options.FollowRedirects,
+		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
 	}
@@ -1441,7 +1549,8 @@ func httpcloak_post(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.
 }
 
 //export httpcloak_request
-func httpcloak_request(handle C.int64_t, requestJSON *C.char) *C.char {
+func httpcloak_request(handle C.int64_t, requestJSON *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_request", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -1480,12 +1589,12 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) *C.char {
 	}
 
 	req := &httpcloak.Request{
-		Method:                  config.Method,
-		URL:                     config.URL,
-		Headers:                 buildHeaders(config.Headers, config.FetchMode),
-		Body:                    bodyReader,
-		FollowRedirects:         config.FollowRedirects,
-		DisableConditionalCache: config.DisableConditionalCache,
+		Method:                        config.Method,
+		URL:                           config.URL,
+		Headers:                       buildHeaders(config.Headers, config.FetchMode),
+		Body:                          bodyReader,
+		FollowRedirects:               config.FollowRedirects,
+		DisableConditionalCache:       config.DisableConditionalCache,
 		DisableClientHints:            config.DisableClientHints,
 		DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
 	}
@@ -1503,7 +1612,8 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) *C.char {
 // ============================================================================
 
 //export httpcloak_register_callback
-func httpcloak_register_callback(callback C.async_callback) C.int64_t {
+func httpcloak_register_callback(callback C.async_callback) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_register_callback", &hcRet)
 	callbackMu.Lock()
 	callbackCounter++
 	id := callbackCounter
@@ -1514,6 +1624,7 @@ func httpcloak_register_callback(callback C.async_callback) C.int64_t {
 
 //export httpcloak_unregister_callback
 func httpcloak_unregister_callback(callbackID C.int64_t) {
+	defer guardVoid("httpcloak_unregister_callback")
 	callbackMu.Lock()
 	delete(asyncCallbacks, int64(callbackID))
 	delete(cancelFuncs, int64(callbackID))
@@ -1522,6 +1633,7 @@ func httpcloak_unregister_callback(callbackID C.int64_t) {
 
 //export httpcloak_cancel_request
 func httpcloak_cancel_request(callbackID C.int64_t) {
+	defer guardVoid("httpcloak_cancel_request")
 	callbackMu.Lock()
 	cancel, exists := cancelFuncs[int64(callbackID)]
 	callbackMu.Unlock()
@@ -1566,6 +1678,7 @@ func invokeCallback(callbackID int64, responseJSON string, errStr string) {
 
 //export httpcloak_get_async
 func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, callbackID C.int64_t) {
+	defer guardVoid("httpcloak_get_async")
 	session := getSession(handle)
 	urlStr := C.GoString(url)
 
@@ -1599,19 +1712,20 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 
 	go func() {
 		defer cancel()
+		defer guardAsync("get_async goroutine", int64(callbackID))
 		if session == nil {
 			invokeCallback(int64(callbackID), "", ErrInvalidSession.Error())
 			return
 		}
 
 		req := &httpcloak.Request{
-			Method:                  "GET",
-			URL:                     urlStr,
-			Headers:                 buildHeaders(options.Headers, options.FetchMode),
-			FollowRedirects:         options.FollowRedirects,
-			DisableConditionalCache: options.DisableConditionalCache,
-		DisableClientHints:            options.DisableClientHints,
-		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+			Method:                        "GET",
+			URL:                           urlStr,
+			Headers:                       buildHeaders(options.Headers, options.FetchMode),
+			FollowRedirects:               options.FollowRedirects,
+			DisableConditionalCache:       options.DisableConditionalCache,
+			DisableClientHints:            options.DisableClientHints,
+			DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
 		}
 
 		resp, err := session.Do(ctx, req)
@@ -1663,6 +1777,7 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 
 //export httpcloak_post_async
 func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.char, callbackID C.int64_t) {
+	defer guardVoid("httpcloak_post_async")
 	session := getSession(handle)
 	urlStr := C.GoString(url)
 	bodyStr := ""
@@ -1699,6 +1814,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 
 	go func() {
 		defer cancel()
+		defer guardAsync("post_async goroutine", int64(callbackID))
 		if session == nil {
 			invokeCallback(int64(callbackID), "", ErrInvalidSession.Error())
 			return
@@ -1719,14 +1835,14 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		}
 
 		req := &httpcloak.Request{
-			Method:                  "POST",
-			URL:                     urlStr,
-			Headers:                 buildHeaders(options.Headers, options.FetchMode),
-			Body:                    bodyReader,
-			FollowRedirects:         options.FollowRedirects,
-			DisableConditionalCache: options.DisableConditionalCache,
-		DisableClientHints:            options.DisableClientHints,
-		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+			Method:                        "POST",
+			URL:                           urlStr,
+			Headers:                       buildHeaders(options.Headers, options.FetchMode),
+			Body:                          bodyReader,
+			FollowRedirects:               options.FollowRedirects,
+			DisableConditionalCache:       options.DisableConditionalCache,
+			DisableClientHints:            options.DisableClientHints,
+			DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
 		}
 
 		resp, err := session.Do(ctx, req)
@@ -1778,6 +1894,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 
 //export httpcloak_request_async
 func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C.int64_t) {
+	defer guardVoid("httpcloak_request_async")
 	session := getSession(handle)
 
 	var config RequestConfig
@@ -1794,6 +1911,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 
 	go func() {
 		defer cancel()
+		defer guardAsync("request_async goroutine", int64(callbackID))
 		if session == nil {
 			invokeCallback(int64(callbackID), "", ErrInvalidSession.Error())
 			return
@@ -1823,14 +1941,14 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 		}
 
 		req := &httpcloak.Request{
-			Method:                  config.Method,
-			URL:                     config.URL,
-			Headers:                 buildHeaders(config.Headers, config.FetchMode),
-			Body:                    bodyReader,
-			FollowRedirects:         config.FollowRedirects,
-			DisableConditionalCache: config.DisableConditionalCache,
-		DisableClientHints:            config.DisableClientHints,
-		DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
+			Method:                        config.Method,
+			URL:                           config.URL,
+			Headers:                       buildHeaders(config.Headers, config.FetchMode),
+			Body:                          bodyReader,
+			FollowRedirects:               config.FollowRedirects,
+			DisableConditionalCache:       config.DisableConditionalCache,
+			DisableClientHints:            config.DisableClientHints,
+			DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
 		}
 
 		resp, err := session.Do(ctx, req)
@@ -1885,7 +2003,8 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 // ============================================================================
 
 //export httpcloak_get_cookies
-func httpcloak_get_cookies(handle C.int64_t) *C.char {
+func httpcloak_get_cookies(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_get_cookies", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -1919,6 +2038,7 @@ func httpcloak_get_cookies(handle C.int64_t) *C.char {
 
 //export httpcloak_set_cookie
 func httpcloak_set_cookie(handle C.int64_t, cookieJSON *C.char) {
+	defer guardVoid("httpcloak_set_cookie")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -1951,6 +2071,7 @@ func httpcloak_set_cookie(handle C.int64_t, cookieJSON *C.char) {
 
 //export httpcloak_delete_cookie
 func httpcloak_delete_cookie(handle C.int64_t, name *C.char, domain *C.char) {
+	defer guardVoid("httpcloak_delete_cookie")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -1961,6 +2082,7 @@ func httpcloak_delete_cookie(handle C.int64_t, name *C.char, domain *C.char) {
 
 //export httpcloak_clear_cookies
 func httpcloak_clear_cookies(handle C.int64_t) {
+	defer guardVoid("httpcloak_clear_cookies")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -1974,7 +2096,8 @@ func httpcloak_clear_cookies(handle C.int64_t) {
 // ============================================================================
 
 //export httpcloak_session_save
-func httpcloak_session_save(handle C.int64_t, path *C.char) *C.char {
+func httpcloak_session_save(handle C.int64_t, path *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_save", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -1989,7 +2112,8 @@ func httpcloak_session_save(handle C.int64_t, path *C.char) *C.char {
 }
 
 //export httpcloak_session_load
-func httpcloak_session_load(path *C.char) C.int64_t {
+func httpcloak_session_load(path *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_session_load", &hcRet)
 	pathStr := C.GoString(path)
 	session, err := httpcloak.LoadSession(pathStr)
 	if err != nil {
@@ -2006,7 +2130,8 @@ func httpcloak_session_load(path *C.char) C.int64_t {
 }
 
 //export httpcloak_session_marshal
-func httpcloak_session_marshal(handle C.int64_t) *C.char {
+func httpcloak_session_marshal(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_marshal", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -2021,7 +2146,8 @@ func httpcloak_session_marshal(handle C.int64_t) *C.char {
 }
 
 //export httpcloak_session_unmarshal
-func httpcloak_session_unmarshal(data *C.char) C.int64_t {
+func httpcloak_session_unmarshal(data *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_session_unmarshal", &hcRet)
 	dataStr := C.GoString(data)
 	session, err := httpcloak.UnmarshalSession([]byte(dataStr))
 	if err != nil {
@@ -2042,7 +2168,8 @@ func httpcloak_session_unmarshal(data *C.char) C.int64_t {
 // ============================================================================
 
 //export httpcloak_session_set_proxy
-func httpcloak_session_set_proxy(handle C.int64_t, proxyURL *C.char) *C.char {
+func httpcloak_session_set_proxy(handle C.int64_t, proxyURL *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_set_proxy", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -2057,7 +2184,8 @@ func httpcloak_session_set_proxy(handle C.int64_t, proxyURL *C.char) *C.char {
 }
 
 //export httpcloak_session_set_tcp_proxy
-func httpcloak_session_set_tcp_proxy(handle C.int64_t, proxyURL *C.char) *C.char {
+func httpcloak_session_set_tcp_proxy(handle C.int64_t, proxyURL *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_set_tcp_proxy", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -2072,7 +2200,8 @@ func httpcloak_session_set_tcp_proxy(handle C.int64_t, proxyURL *C.char) *C.char
 }
 
 //export httpcloak_session_set_udp_proxy
-func httpcloak_session_set_udp_proxy(handle C.int64_t, proxyURL *C.char) *C.char {
+func httpcloak_session_set_udp_proxy(handle C.int64_t, proxyURL *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_set_udp_proxy", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -2087,7 +2216,8 @@ func httpcloak_session_set_udp_proxy(handle C.int64_t, proxyURL *C.char) *C.char
 }
 
 //export httpcloak_session_get_proxy
-func httpcloak_session_get_proxy(handle C.int64_t) *C.char {
+func httpcloak_session_get_proxy(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_get_proxy", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -2096,7 +2226,8 @@ func httpcloak_session_get_proxy(handle C.int64_t) *C.char {
 }
 
 //export httpcloak_session_get_tcp_proxy
-func httpcloak_session_get_tcp_proxy(handle C.int64_t) *C.char {
+func httpcloak_session_get_tcp_proxy(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_get_tcp_proxy", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -2105,7 +2236,8 @@ func httpcloak_session_get_tcp_proxy(handle C.int64_t) *C.char {
 }
 
 //export httpcloak_session_get_udp_proxy
-func httpcloak_session_get_udp_proxy(handle C.int64_t) *C.char {
+func httpcloak_session_get_udp_proxy(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_get_udp_proxy", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -2114,7 +2246,8 @@ func httpcloak_session_get_udp_proxy(handle C.int64_t) *C.char {
 }
 
 //export httpcloak_session_set_header_order
-func httpcloak_session_set_header_order(handle C.int64_t, orderJSON *C.char) *C.char {
+func httpcloak_session_set_header_order(handle C.int64_t, orderJSON *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_set_header_order", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -2136,7 +2269,8 @@ func httpcloak_session_set_header_order(handle C.int64_t, orderJSON *C.char) *C.
 }
 
 //export httpcloak_session_get_header_order
-func httpcloak_session_get_header_order(handle C.int64_t) *C.char {
+func httpcloak_session_get_header_order(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_get_header_order", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return makeErrorJSON(ErrInvalidSession)
@@ -2156,6 +2290,7 @@ func httpcloak_session_get_header_order(handle C.int64_t) *C.char {
 
 //export httpcloak_session_set_identifier
 func httpcloak_session_set_identifier(handle C.int64_t, sessionId *C.char) {
+	defer guardVoid("httpcloak_session_set_identifier")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -2174,6 +2309,7 @@ func httpcloak_session_set_identifier(handle C.int64_t, sessionId *C.char) {
 
 //export httpcloak_session_clear_cache
 func httpcloak_session_clear_cache(handle C.int64_t) {
+	defer guardVoid("httpcloak_session_clear_cache")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -2181,7 +2317,6 @@ func httpcloak_session_clear_cache(handle C.int64_t) {
 	session.ClearCache()
 }
 
-//export httpcloak_session_stats
 // httpcloak_session_stats returns a JSON snapshot of the session's counters,
 // timestamps and transport-level stats. Caller owns the returned string and
 // must free it via httpcloak_free_string. Fields:
@@ -2191,7 +2326,10 @@ func httpcloak_session_clear_cache(handle C.int64_t) {
 //	transport_stats (object).
 //
 // Returns nil if the session handle is invalid.
-func httpcloak_session_stats(handle C.int64_t) *C.char {
+//
+//export httpcloak_session_stats
+func httpcloak_session_stats(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_stats", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return nil
@@ -2217,10 +2355,12 @@ func httpcloak_session_stats(handle C.int64_t) *C.char {
 	return C.CString(string(data))
 }
 
-//export httpcloak_session_idle_time
 // httpcloak_session_idle_time returns the time since the session last serviced
 // a request, in nanoseconds. Returns -1 if the session handle is invalid.
-func httpcloak_session_idle_time(handle C.int64_t) C.int64_t {
+//
+//export httpcloak_session_idle_time
+func httpcloak_session_idle_time(handle C.int64_t) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_session_idle_time", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return -1
@@ -2228,10 +2368,12 @@ func httpcloak_session_idle_time(handle C.int64_t) C.int64_t {
 	return C.int64_t(session.IdleTime())
 }
 
-//export httpcloak_session_is_active
 // httpcloak_session_is_active returns 1 if the session is still usable (Close
 // has not run), 0 if closed or the handle is invalid.
-func httpcloak_session_is_active(handle C.int64_t) C.int {
+//
+//export httpcloak_session_is_active
+func httpcloak_session_is_active(handle C.int64_t) (hcRet C.int) {
+	defer guardInt("httpcloak_session_is_active", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return 0
@@ -2242,10 +2384,12 @@ func httpcloak_session_is_active(handle C.int64_t) C.int {
 	return 0
 }
 
-//export httpcloak_session_touch
 // httpcloak_session_touch resets the idle timer to now without issuing a
 // request. No-op if the handle is invalid.
+//
+//export httpcloak_session_touch
 func httpcloak_session_touch(handle C.int64_t) {
+	defer guardVoid("httpcloak_session_touch")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -2255,6 +2399,7 @@ func httpcloak_session_touch(handle C.int64_t) {
 
 //export httpcloak_session_set_conditional_cache
 func httpcloak_session_set_conditional_cache(handle C.int64_t, enabled C.int) {
+	defer guardVoid("httpcloak_session_set_conditional_cache")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -2263,7 +2408,8 @@ func httpcloak_session_set_conditional_cache(handle C.int64_t, enabled C.int) {
 }
 
 //export httpcloak_session_get_conditional_cache
-func httpcloak_session_get_conditional_cache(handle C.int64_t) C.int {
+func httpcloak_session_get_conditional_cache(handle C.int64_t) (hcRet C.int) {
+	defer guardInt("httpcloak_session_get_conditional_cache", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return 0
@@ -2276,6 +2422,7 @@ func httpcloak_session_get_conditional_cache(handle C.int64_t) C.int {
 
 //export httpcloak_session_set_client_hints
 func httpcloak_session_set_client_hints(handle C.int64_t, enabled C.int) {
+	defer guardVoid("httpcloak_session_set_client_hints")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -2284,7 +2431,8 @@ func httpcloak_session_set_client_hints(handle C.int64_t, enabled C.int) {
 }
 
 //export httpcloak_session_get_client_hints
-func httpcloak_session_get_client_hints(handle C.int64_t) C.int {
+func httpcloak_session_get_client_hints(handle C.int64_t) (hcRet C.int) {
+	defer guardInt("httpcloak_session_get_client_hints", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return 0
@@ -2297,6 +2445,7 @@ func httpcloak_session_get_client_hints(handle C.int64_t) C.int {
 
 //export httpcloak_session_set_high_entropy_client_hints
 func httpcloak_session_set_high_entropy_client_hints(handle C.int64_t, enabled C.int) {
+	defer guardVoid("httpcloak_session_set_high_entropy_client_hints")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -2305,7 +2454,8 @@ func httpcloak_session_set_high_entropy_client_hints(handle C.int64_t, enabled C
 }
 
 //export httpcloak_session_get_high_entropy_client_hints
-func httpcloak_session_get_high_entropy_client_hints(handle C.int64_t) C.int {
+func httpcloak_session_get_high_entropy_client_hints(handle C.int64_t) (hcRet C.int) {
+	defer guardInt("httpcloak_session_get_high_entropy_client_hints", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return 0
@@ -2318,6 +2468,7 @@ func httpcloak_session_get_high_entropy_client_hints(handle C.int64_t) C.int {
 
 //export httpcloak_session_set_follow_redirects
 func httpcloak_session_set_follow_redirects(handle C.int64_t, enabled C.int) {
+	defer guardVoid("httpcloak_session_set_follow_redirects")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -2326,7 +2477,8 @@ func httpcloak_session_set_follow_redirects(handle C.int64_t, enabled C.int) {
 }
 
 //export httpcloak_session_get_follow_redirects
-func httpcloak_session_get_follow_redirects(handle C.int64_t) C.int {
+func httpcloak_session_get_follow_redirects(handle C.int64_t) (hcRet C.int) {
+	defer guardInt("httpcloak_session_get_follow_redirects", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return 0
@@ -2339,6 +2491,7 @@ func httpcloak_session_get_follow_redirects(handle C.int64_t) C.int {
 
 //export httpcloak_session_set_max_redirects
 func httpcloak_session_set_max_redirects(handle C.int64_t, max C.int) {
+	defer guardVoid("httpcloak_session_set_max_redirects")
 	session := getSession(handle)
 	if session == nil {
 		return
@@ -2347,7 +2500,8 @@ func httpcloak_session_set_max_redirects(handle C.int64_t, max C.int) {
 }
 
 //export httpcloak_session_get_max_redirects
-func httpcloak_session_get_max_redirects(handle C.int64_t) C.int {
+func httpcloak_session_get_max_redirects(handle C.int64_t) (hcRet C.int) {
+	defer guardInt("httpcloak_session_get_max_redirects", &hcRet)
 	session := getSession(handle)
 	if session == nil {
 		return 0
@@ -2361,18 +2515,21 @@ func httpcloak_session_get_max_redirects(handle C.int64_t) C.int {
 
 //export httpcloak_free_string
 func httpcloak_free_string(str *C.char) {
+	defer guardVoid("httpcloak_free_string")
 	if str != nil {
 		C.free(unsafe.Pointer(str))
 	}
 }
 
 //export httpcloak_version
-func httpcloak_version() *C.char {
+func httpcloak_version() (hcRet *C.char) {
+	defer guardCharP("httpcloak_version", &hcRet)
 	return C.CString("1.6.8-beta.1")
 }
 
 //export httpcloak_available_presets
-func httpcloak_available_presets() *C.char {
+func httpcloak_available_presets() (hcRet *C.char) {
+	defer guardCharP("httpcloak_available_presets", &hcRet)
 	// Return preset names with their supported protocols
 	presets := fingerprint.AvailableWithInfo()
 	data, _ := json.Marshal(presets)
@@ -2380,7 +2537,8 @@ func httpcloak_available_presets() *C.char {
 }
 
 //export httpcloak_set_ech_dns_servers
-func httpcloak_set_ech_dns_servers(serversJSON *C.char) *C.char {
+func httpcloak_set_ech_dns_servers(serversJSON *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_set_ech_dns_servers", &hcRet)
 	if serversJSON == nil {
 		// Reset to defaults
 		dns.SetECHDNSServers(nil)
@@ -2404,7 +2562,8 @@ func httpcloak_set_ech_dns_servers(serversJSON *C.char) *C.char {
 }
 
 //export httpcloak_get_ech_dns_servers
-func httpcloak_get_ech_dns_servers() *C.char {
+func httpcloak_get_ech_dns_servers() (hcRet *C.char) {
+	defer guardCharP("httpcloak_get_ech_dns_servers", &hcRet)
 	servers := dns.GetECHDNSServers()
 	data, _ := json.Marshal(servers)
 	return C.CString(string(data))
@@ -2616,9 +2775,9 @@ type asyncCacheOpResult struct {
 var (
 	asyncCacheRequestsMu sync.RWMutex
 	asyncCacheRequestID  int64
-	asyncCacheGetResults    = make(map[int64]chan asyncCacheGetResult)
-	asyncCacheOpResults     = make(map[int64]chan asyncCacheOpResult)
-	asyncCacheTimeout       = 30 * time.Second // Timeout for async operations
+	asyncCacheGetResults = make(map[int64]chan asyncCacheGetResult)
+	asyncCacheOpResults  = make(map[int64]chan asyncCacheOpResult)
+	asyncCacheTimeout    = 30 * time.Second // Timeout for async operations
 )
 
 // CAsyncSessionCacheBackend wraps async C callbacks to implement transport.SessionCacheBackend
@@ -2862,6 +3021,7 @@ func (c *CAsyncSessionCacheBackend) PutECHConfig(ctx context.Context, key string
 
 //export httpcloak_async_cache_get_result
 func httpcloak_async_cache_get_result(requestID C.int64_t, value *C.char) {
+	defer guardVoid("httpcloak_async_cache_get_result")
 	asyncCacheRequestsMu.RLock()
 	ch, ok := asyncCacheGetResults[int64(requestID)]
 	asyncCacheRequestsMu.RUnlock()
@@ -2884,6 +3044,7 @@ func httpcloak_async_cache_get_result(requestID C.int64_t, value *C.char) {
 
 //export httpcloak_async_cache_op_result
 func httpcloak_async_cache_op_result(requestID C.int64_t, success C.int) {
+	defer guardVoid("httpcloak_async_cache_op_result")
 	asyncCacheRequestsMu.RLock()
 	ch, ok := asyncCacheOpResults[int64(requestID)]
 	asyncCacheRequestsMu.RUnlock()
@@ -2918,6 +3079,7 @@ func httpcloak_set_session_cache_callbacks(
 	echPutCallback C.ech_cache_put_callback,
 	errorCallback C.session_cache_error_callback,
 ) {
+	defer guardVoid("httpcloak_set_session_cache_callbacks")
 	globalSessionCacheMu.Lock()
 	defer globalSessionCacheMu.Unlock()
 
@@ -2955,6 +3117,7 @@ func httpcloak_set_async_session_cache_callbacks(
 	echPutCallback C.async_ech_put_callback,
 	errorCallback C.session_cache_error_callback,
 ) {
+	defer guardVoid("httpcloak_set_async_session_cache_callbacks")
 	globalSessionCacheMu.Lock()
 	defer globalSessionCacheMu.Unlock()
 
@@ -2985,6 +3148,7 @@ func httpcloak_set_async_session_cache_callbacks(
 
 //export httpcloak_clear_session_cache_callbacks
 func httpcloak_clear_session_cache_callbacks() {
+	defer guardVoid("httpcloak_clear_session_cache_callbacks")
 	globalSessionCacheMu.Lock()
 	defer globalSessionCacheMu.Unlock()
 	globalSessionCacheBackend = nil
@@ -3040,7 +3204,8 @@ type LocalProxyConfig struct {
 }
 
 //export httpcloak_local_proxy_start
-func httpcloak_local_proxy_start(configJSON *C.char) C.int64_t {
+func httpcloak_local_proxy_start(configJSON *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_local_proxy_start", &hcRet)
 	config := LocalProxyConfig{
 		Port:           0,
 		Preset:         "chrome-146",
@@ -3094,6 +3259,7 @@ func httpcloak_local_proxy_start(configJSON *C.char) C.int64_t {
 
 //export httpcloak_local_proxy_stop
 func httpcloak_local_proxy_stop(handle C.int64_t) {
+	defer guardVoid("httpcloak_local_proxy_stop")
 	localProxyMu.Lock()
 	proxy, exists := localProxies[int64(handle)]
 	if exists {
@@ -3107,7 +3273,8 @@ func httpcloak_local_proxy_stop(handle C.int64_t) {
 }
 
 //export httpcloak_local_proxy_get_port
-func httpcloak_local_proxy_get_port(handle C.int64_t) C.int {
+func httpcloak_local_proxy_get_port(handle C.int64_t) (hcRet C.int) {
+	defer guardInt("httpcloak_local_proxy_get_port", &hcRet)
 	localProxyMu.RLock()
 	proxy, exists := localProxies[int64(handle)]
 	localProxyMu.RUnlock()
@@ -3120,7 +3287,8 @@ func httpcloak_local_proxy_get_port(handle C.int64_t) C.int {
 }
 
 //export httpcloak_local_proxy_is_running
-func httpcloak_local_proxy_is_running(handle C.int64_t) C.int {
+func httpcloak_local_proxy_is_running(handle C.int64_t) (hcRet C.int) {
+	defer guardInt("httpcloak_local_proxy_is_running", &hcRet)
 	localProxyMu.RLock()
 	proxy, exists := localProxies[int64(handle)]
 	localProxyMu.RUnlock()
@@ -3136,7 +3304,8 @@ func httpcloak_local_proxy_is_running(handle C.int64_t) C.int {
 }
 
 //export httpcloak_local_proxy_get_stats
-func httpcloak_local_proxy_get_stats(handle C.int64_t) *C.char {
+func httpcloak_local_proxy_get_stats(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_local_proxy_get_stats", &hcRet)
 	localProxyMu.RLock()
 	proxy, exists := localProxies[int64(handle)]
 	localProxyMu.RUnlock()
@@ -3151,7 +3320,8 @@ func httpcloak_local_proxy_get_stats(handle C.int64_t) *C.char {
 }
 
 //export httpcloak_local_proxy_register_session
-func httpcloak_local_proxy_register_session(proxyHandle C.int64_t, sessionID *C.char, sessionHandle C.int64_t) *C.char {
+func httpcloak_local_proxy_register_session(proxyHandle C.int64_t, sessionID *C.char, sessionHandle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_local_proxy_register_session", &hcRet)
 	localProxyMu.RLock()
 	proxy, exists := localProxies[int64(proxyHandle)]
 	localProxyMu.RUnlock()
@@ -3174,7 +3344,8 @@ func httpcloak_local_proxy_register_session(proxyHandle C.int64_t, sessionID *C.
 }
 
 //export httpcloak_local_proxy_unregister_session
-func httpcloak_local_proxy_unregister_session(proxyHandle C.int64_t, sessionID *C.char) C.int {
+func httpcloak_local_proxy_unregister_session(proxyHandle C.int64_t, sessionID *C.char) (hcRet C.int) {
+	defer guardInt("httpcloak_local_proxy_unregister_session", &hcRet)
 	localProxyMu.RLock()
 	proxy, exists := localProxies[int64(proxyHandle)]
 	localProxyMu.RUnlock()
@@ -3191,13 +3362,15 @@ func httpcloak_local_proxy_unregister_session(proxyHandle C.int64_t, sessionID *
 	return 0 // Session not found
 }
 
-//export httpcloak_local_proxy_list_sessions
 // httpcloak_local_proxy_list_sessions returns a JSON array of the session IDs
 // currently registered on the given LocalProxy (the same IDs that the
 // X-HTTPCloak-Session header accepts). The caller owns the returned string and
 // must free it via httpcloak_free_string. Returns "[]" if no sessions are
 // registered, or nil if the proxy handle is invalid.
-func httpcloak_local_proxy_list_sessions(proxyHandle C.int64_t) *C.char {
+//
+//export httpcloak_local_proxy_list_sessions
+func httpcloak_local_proxy_list_sessions(proxyHandle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_local_proxy_list_sessions", &hcRet)
 	localProxyMu.RLock()
 	proxy, exists := localProxies[int64(proxyHandle)]
 	localProxyMu.RUnlock()
@@ -3217,11 +3390,13 @@ func httpcloak_local_proxy_list_sessions(proxyHandle C.int64_t) *C.char {
 	return C.CString(string(data))
 }
 
-//export httpcloak_local_proxy_has_session
 // httpcloak_local_proxy_has_session returns 1 if a session with the given ID
 // is currently registered on the LocalProxy, 0 otherwise. Cheaper than
 // list_sessions when callers only need an existence check (no JSON marshal).
-func httpcloak_local_proxy_has_session(proxyHandle C.int64_t, sessionID *C.char) C.int {
+//
+//export httpcloak_local_proxy_has_session
+func httpcloak_local_proxy_has_session(proxyHandle C.int64_t, sessionID *C.char) (hcRet C.int) {
+	defer guardInt("httpcloak_local_proxy_has_session", &hcRet)
 	localProxyMu.RLock()
 	proxy, exists := localProxies[int64(proxyHandle)]
 	localProxyMu.RUnlock()
@@ -3254,11 +3429,15 @@ type StreamMetadata struct {
 func getStream(handle int64) *httpcloak.StreamResponse {
 	streamMu.RLock()
 	defer streamMu.RUnlock()
-	return streams[handle]
+	if e := streams[handle]; e != nil {
+		return e.resp
+	}
+	return nil
 }
 
 //export httpcloak_stream_get
-func httpcloak_stream_get(sessionHandle C.int64_t, url *C.char, optionsJSON *C.char) C.int64_t {
+func httpcloak_stream_get(sessionHandle C.int64_t, url *C.char, optionsJSON *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_stream_get", &hcRet)
 	session := getSession(sessionHandle)
 	if session == nil {
 		return -1
@@ -3287,11 +3466,11 @@ func httpcloak_stream_get(sessionHandle C.int64_t, url *C.char, optionsJSON *C.c
 	// Note: We don't defer cancel() here - it will be called when stream is closed
 
 	req := &httpcloak.Request{
-		Method:                  "GET",
-		URL:                     urlStr,
-		Headers:                 buildHeaders(options.Headers, options.FetchMode),
-		FollowRedirects:         options.FollowRedirects,
-		DisableConditionalCache: options.DisableConditionalCache,
+		Method:                        "GET",
+		URL:                           urlStr,
+		Headers:                       buildHeaders(options.Headers, options.FetchMode),
+		FollowRedirects:               options.FollowRedirects,
+		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
 	}
@@ -3306,14 +3485,15 @@ func httpcloak_stream_get(sessionHandle C.int64_t, url *C.char, optionsJSON *C.c
 	streamMu.Lock()
 	streamCounter++
 	handle := streamCounter
-	streams[handle] = resp
+	streams[handle] = &streamEntry{resp: resp, cancel: cancel}
 	streamMu.Unlock()
 
 	return C.int64_t(handle)
 }
 
 //export httpcloak_stream_post
-func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, optionsJSON *C.char) C.int64_t {
+func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, optionsJSON *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_stream_post", &hcRet)
 	session := getSession(sessionHandle)
 	if session == nil {
 		return -1
@@ -3349,12 +3529,12 @@ func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, o
 	}
 
 	req := &httpcloak.Request{
-		Method:                  "POST",
-		URL:                     urlStr,
-		Headers:                 buildHeaders(options.Headers, options.FetchMode),
-		Body:                    bodyReader,
-		FollowRedirects:         options.FollowRedirects,
-		DisableConditionalCache: options.DisableConditionalCache,
+		Method:                        "POST",
+		URL:                           urlStr,
+		Headers:                       buildHeaders(options.Headers, options.FetchMode),
+		Body:                          bodyReader,
+		FollowRedirects:               options.FollowRedirects,
+		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
 	}
@@ -3369,14 +3549,15 @@ func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, o
 	streamMu.Lock()
 	streamCounter++
 	handle := streamCounter
-	streams[handle] = resp
+	streams[handle] = &streamEntry{resp: resp, cancel: cancel}
 	streamMu.Unlock()
 
 	return C.int64_t(handle)
 }
 
 //export httpcloak_stream_request
-func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) C.int64_t {
+func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_stream_request", &hcRet)
 	session := getSession(sessionHandle)
 	if session == nil {
 		return -1
@@ -3414,12 +3595,12 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) C.in
 	}
 
 	req := &httpcloak.Request{
-		Method:                  config.Method,
-		URL:                     config.URL,
-		Headers:                 buildHeaders(config.Headers, config.FetchMode),
-		Body:                    bodyReader,
-		FollowRedirects:         config.FollowRedirects,
-		DisableConditionalCache: config.DisableConditionalCache,
+		Method:                        config.Method,
+		URL:                           config.URL,
+		Headers:                       buildHeaders(config.Headers, config.FetchMode),
+		Body:                          bodyReader,
+		FollowRedirects:               config.FollowRedirects,
+		DisableConditionalCache:       config.DisableConditionalCache,
 		DisableClientHints:            config.DisableClientHints,
 		DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
 	}
@@ -3434,14 +3615,15 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) C.in
 	streamMu.Lock()
 	streamCounter++
 	handle := streamCounter
-	streams[handle] = resp
+	streams[handle] = &streamEntry{resp: resp, cancel: cancel}
 	streamMu.Unlock()
 
 	return C.int64_t(handle)
 }
 
 //export httpcloak_stream_get_metadata
-func httpcloak_stream_get_metadata(streamHandle C.int64_t) *C.char {
+func httpcloak_stream_get_metadata(streamHandle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_stream_get_metadata", &hcRet)
 	stream := getStream(int64(streamHandle))
 	if stream == nil {
 		return makeErrorJSON(ErrInvalidStream)
@@ -3463,7 +3645,8 @@ func httpcloak_stream_get_metadata(streamHandle C.int64_t) *C.char {
 }
 
 //export httpcloak_stream_read
-func httpcloak_stream_read(streamHandle C.int64_t, bufferSize C.int) *C.char {
+func httpcloak_stream_read(streamHandle C.int64_t, bufferSize C.int) (hcRet *C.char) {
+	defer guardCharP("httpcloak_stream_read", &hcRet)
 	stream := getStream(int64(streamHandle))
 	if stream == nil {
 		return nil
@@ -3495,7 +3678,8 @@ func httpcloak_stream_read(streamHandle C.int64_t, bufferSize C.int) *C.char {
 }
 
 //export httpcloak_stream_read_raw
-func httpcloak_stream_read_raw(streamHandle C.int64_t, buffer unsafe.Pointer, bufferSize C.int) C.int {
+func httpcloak_stream_read_raw(streamHandle C.int64_t, buffer unsafe.Pointer, bufferSize C.int) (hcRet C.int) {
+	defer guardInt("httpcloak_stream_read_raw", &hcRet)
 	stream := getStream(int64(streamHandle))
 	if stream == nil {
 		return -1
@@ -3522,15 +3706,21 @@ func httpcloak_stream_read_raw(streamHandle C.int64_t, buffer unsafe.Pointer, bu
 
 //export httpcloak_stream_close
 func httpcloak_stream_close(streamHandle C.int64_t) {
+	defer guardVoid("httpcloak_stream_close")
 	streamMu.Lock()
-	stream, exists := streams[int64(streamHandle)]
+	entry, exists := streams[int64(streamHandle)]
 	if exists {
 		delete(streams, int64(streamHandle))
 	}
 	streamMu.Unlock()
 
-	if stream != nil {
-		stream.Close()
+	if entry != nil {
+		if entry.cancel != nil {
+			entry.cancel()
+		}
+		if entry.resp != nil {
+			entry.resp.Close()
+		}
 	}
 }
 
@@ -3547,7 +3737,8 @@ type UploadOptions struct {
 }
 
 //export httpcloak_upload_start
-func httpcloak_upload_start(sessionHandle C.int64_t, url *C.char, optionsJSON *C.char) C.int64_t {
+func httpcloak_upload_start(sessionHandle C.int64_t, url *C.char, optionsJSON *C.char) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_upload_start", &hcRet)
 	session := getSession(sessionHandle)
 	if session == nil {
 		return -1
@@ -3602,6 +3793,15 @@ func httpcloak_upload_start(sessionHandle C.int64_t, url *C.char, optionsJSON *C
 
 	// Start the request in a goroutine
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logClibPanic("upload_start goroutine", r)
+				select {
+				case upload.responseCh <- &uploadResult{err: fmt.Errorf("internal panic: %v", r)}:
+				default:
+				}
+			}
+		}()
 		ctx := context.Background()
 		var cancel context.CancelFunc
 		if upload.timeout > 0 {
@@ -3629,7 +3829,8 @@ func httpcloak_upload_start(sessionHandle C.int64_t, url *C.char, optionsJSON *C
 }
 
 //export httpcloak_upload_write
-func httpcloak_upload_write(uploadHandle C.int64_t, dataBase64 *C.char) C.int {
+func httpcloak_upload_write(uploadHandle C.int64_t, dataBase64 *C.char) (hcRet C.int) {
+	defer guardInt("httpcloak_upload_write", &hcRet)
 	uploadMu.RLock()
 	upload, exists := uploads[int64(uploadHandle)]
 	uploadMu.RUnlock()
@@ -3662,7 +3863,8 @@ func httpcloak_upload_write(uploadHandle C.int64_t, dataBase64 *C.char) C.int {
 }
 
 //export httpcloak_upload_write_raw
-func httpcloak_upload_write_raw(uploadHandle C.int64_t, data unsafe.Pointer, dataLen C.int) C.int {
+func httpcloak_upload_write_raw(uploadHandle C.int64_t, data unsafe.Pointer, dataLen C.int) (hcRet C.int) {
+	defer guardInt("httpcloak_upload_write_raw", &hcRet)
 	uploadMu.RLock()
 	upload, exists := uploads[int64(uploadHandle)]
 	uploadMu.RUnlock()
@@ -3691,7 +3893,8 @@ func httpcloak_upload_write_raw(uploadHandle C.int64_t, data unsafe.Pointer, dat
 }
 
 //export httpcloak_upload_finish
-func httpcloak_upload_finish(uploadHandle C.int64_t) *C.char {
+func httpcloak_upload_finish(uploadHandle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_upload_finish", &hcRet)
 	uploadMu.Lock()
 	upload, exists := uploads[int64(uploadHandle)]
 	if exists {
@@ -3754,6 +3957,7 @@ func httpcloak_upload_finish(uploadHandle C.int64_t) *C.char {
 
 //export httpcloak_upload_cancel
 func httpcloak_upload_cancel(uploadHandle C.int64_t) {
+	defer guardVoid("httpcloak_upload_cancel")
 	uploadMu.Lock()
 	upload, exists := uploads[int64(uploadHandle)]
 	if exists {
@@ -3878,7 +4082,8 @@ func encodeBase64(data []byte) string {
 // --- Custom Preset Loading ---
 
 //export httpcloak_preset_load_file
-func httpcloak_preset_load_file(path *C.char) *C.char {
+func httpcloak_preset_load_file(path *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_preset_load_file", &hcRet)
 	p, err := fingerprint.LoadAndBuildPreset(C.GoString(path))
 	if err != nil {
 		return makeErrorJSON(err)
@@ -3891,7 +4096,8 @@ func httpcloak_preset_load_file(path *C.char) *C.char {
 }
 
 //export httpcloak_preset_load_json
-func httpcloak_preset_load_json(jsonData *C.char) *C.char {
+func httpcloak_preset_load_json(jsonData *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_preset_load_json", &hcRet)
 	p, err := fingerprint.LoadAndBuildPresetFromJSON([]byte(C.GoString(jsonData)))
 	if err != nil {
 		return makeErrorJSON(err)
@@ -3905,16 +4111,19 @@ func httpcloak_preset_load_json(jsonData *C.char) *C.char {
 
 //export httpcloak_preset_unregister
 func httpcloak_preset_unregister(name *C.char) {
+	defer guardVoid("httpcloak_preset_unregister")
 	fingerprint.Unregister(C.GoString(name))
 }
 
-//export httpcloak_describe_preset
 // httpcloak_describe_preset returns a fully-resolved JSON dump of a preset's
 // effective state. The returned C string is malloc'd and must be freed by the
 // caller via httpcloak_free_string. On error (preset not registered, unknown
 // ClientHelloID), the result is a JSON object {"error": "..."} also requiring
 // httpcloak_free_string.
-func httpcloak_describe_preset(name *C.char) *C.char {
+//
+//export httpcloak_describe_preset
+func httpcloak_describe_preset(name *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_describe_preset", &hcRet)
 	out, err := fingerprint.Describe(C.GoString(name))
 	if err != nil {
 		return makeErrorJSON(err)
@@ -3925,7 +4134,8 @@ func httpcloak_describe_preset(name *C.char) *C.char {
 // --- Preset Pool Lifecycle ---
 
 //export httpcloak_pool_load_file
-func httpcloak_pool_load_file(path *C.char) *C.char {
+func httpcloak_pool_load_file(path *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_pool_load_file", &hcRet)
 	pool, err := fingerprint.NewPresetPoolFromFile(C.GoString(path))
 	if err != nil {
 		return makeErrorJSON(err)
@@ -3940,7 +4150,8 @@ func httpcloak_pool_load_file(path *C.char) *C.char {
 }
 
 //export httpcloak_pool_load_json
-func httpcloak_pool_load_json(jsonData *C.char) *C.char {
+func httpcloak_pool_load_json(jsonData *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_pool_load_json", &hcRet)
 	pool, err := fingerprint.NewPresetPoolFromJSON([]byte(C.GoString(jsonData)))
 	if err != nil {
 		return makeErrorJSON(err)
@@ -3957,7 +4168,8 @@ func httpcloak_pool_load_json(jsonData *C.char) *C.char {
 // --- Preset Pool Accessors ---
 
 //export httpcloak_pool_pick
-func httpcloak_pool_pick(handle C.int64_t) *C.char {
+func httpcloak_pool_pick(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_pool_pick", &hcRet)
 	pool := getPresetPool(handle)
 	if pool == nil {
 		return makeErrorJSON(ErrInvalidPresetPool)
@@ -3966,7 +4178,8 @@ func httpcloak_pool_pick(handle C.int64_t) *C.char {
 }
 
 //export httpcloak_pool_random
-func httpcloak_pool_random(handle C.int64_t) *C.char {
+func httpcloak_pool_random(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_pool_random", &hcRet)
 	pool := getPresetPool(handle)
 	if pool == nil {
 		return makeErrorJSON(ErrInvalidPresetPool)
@@ -3975,7 +4188,8 @@ func httpcloak_pool_random(handle C.int64_t) *C.char {
 }
 
 //export httpcloak_pool_next
-func httpcloak_pool_next(handle C.int64_t) *C.char {
+func httpcloak_pool_next(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_pool_next", &hcRet)
 	pool := getPresetPool(handle)
 	if pool == nil {
 		return makeErrorJSON(ErrInvalidPresetPool)
@@ -3984,7 +4198,8 @@ func httpcloak_pool_next(handle C.int64_t) *C.char {
 }
 
 //export httpcloak_pool_get
-func httpcloak_pool_get(handle C.int64_t, index C.int64_t) *C.char {
+func httpcloak_pool_get(handle C.int64_t, index C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_pool_get", &hcRet)
 	pool := getPresetPool(handle)
 	if pool == nil {
 		return makeErrorJSON(ErrInvalidPresetPool)
@@ -3997,7 +4212,8 @@ func httpcloak_pool_get(handle C.int64_t, index C.int64_t) *C.char {
 }
 
 //export httpcloak_pool_size
-func httpcloak_pool_size(handle C.int64_t) C.int64_t {
+func httpcloak_pool_size(handle C.int64_t) (hcRet C.int64_t) {
+	defer guardInt64("httpcloak_pool_size", &hcRet)
 	pool := getPresetPool(handle)
 	if pool == nil {
 		return -1
@@ -4006,7 +4222,8 @@ func httpcloak_pool_size(handle C.int64_t) C.int64_t {
 }
 
 //export httpcloak_pool_name
-func httpcloak_pool_name(handle C.int64_t) *C.char {
+func httpcloak_pool_name(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_pool_name", &hcRet)
 	pool := getPresetPool(handle)
 	if pool == nil {
 		return makeErrorJSON(ErrInvalidPresetPool)
@@ -4016,6 +4233,7 @@ func httpcloak_pool_name(handle C.int64_t) *C.char {
 
 //export httpcloak_pool_free
 func httpcloak_pool_free(handle C.int64_t) {
+	defer guardVoid("httpcloak_pool_free")
 	presetPoolMu.Lock()
 	pool, ok := presetPools[int64(handle)]
 	if ok {
