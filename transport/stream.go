@@ -6,6 +6,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/url"
 	"strings"
@@ -246,9 +247,11 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 				// the H3 error instead of silently sending a truncated request.
 				return nil, err
 			}
-			return t.doStreamHTTP2(ctx, req)
-		case ProtocolHTTP2, ProtocolHTTP1:
-			return t.doStreamHTTP2(ctx, req)
+			return t.doStreamHTTP2OrHTTP1(ctx, req)
+		case ProtocolHTTP1:
+			return t.doStreamHTTP1(ctx, req)
+		case ProtocolHTTP2:
+			return t.doStreamHTTP2OrHTTP1(ctx, req)
 		}
 	}
 
@@ -273,9 +276,15 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 		case decision.err != nil:
 			return nil, decision.err
 		case decision.alpnErr != nil:
-			// Streaming has no H1-conn-reuse path; drop the probe conn and let
-			// the H2 attempt below negotiate on its own.
+			// The probe negotiated http/1.1: the server is H1-only. Drop the probe
+			// conn and stream over HTTP/1.1 directly (issue #75) instead of retrying
+			// H2, which would just mismatch again and fail the stream.
 			decision.alpnErr.TLSConn.Close()
+			resp, err := t.doStreamHTTP1(ctx, req)
+			if err == nil {
+				t.cacheProtocol(host, ProtocolHTTP1)
+			}
+			return resp, err
 		case decision.protocol == ProtocolHTTP3:
 			resp, err := t.doStreamHTTP3(ctx, req)
 			if err == nil {
@@ -290,11 +299,36 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 		}
 	}
 
-	resp, err := t.doStreamHTTP2(ctx, req)
+	resp, err := t.doStreamHTTP2OrHTTP1(ctx, req)
 	if err == nil {
-		t.cacheProtocol(host, ProtocolHTTP2)
+		if resp.Protocol == "h1" {
+			t.cacheProtocol(host, ProtocolHTTP1)
+		} else {
+			t.cacheProtocol(host, ProtocolHTTP2)
+		}
 	}
 	return resp, err
+}
+
+// doStreamHTTP2OrHTTP1 streams over HTTP/2 and, when the server negotiates
+// http/1.1 (ALPN mismatch), transparently falls back to HTTP/1.1 instead of
+// failing. This mirrors the buffered doAuto path so streaming works against
+// H1-only servers (issue #75: request_stream failed with "Failed to start
+// streaming request" on any host that speaks only http/1.1). Forced HTTP/2 does
+// NOT route through here, so an explicit H2 choice still surfaces the mismatch.
+func (t *Transport) doStreamHTTP2OrHTTP1(ctx context.Context, req *Request) (*StreamResponse, error) {
+	resp, err := t.doStreamHTTP2(ctx, req)
+	if err == nil {
+		return resp, nil
+	}
+	var alpnErr *ALPNMismatchError
+	if errors.As(err, &alpnErr) {
+		// Server offered only http/1.1. Streaming has no H1-conn-reuse path, so
+		// drop the mismatched TLS conn and re-establish over HTTP/1.1.
+		alpnErr.TLSConn.Close()
+		return t.doStreamHTTP1(ctx, req)
+	}
+	return nil, err
 }
 
 // doStreamHTTP1 executes a streaming request over HTTP/1.1
