@@ -153,8 +153,8 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 
 	if needsConfig {
 		transportConfig = &transport.TransportConfig{
-			ConnectTo:             config.ConnectTo,
-			ECHConfigDomain:       config.ECHConfigDomain,
+			ConnectTo:            config.ConnectTo,
+			ECHConfigDomain:      config.ECHConfigDomain,
 			TLSOnly:              config.TLSOnly,
 			QuicIdleTimeout:      time.Duration(config.QuicIdleTimeout) * time.Second,
 			LocalAddr:            config.LocalAddress,
@@ -233,21 +233,21 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 	}
 
 	return &Session{
-		ID:                      id,
-		CreatedAt:               time.Now(),
-		LastUsed:                time.Now(),
-		RequestCount:            0,
-		Config:                  config,
-		transport:               t,
-		cookies:                 NewCookieJar(),
-		cacheEntries:            make(map[string]*cacheEntry),
-		conditionalCacheEnabled: !config.WithoutConditionalCache,
-		clientHints:             make(map[string]map[string]bool),
+		ID:                            id,
+		CreatedAt:                     time.Now(),
+		LastUsed:                      time.Now(),
+		RequestCount:                  0,
+		Config:                        config,
+		transport:                     t,
+		cookies:                       NewCookieJar(),
+		cacheEntries:                  make(map[string]*cacheEntry),
+		conditionalCacheEnabled:       !config.WithoutConditionalCache,
+		clientHints:                   make(map[string]map[string]bool),
 		clientHintsEnabled:            !config.WithoutClientHints,
 		highEntropyClientHintsEnabled: !config.WithoutHighEntropyClientHints,
-		keyLogWriter:            keyLogWriter,
-		switchProtocol:          switchProto,
-		active:                  true,
+		keyLogWriter:                  keyLogWriter,
+		switchProtocol:                switchProto,
+		active:                        true,
 	}
 }
 
@@ -256,8 +256,55 @@ func (s *Session) Request(ctx context.Context, req *transport.Request) (*transpo
 	return s.requestWithRedirects(ctx, req, 0, nil)
 }
 
+// cloneHeaders returns a deep copy of a header map (keys + value slices).
+// A nil input yields a fresh empty map, so callers can mutate the result
+// freely without ever touching the source.
+func cloneHeaders(h map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(h))
+	for k, v := range h {
+		vc := make([]string, len(v))
+		copy(vc, v)
+		out[k] = vc
+	}
+	return out
+}
+
 // requestWithRedirects handles the actual request with redirect following
 func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Request, redirectCount int, history []*transport.RedirectInfo) (*transport.Response, error) {
+	// Work on a private copy of the caller's request. The session mutates
+	// req.Headers (cache-control, conditional-cache validators, cookies, client
+	// hints) outside any lock the caller knows about; if a caller shares one
+	// Request (and its Headers map) across goroutines on this session, those
+	// mutations would race — concurrent map writes are an unrecoverable fatal
+	// error, and across cgo that surfaces as a silent process crash. Copying
+	// also stops cross-request contamination of the caller's map. Redirect hops
+	// already build their own Request, so only the caller-supplied one is copied.
+	if redirectCount == 0 {
+		reqCopy := *req
+		reqCopy.Headers = cloneHeaders(req.Headers)
+		req = &reqCopy
+
+		// Establish ONE overall deadline for the whole logical request. Every
+		// redirect hop and every retry attempt shares it: transport.Do re-derives
+		// a fresh WithTimeout(ctx, timeout) on each call, so without a single
+		// parent deadline the per-attempt budgets STACK — a 1s timeout was seen
+		// riding to ~4.8s across a redirect + retry burst. The per-request Timeout
+		// wins; otherwise the session/transport timeout. context.WithTimeout takes
+		// the earlier deadline, so transport.Do's inner wrap harmlessly clamps to
+		// this and can no longer extend it. Recursion and the retry loop below
+		// both use this bounded ctx; the top frame's defer keeps it alive until
+		// the entire chain returns (bodies are buffered before Do returns).
+		overall := req.Timeout
+		if overall <= 0 && s.transport != nil {
+			overall = s.transport.Timeout()
+		}
+		if overall > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, overall)
+			defer cancel()
+		}
+	}
+
 	s.mu.Lock()
 	if !s.active {
 		s.mu.Unlock()
@@ -1535,6 +1582,14 @@ type StreamResponse = transport.StreamResponse
 // The caller is responsible for closing the response when done
 // Note: Streaming does NOT support redirects - use Request() for redirect handling
 func (s *Session) RequestStream(ctx context.Context, req *transport.Request) (*StreamResponse, error) {
+	// Private copy: the session mutates req.Headers (cookies, client hints)
+	// below, so never touch the caller's Request or its map. See the note in
+	// requestWithRedirects — sharing a Request across goroutines would otherwise
+	// race with concurrent map writes (fatal, and silent across cgo).
+	reqCopy := *req
+	reqCopy.Headers = cloneHeaders(req.Headers)
+	req = &reqCopy
+
 	s.mu.Lock()
 	if !s.active {
 		s.mu.Unlock()
