@@ -21,10 +21,16 @@ func applyTCPFingerprint(conn syscall.RawConn, fp *fingerprint.TCPFingerprint) e
 	err := conn.Control(func(fd uintptr) {
 		s := int(fd)
 
-		// IP TTL
+		// TTL / IPv6 hop limit. Set both the IPv4 (IP_TTL) and IPv6
+		// (IPV6_UNICAST_HOPS) options since the socket family is not known here;
+		// the mismatched one is a harmless ENOPROTOOPT. Only a failure of both is
+		// a real error. Previously only IP_TTL was set, so IPv6 SYNs kept the
+		// kernel default hop limit (issue #81).
 		if fp.TTL > 0 {
-			if e := syscall.SetsockoptInt(s, syscall.IPPROTO_IP, syscall.IP_TTL, fp.TTL); e != nil {
-				sysErr = fmt.Errorf("IP_TTL: %w", e)
+			e4 := syscall.SetsockoptInt(s, syscall.IPPROTO_IP, syscall.IP_TTL, fp.TTL)
+			e6 := syscall.SetsockoptInt(s, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, fp.TTL)
+			if e4 != nil && e6 != nil {
+				sysErr = fmt.Errorf("set TTL/hop-limit (IP_TTL: %v; IPV6_UNICAST_HOPS: %v)", e4, e6)
 				return
 			}
 		}
@@ -45,12 +51,11 @@ func applyTCPFingerprint(conn syscall.RawConn, fp *fingerprint.TCPFingerprint) e
 			}
 		}
 
-		// IP Don't Fragment flag (macOS-specific socket option)
+		// IPv4 Don't Fragment flag (macOS-specific socket option). IPv6 has no DF
+		// bit in the header, so this is IPv4-only and best-effort: on a pure-IPv6
+		// socket IP_DONTFRAG is ENOPROTOOPT and must not abort the dial (issue #81).
 		if fp.DFBit {
-			if e := syscall.SetsockoptInt(s, syscall.IPPROTO_IP, ipDontFrag, 1); e != nil {
-				sysErr = fmt.Errorf("IP_DONTFRAG: %w", e)
-				return
-			}
+			_ = syscall.SetsockoptInt(s, syscall.IPPROTO_IP, ipDontFrag, 1)
 		}
 	})
 	if err != nil {

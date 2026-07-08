@@ -21,10 +21,18 @@ func applyTCPFingerprint(conn syscall.RawConn, fp *fingerprint.TCPFingerprint) e
 	err := conn.Control(func(fd uintptr) {
 		s := int(fd)
 
-		// IP TTL — determines hop count seen by remote (128=Windows, 64=Linux/macOS)
+		// TTL / IPv6 hop limit — determines the hop count seen by the remote
+		// (128=Windows, 64=Linux/macOS). The socket family is not known here: a
+		// dual-stack "tcp" dial resolves it only at connect(), so set BOTH the IPv4
+		// (IP_TTL) and IPv6 (IPV6_UNICAST_HOPS) options. Setting the one that does
+		// not match the family is a harmless ENOPROTOOPT; only a failure of BOTH is
+		// a real error. Previously only IP_TTL was set, so IPv6 SYNs carried the
+		// kernel default hop limit (64) regardless of the fingerprint (issue #81).
 		if fp.TTL > 0 {
-			if e := syscall.SetsockoptInt(s, syscall.IPPROTO_IP, syscall.IP_TTL, fp.TTL); e != nil {
-				sysErr = fmt.Errorf("IP_TTL: %w", e)
+			e4 := syscall.SetsockoptInt(s, syscall.IPPROTO_IP, syscall.IP_TTL, fp.TTL)
+			e6 := syscall.SetsockoptInt(s, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, fp.TTL)
+			if e4 != nil && e6 != nil {
+				sysErr = fmt.Errorf("set TTL/hop-limit (IP_TTL: %v; IPV6_UNICAST_HOPS: %v)", e4, e6)
 				return
 			}
 		}
@@ -57,12 +65,13 @@ func applyTCPFingerprint(conn syscall.RawConn, fp *fingerprint.TCPFingerprint) e
 			}
 		}
 
-		// IP Don't Fragment flag via IP_MTU_DISCOVER
+		// IPv4 Don't Fragment flag via IP_MTU_DISCOVER. IPv6 has no DF bit in the
+		// header (routers never fragment; PMTUD is end-to-end), so this is IPv4-only
+		// and best-effort: on a pure-IPv6 socket IP_MTU_DISCOVER is ENOPROTOOPT and
+		// must NOT abort the dial. Previously it returned the error, so a Windows
+		// fingerprint (DFBit set) failed every IPv6 connection (issue #81).
 		if fp.DFBit {
-			if e := syscall.SetsockoptInt(s, syscall.IPPROTO_IP, syscall.IP_MTU_DISCOVER, syscall.IP_PMTUDISC_DO); e != nil {
-				sysErr = fmt.Errorf("IP_MTU_DISCOVER: %w", e)
-				return
-			}
+			_ = syscall.SetsockoptInt(s, syscall.IPPROTO_IP, syscall.IP_MTU_DISCOVER, syscall.IP_PMTUDISC_DO)
 		}
 	})
 	if err != nil {
