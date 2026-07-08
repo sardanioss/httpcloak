@@ -23,15 +23,14 @@ import json
 import mimetypes
 import os
 import platform
+import threading
 import time
 import uuid
-from ctypes import c_char_p, c_int, c_int64, c_void_p, cdll, cast, CFUNCTYPE, POINTER
+from ctypes import CFUNCTYPE, POINTER, c_char_p, c_int, c_int64, c_void_p, cast, cdll
 from io import IOBase
 from pathlib import Path
-from threading import Lock
 from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
-from urllib.parse import urlencode, quote
-
+from urllib.parse import quote, urlencode
 
 # File type for files parameter
 FileValue = Union[
@@ -619,7 +618,7 @@ class _FastBufferPool:
     def __init__(self):
         self._buffers: Dict[int, bytearray] = {}
         self._ctypes_ptrs: Dict[int, Any] = {}
-        self._lock = Lock()
+        self._lock = threading.Lock()
 
     def get_buffer(self, size: int) -> Tuple[bytearray, Any, int]:
         """
@@ -646,7 +645,12 @@ class _FastBufferPool:
 
 
 # Global fast buffer pool (one per process)
-_fast_buffer_pool = _FastBufferPool()
+_fast_pool_local = threading.local()
+
+def _get_fast_buffer_pool() -> _FastBufferPool:
+    if not hasattr(_fast_pool_local, "pool"):
+        _fast_pool_local.pool = _FastBufferPool()
+    return _fast_pool_local.pool
 
 
 class StreamResponse:
@@ -885,7 +889,7 @@ def _get_lib_path() -> str:
 
 
 _lib = None
-_lib_lock = Lock()
+_lib_lock = threading.Lock()
 
 
 def _get_lib():
@@ -895,8 +899,9 @@ def _get_lib():
         with _lib_lock:
             if _lib is None:
                 lib_path = _get_lib_path()
-                _lib = cdll.LoadLibrary(lib_path)
-                _setup_lib(_lib)
+                new_lib = cdll.LoadLibrary(lib_path)
+                _setup_lib(new_lib)
+                _lib = new_lib  # Assign only after fully configured
     return _lib
 
 
@@ -931,7 +936,7 @@ class _AsyncCallbackManager:
     """
 
     def __init__(self):
-        self._lock = Lock()
+        self._lock = threading.Lock()
         # Pending requests: callback_id -> (future, loop, start_time)
         self._pending: Dict[int, Tuple[asyncio.Future, asyncio.AbstractEventLoop, float]] = {}
         self._callback_ref: Optional[ASYNC_CALLBACK] = None  # prevent GC
@@ -1025,7 +1030,7 @@ class _AsyncCallbackManager:
 
 # Global async callback manager
 _async_manager: Optional[_AsyncCallbackManager] = None
-_async_manager_lock = Lock()
+_async_manager_lock = threading.Lock()
 
 
 def _get_async_manager() -> _AsyncCallbackManager:
@@ -1387,7 +1392,7 @@ def _parse_fast_response(lib, response_handle: int, elapsed: float = 0.0) -> Fas
 
         if body_len > 0:
             # Get pre-allocated buffer from pool (no allocation!)
-            buf, buf_ptr, buf_size = _fast_buffer_pool.get_buffer(body_len)
+            buf, buf_ptr, buf_size = _get_fast_buffer_pool().get_buffer(body_len)
 
             # Copy directly from Go to pre-allocated Python buffer
             copied = lib.httpcloak_response_copy_body_to(
@@ -4010,7 +4015,7 @@ class Session:
 # =============================================================================
 
 _default_session: Optional[Session] = None
-_default_session_lock = Lock()
+_default_session_lock = threading.Lock()
 _default_config: Dict[str, Any] = {}
 
 
@@ -4542,7 +4547,7 @@ class LocalProxy:
 
 # Global session cache callbacks (must keep references to prevent GC)
 _session_cache_callbacks: Dict[str, Any] = {}
-_session_cache_lock = Lock()
+_session_cache_lock = threading.Lock()
 
 
 class SessionCacheBackend:
