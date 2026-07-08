@@ -18,13 +18,13 @@ require (
 	github.com/sardanioss/udpbara v1.1.0
 	github.com/sardanioss/utls v1.10.3
 	golang.org/x/net v0.48.0
+	golang.org/x/sync v0.19.0
 )
 
 require (
 	github.com/sardanioss/qpack v0.6.3 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.30.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
