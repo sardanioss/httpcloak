@@ -6,6 +6,7 @@ import (
 	crand "crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,7 @@ import (
 	"github.com/sardanioss/net/http2/hpack"
 	tls "github.com/sardanioss/utls"
 	utls "github.com/sardanioss/utls"
+	"golang.org/x/sync/singleflight"
 )
 
 // HTTP2Transport is a custom HTTP/2 transport with uTLS fingerprinting
@@ -34,6 +36,11 @@ type HTTP2Transport struct {
 	// Connection tracking
 	conns   map[string]*persistentConn
 	connsMu sync.RWMutex
+
+	// dialGroup collapses concurrent dials for the same pool key into a single
+	// connection attempt, so a burst of requests to one host (especially behind
+	// a proxy) opens one connection instead of a storm of N.
+	dialGroup singleflight.Group
 
 	// TLS session resumption cache (shared across connections)
 	sessionCache utls.ClientSessionCache
@@ -253,29 +260,85 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 	t.connsMu.Unlock()
 
 	// Create new connection OUTSIDE lock — TCP+TLS dial can take seconds.
-	// This allows concurrent dials for different hosts to proceed in parallel.
-	newConn, err := t.createConn(ctx, host, port)
+	// Deduplicate concurrent dials for the same pool key via singleflight: without
+	// this, N simultaneous requests to a host with no usable connection each open
+	// their own TCP+TLS (and, behind an HTTP proxy, their own CONNECT) — a
+	// connection storm that wastes resources and trips proxy rate limits. The
+	// single winning dial's result is shared by every caller (H2 multiplexes all
+	// streams over one connection anyway). Dials for *different* keys still run in
+	// parallel.
+	// leader is set only inside the closure singleflight actually executes (the
+	// winner); coalesced waiters pass their own closures which never run, so their
+	// leader stays false. This lets a waiter recognise when it received the
+	// leader's result and react differently for connection-bearing errors.
+	leader := false
+	v, err, _ := t.dialGroup.Do(key, func() (interface{}, error) {
+		leader = true
+		// A usable conn may have been published between our checks above and
+		// winning the singleflight slot.
+		t.connsMu.RLock()
+		if c, ok := t.conns[key]; ok && t.isConnUsable(c) {
+			t.connsMu.RUnlock()
+			return c, nil
+		}
+		t.connsMu.RUnlock()
+
+		// Detach from the triggering request's cancellation so one caller going
+		// away doesn't abort the dial the others are waiting on — but PRESERVE
+		// that caller's deadline, otherwise a stalling host/proxy would ride
+		// past the configured timeout (context.WithoutCancel drops the deadline
+		// too). retryDial bounds each attempt by this deadline, so the whole
+		// dial (including retries) still aborts at the request budget.
+		dialParent := context.WithoutCancel(ctx)
+		if dl, ok := ctx.Deadline(); ok {
+			var dcancel context.CancelFunc
+			dialParent, dcancel = context.WithDeadline(dialParent, dl)
+			defer dcancel()
+		}
+		// When a proxy is configured, retry transient connection failures a
+		// couple of times (pre-send, so method-safe).
+		attempts := 1
+		if t.proxy != nil && t.proxy.URL != "" {
+			attempts = proxyDialAttempts
+		}
+		newConn, derr := retryDial(dialParent, attempts, t.connectTimeout+10*time.Second,
+			func(c context.Context) (*persistentConn, error) {
+				return t.createConn(c, host, port)
+			})
+		if derr != nil {
+			return nil, derr
+		}
+
+		t.connsMu.Lock()
+		if t.closed {
+			t.connsMu.Unlock()
+			go newConn.close()
+			return nil, fmt.Errorf("http2: transport closed")
+		}
+		// Another goroutine may have created a conn while we were dialing
+		if existingConn, ok := t.conns[key]; ok && t.isConnUsable(existingConn) {
+			t.connsMu.Unlock()
+			go newConn.close()
+			return existingConn, nil
+		}
+		t.conns[key] = newConn
+		t.connsMu.Unlock()
+		return newConn, nil
+	})
 	if err != nil {
+		// An ALPN downgrade returns a single live TLS connection carried inside
+		// the error, meant for ONE owner to serve over HTTP/1.1. singleflight
+		// hands every coalesced caller the same error (same connection), so only
+		// the leader may use it; waiters must dial their own connection instead
+		// of racing/double-closing the shared one. (Each waiter's own dial will
+		// itself downgrade and yield its own dedicated connection.)
+		var alpnErr *ALPNMismatchError
+		if errors.As(err, &alpnErr) && !leader {
+			return t.createConn(ctx, host, port)
+		}
 		return nil, err
 	}
-
-	// Store the new connection
-	t.connsMu.Lock()
-	if t.closed {
-		t.connsMu.Unlock()
-		go newConn.close()
-		return nil, fmt.Errorf("http2: transport closed")
-	}
-	// Another goroutine may have created a conn while we were dialing
-	if existingConn, ok := t.conns[key]; ok && t.isConnUsable(existingConn) {
-		t.connsMu.Unlock()
-		go newConn.close()
-		return existingConn, nil
-	}
-	t.conns[key] = newConn
-	t.connsMu.Unlock()
-
-	return newConn, nil
+	return v.(*persistentConn), nil
 }
 
 // isConnUsable checks if a connection is still usable
@@ -304,8 +367,55 @@ func (t *HTTP2Transport) isConnUsable(conn *persistentConn) bool {
 	return true
 }
 
-// createConn creates a new persistent connection
+// createConn creates a new persistent H2 connection, degrading gracefully when
+// an applied ECH config is rejected. ECH is best-effort: if the first attempt
+// fails for an ECH/handshake-level reason (issue #74 — an ECHConfigDomain that
+// does not front this target, or a rotated/stale key), retry ONCE without ECH so
+// the connection still establishes (SNI visible) instead of failing H2 and
+// cascading to H1. An ALPNMismatchError is never retried here — it carries a live
+// TLS connection the caller reuses for H1.
 func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*persistentConn, error) {
+	// No ECH configured, or this host recently stalled/rejected ECH: dial once,
+	// skipping ECH when the host is known ECH-incompatible.
+	if !t.echConfigured() || dns.IsECHIncompatible(host) {
+		return t.establishConn(ctx, host, port, t.echConfigured() && dns.IsECHIncompatible(host))
+	}
+	// Time-box the ECH attempt so a target that STALLS on an incompatible ECH
+	// ClientHello (issue #74 — some servers stall rather than cleanly reject) fails
+	// fast, leaving budget to retry without ECH within the same request deadline.
+	echCtx, cancel := boundedECHAttempt(ctx)
+	conn, err := t.establishConn(echCtx, host, port, false)
+	cancel()
+	if err == nil {
+		return conn, nil
+	}
+	var alpnErr *ALPNMismatchError
+	if errors.As(err, &alpnErr) {
+		return conn, err // carries a live TLS conn for H1 reuse; never retry
+	}
+	if ctx.Err() != nil {
+		return conn, err // overall request budget exhausted, nothing to retry with
+	}
+	// The ECH attempt failed with budget to spare: a reject, a certificate
+	// mismatch, or a stall caught by the ECH sub-deadline (ctx is not done, so a
+	// DeadlineExceeded here is echCtx's). Remember the host as ECH-incompatible so
+	// future connections skip the stall, and retry now without ECH.
+	if echCausedDialFailure(err) || errors.Is(err, context.DeadlineExceeded) {
+		dns.MarkECHIncompatible(host)
+		return t.establishConn(ctx, host, port, true)
+	}
+	return conn, err
+}
+
+// echConfigured reports whether this transport has any ECH source configured
+// (raw bytes or an ECHConfigDomain), i.e. whether a no-ECH retry is meaningful.
+func (t *HTTP2Transport) echConfigured() bool {
+	return t.config != nil && (len(t.config.ECHConfig) > 0 || t.config.ECHConfigDomain != "")
+}
+
+// establishConn creates a new persistent connection. skipECH forces a no-ECH
+// handshake (see createConn's graceful-degradation retry).
+func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, skipECH bool) (*persistentConn, error) {
 	var rawConn net.Conn
 	var err error
 
@@ -360,36 +470,23 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 			}
 		}
 
-		// Try each IP address with per-address timeout budget to avoid
-		// spending the full connectTimeout on each unreachable address.
-		var lastErr error
-		remaining := len(ips)
-		for _, ip := range ips {
-			network := "tcp4"
-			if ip.To4() == nil {
-				network = "tcp6"
-			}
-			addr := net.JoinHostPort(ip.String(), port)
-
-			// Budget: split remaining time evenly, capped at 10s per address
-			perAddr := t.connectTimeout / time.Duration(remaining)
-			if perAddr > 10*time.Second {
-				perAddr = 10 * time.Second
-			}
-			dialCtx, dialCancel := context.WithTimeout(ctx, perAddr)
-			rawConn, err = dialer.DialContext(dialCtx, network, addr)
-			dialCancel()
-			if err == nil {
-				break // Connection successful
-			}
-			lastErr = err
-			remaining--
+		// Race the resolved addresses with a staggered start (Happy Eyeballs):
+		// an unreachable address no longer delays the next, and the fastest
+		// reachable one wins. Bounded by the dialer timeout + ctx; losers closed.
+		rawConn, err = staggeredRace(ctx, len(ips), 250*time.Millisecond,
+			func(rctx context.Context, idx int) (net.Conn, error) {
+				network := "tcp4"
+				if ips[idx].To4() == nil {
+					network = "tcp6"
+				}
+				return dialer.DialContext(rctx, network, net.JoinHostPort(ips[idx].String(), port))
+			},
+			func(c net.Conn) { c.Close() },
+		)
+		if err != nil {
+			return nil, fmt.Errorf("TCP connect failed: %w", err)
 		}
-
 		if rawConn == nil {
-			if lastErr != nil {
-				return nil, fmt.Errorf("TCP connect failed: %w", lastErr)
-			}
 			return nil, fmt.Errorf("TCP connect failed: all connection attempts failed")
 		}
 	}
@@ -435,9 +532,11 @@ func (t *HTTP2Transport) createConn(ctx context.Context, host, port string) (*pe
 		}
 	}
 
-	// Fetch ECH config if needed
+	// Fetch ECH config if needed. skipECH forces a no-ECH handshake, used by the
+	// graceful-degradation retry (issue #74) after a first attempt whose ECH
+	// config was rejected or mis-served.
 	var echConfigList []byte
-	if t.config != nil {
+	if !skipECH && t.config != nil {
 		if len(t.config.ECHConfig) > 0 {
 			echConfigList = t.config.ECHConfig
 		} else if t.config.ECHConfigDomain != "" {
@@ -797,13 +896,13 @@ func (t *HTTP2Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, t
 		}
 	}
 
-	// Pre-resolve proxy hostname using CGO-compatible resolver
-	// Required for shared library usage where Go's pure-Go resolver doesn't work
-	resolver := &net.Resolver{PreferGo: false}
-	proxyIPs, err := resolver.LookupHost(ctx, proxyHost)
+	// Resolve the proxy hostname via the shared DNS cache (cached, honors the
+	// configured IP-family preference, stale fallback on transient errors).
+	proxyIPObjs, err := t.dnsCache.ResolveAllSorted(ctx, proxyHost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve proxy host %s: %w", proxyHost, err)
 	}
+	proxyIPs := ipsToStrings(proxyIPObjs)
 	if len(proxyIPs) == 0 {
 		return nil, fmt.Errorf("no IP addresses found for proxy host %s", proxyHost)
 	}
@@ -819,8 +918,7 @@ func (t *HTTP2Transport) dialThroughHTTPProxy(ctx context.Context, targetHost, t
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
 
-	proxyAddr := net.JoinHostPort(proxyIPs[0], proxyPort)
-	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
+	conn, err := dialProxyAddrs(ctx, dialer, proxyIPs, proxyPort, t.connectTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to proxy: %w", err)
 	}
@@ -866,11 +964,11 @@ func (t *HTTP2Transport) dialHTTPProxyBlockingFresh(ctx context.Context, targetH
 		}
 	}
 
-	resolver := &net.Resolver{PreferGo: false}
-	proxyIPs, err := resolver.LookupHost(ctx, proxyHost)
+	proxyIPObjs, err := t.dnsCache.ResolveAllSorted(ctx, proxyHost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve proxy host %s: %w", proxyHost, err)
 	}
+	proxyIPs := ipsToStrings(proxyIPObjs)
 	if len(proxyIPs) == 0 {
 		return nil, fmt.Errorf("no IP addresses found for proxy host %s", proxyHost)
 	}
@@ -885,8 +983,7 @@ func (t *HTTP2Transport) dialHTTPProxyBlockingFresh(ctx context.Context, targetH
 		dialer.LocalAddr = &net.TCPAddr{IP: net.ParseIP(t.localAddr)}
 	}
 
-	proxyAddr := net.JoinHostPort(proxyIPs[0], proxyPort)
-	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
+	conn, err := dialProxyAddrs(ctx, dialer, proxyIPs, proxyPort, t.connectTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to proxy: %w", err)
 	}

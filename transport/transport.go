@@ -7,8 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	http "github.com/sardanioss/http"
+	"io"
 	"net/url"
 	"strings"
 	"sync"
@@ -305,6 +305,15 @@ type Transport struct {
 	proxy       *ProxyConfig
 	config      *TransportConfig
 
+	// fieldsMu guards the mutable fields that SetProxy/SetPreset/SetProtocol
+	// reassign while Do/doAuto/DoStream (and the Get*Transport getters) read
+	// them: h1Transport, h2Transport, h3Transport, preset, protocol, proxy,
+	// h3ProxyError, tcpProxyError. The session releases its own lock before
+	// calling Do, so a concurrent SetProxy raced these pointer reads/writes.
+	// Readers snapshot under an RLock (never held across network I/O); the three
+	// mutators publish under the write lock.
+	fieldsMu sync.RWMutex
+
 	// Track protocol support per host
 	protocolSupport   map[string]Protocol // Best known protocol per host
 	protocolSupportMu sync.RWMutex
@@ -315,6 +324,13 @@ type Transport struct {
 	// H3 proxy initialization error - if set, H3 requests will fail with this error
 	// instead of silently bypassing the proxy
 	h3ProxyError error
+
+	// tcpProxyError is set when a proxy IS configured but cannot carry TCP — a
+	// UDP-only MASQUE proxy (e.g. via SetUDPProxy, which clears Proxy/TCPProxy).
+	// H1/H2 dispatch then refuses with this error rather than silently dialing
+	// the target directly, which would leak the real client IP + SNI. nil means
+	// TCP dispatch is allowed (direct, or through a real TCP/SOCKS5 proxy).
+	tcpProxyError error
 
 	// Custom header order (nil = use preset's order)
 	customHeaderOrder   []string
@@ -335,6 +351,98 @@ func NewTransport(presetName string) *Transport {
 // NewTransportWithProxy creates a new unified transport with optional proxy
 func NewTransportWithProxy(presetName string, proxy *ProxyConfig) *Transport {
 	return NewTransportWithConfig(presetName, proxy, nil)
+}
+
+// proxyRouting resolves how each protocol family reaches the network for a given
+// ProxyConfig. Split TCPProxy/UDPProxy fields take precedence over the unified
+// URL; struct-level Username/Password are carried through so they reach the
+// H1/H2 CONNECT auth (getProxyAuth) and SOCKS5 even when the URL has no userinfo.
+type proxyRouting struct {
+	// tcpProxy is what H1/H2 dial through. A nil tcpProxy means "no proxy for
+	// TCP". When a proxy IS configured but cannot carry TCP (a UDP-only MASQUE
+	// proxy), tcpProxy is nil AND tcpProxyErr is set, so the caller refuses the
+	// TCP path instead of falling through to a DIRECT (real-IP + SNI) dial.
+	tcpProxy    *ProxyConfig
+	udpProxyURL string
+	username    string
+	password    string
+	tcpProxyErr error
+}
+
+// deriveProxyRouting computes the per-protocol proxy split from an incoming
+// (possibly split) ProxyConfig. Central so the constructor, SetProxy and
+// SetPreset share identical rules — including the anti-leak guarantee that a
+// configured proxy never degrades into a direct dial.
+func deriveProxyRouting(proxy *ProxyConfig) proxyRouting {
+	var r proxyRouting
+	if proxy == nil {
+		return r
+	}
+	r.username = proxy.Username
+	r.password = proxy.Password
+
+	tcpProxyURL := proxy.TCPProxy
+	if tcpProxyURL == "" {
+		tcpProxyURL = proxy.URL
+	}
+	r.udpProxyURL = proxy.UDPProxy
+	if r.udpProxyURL == "" {
+		r.udpProxyURL = proxy.URL
+	}
+
+	// UDP-only configs (SetUDPProxy clears Proxy/TCPProxy) must never let H1/H2
+	// fall through to a DIRECT dial — that leaks the real client IP + SNI to the
+	// target on every H1/H2 request (and on the H2 probe of an Auto race).
+	// SOCKS5 also speaks TCP CONNECT, so reuse it for H1/H2. A UDP-only MASQUE
+	// proxy cannot carry TCP: flag it so the TCP path refuses rather than dials.
+	if tcpProxyURL == "" && r.udpProxyURL != "" {
+		if isSOCKS5Proxy(r.udpProxyURL) {
+			tcpProxyURL = r.udpProxyURL
+		} else {
+			r.tcpProxyErr = fmt.Errorf("HTTP/3-only proxy: no TCP proxy configured for HTTP/1.1 or HTTP/2")
+		}
+	}
+
+	if tcpProxyURL != "" {
+		r.tcpProxy = &ProxyConfig{
+			URL:      proxyURLWithCreds(tcpProxyURL, proxy.Username, proxy.Password),
+			Username: proxy.Username,
+			Password: proxy.Password,
+		}
+	}
+	return r
+}
+
+// udpProxyConfig builds the ProxyConfig H3 should use, or nil when no UDP proxy
+// is configured. Carries the struct credentials alongside the URL.
+func (r proxyRouting) udpProxyConfig() *ProxyConfig {
+	if r.udpProxyURL == "" {
+		return nil
+	}
+	return &ProxyConfig{
+		URL:      proxyURLWithCreds(r.udpProxyURL, r.username, r.password),
+		Username: r.username,
+		Password: r.password,
+	}
+}
+
+// proxyURLWithCreds returns rawURL with username/password injected as userinfo
+// when rawURL has none. This makes credentials supplied via the ProxyConfig
+// struct fields reach BOTH consumers: the H1/H2 CONNECT auth (getProxyAuth,
+// which also reads the struct fields) AND the SOCKS5 dialer, which authenticates
+// from the URL userinfo ONLY (proxy/socks5_*). URL-embedded creds are never
+// overwritten; on parse failure rawURL is returned unchanged (the struct fields
+// are still carried separately for the CONNECT path).
+func proxyURLWithCreds(rawURL, username, password string) string {
+	if rawURL == "" || username == "" {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.User != nil {
+		return rawURL // keep existing userinfo / unparseable URL as-is
+	}
+	u.User = url.UserPassword(username, password)
+	return u.String()
 }
 
 // NewTransportWithConfig creates a new unified transport with proxy and config
@@ -390,33 +498,19 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 		tlsOnly:           tlsOnly,
 	}
 
-	// Determine effective TCP and UDP proxy URLs
-	// TCPProxy/UDPProxy take precedence over URL for split proxy configuration
-	var tcpProxyURL, udpProxyURL string
-	if proxy != nil {
-		tcpProxyURL = proxy.TCPProxy
-		if tcpProxyURL == "" {
-			tcpProxyURL = proxy.URL
-		}
-		udpProxyURL = proxy.UDPProxy
-		if udpProxyURL == "" {
-			udpProxyURL = proxy.URL
-		}
-	}
+	// Resolve how each protocol family reaches the network (split fields + struct
+	// credentials, plus the anti-leak guard for UDP-only proxies — see
+	// deriveProxyRouting).
+	routing := deriveProxyRouting(proxy)
+	t.tcpProxyError = routing.tcpProxyErr
 
-	// Create TCP proxy config for H1/H2 transports
-	var tcpProxy *ProxyConfig
-	if tcpProxyURL != "" {
-		tcpProxy = &ProxyConfig{URL: tcpProxyURL}
-	}
-
-	// Create HTTP/1.1 and HTTP/2 transports with TCP proxy
-	t.h1Transport = NewHTTP1TransportWithConfig(preset, dnsCache, tcpProxy, config)
-	t.h2Transport = NewHTTP2TransportWithConfig(preset, dnsCache, tcpProxy, config)
+	// Create HTTP/1.1 and HTTP/2 transports with the TCP proxy (nil = direct).
+	t.h1Transport = NewHTTP1TransportWithConfig(preset, dnsCache, routing.tcpProxy, config)
+	t.h2Transport = NewHTTP2TransportWithConfig(preset, dnsCache, routing.tcpProxy, config)
 
 	// Create HTTP/3 transport - with UDP proxy support if applicable
-	if udpProxyURL != "" {
-		udpProxy := &ProxyConfig{URL: udpProxyURL}
+	if udpProxy := routing.udpProxyConfig(); udpProxy != nil {
+		udpProxyURL := routing.udpProxyURL
 		if isSOCKS5Proxy(udpProxyURL) {
 			// SOCKS5 supports UDP relay for HTTP/3
 			h3Transport, err := NewHTTP3TransportWithConfig(preset, dnsCache, udpProxy, config)
@@ -456,7 +550,9 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 
 // SetProtocol sets the preferred protocol
 func (t *Transport) SetProtocol(p Protocol) {
+	t.fieldsMu.Lock()
 	t.protocol = p
+	t.fieldsMu.Unlock()
 }
 
 // SetInsecureSkipVerify sets whether to skip TLS certificate verification
@@ -481,128 +577,161 @@ func (t *Transport) SetDisableECH(disable bool) {
 // SetProxy sets or updates the proxy configuration
 // Note: This recreates the underlying transports
 func (t *Transport) SetProxy(proxy *ProxyConfig) {
-	t.proxy = proxy
-	t.h3ProxyError = nil // Clear stale error from previous proxy config
+	preset := t.getPreset()
 
-	// Close existing transports
-	t.h1Transport.Close()
-	t.h2Transport.Close()
-	t.h3Transport.Close()
+	// Resolve routing (split fields + credentials + the UDP-only anti-leak guard).
+	routing := deriveProxyRouting(proxy)
 
-	// Recreate HTTP/1.1 and HTTP/2 with new proxy config, preserving transport config
-	// (custom JA3, H2 settings, speculative TLS, etc.)
-	tcpProxy := proxy
-	if proxy != nil && proxy.TCPProxy != "" {
-		tcpProxy = &ProxyConfig{URL: proxy.TCPProxy}
-	}
-	t.h1Transport = NewHTTP1TransportWithConfig(t.preset, t.dnsCache, tcpProxy, t.config)
-	t.h2Transport = NewHTTP2TransportWithConfig(t.preset, t.dnsCache, tcpProxy, t.config)
+	// Build the replacement transports OUTSIDE the fields lock. Construction — and
+	// the Close() of the superseded transports below — can block (QUIC), and we
+	// must not stall concurrent Do readers on either; only the pointer swap is
+	// locked. Preserve the transport config (custom JA3, H2 settings, speculative
+	// TLS, etc.) on H1/H2.
+	newH1 := NewHTTP1TransportWithConfig(preset, t.dnsCache, routing.tcpProxy, t.config)
+	newH2 := NewHTTP2TransportWithConfig(preset, t.dnsCache, routing.tcpProxy, t.config)
 
-	// Recreate HTTP/3 - with proxy support if applicable
-	// Check both URL (unified proxy) and UDPProxy (split proxy config)
-	udpProxyURL := ""
-	if proxy != nil {
-		if proxy.UDPProxy != "" {
-			udpProxyURL = proxy.UDPProxy
-		} else if proxy.URL != "" {
-			udpProxyURL = proxy.URL
-		}
-	}
-
-	if udpProxyURL != "" {
+	// Recreate HTTP/3 - with proxy support if applicable. Keyed off the UDP proxy
+	// (UDPProxy, else the unified URL), so a split TCP/UDP config still gets H3.
+	var newH3 *HTTP3Transport
+	var newH3Err error
+	if h3Proxy := routing.udpProxyConfig(); h3Proxy != nil {
+		udpProxyURL := routing.udpProxyURL
 		if isSOCKS5Proxy(udpProxyURL) {
-			h3Proxy := &ProxyConfig{URL: udpProxyURL}
-			h3Transport, err := NewHTTP3TransportWithProxy(t.preset, t.dnsCache, h3Proxy)
+			h3Transport, err := NewHTTP3TransportWithProxy(preset, t.dnsCache, h3Proxy)
 			if err != nil {
-				t.h3ProxyError = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
-				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
+				newH3Err = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
+				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
 			} else {
-				t.h3Transport = h3Transport
+				newH3 = h3Transport
 			}
 		} else if isMASQUEProxy(udpProxyURL) {
-			h3Proxy := &ProxyConfig{URL: udpProxyURL}
-			h3Transport, err := NewHTTP3TransportWithMASQUE(t.preset, t.dnsCache, h3Proxy, nil)
+			h3Transport, err := NewHTTP3TransportWithMASQUE(preset, t.dnsCache, h3Proxy, nil)
 			if err != nil {
-				t.h3ProxyError = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
-				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
+				newH3Err = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
+				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
 			} else {
-				t.h3Transport = h3Transport
+				newH3 = h3Transport
 			}
 		} else {
 			// HTTP proxy does not support HTTP/3 (QUIC requires UDP)
-			t.h3ProxyError = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
-			t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
+			newH3Err = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
+			newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
 		}
 	} else {
-		t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
+		newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
 	}
 
-	// Re-apply insecureSkipVerify to recreated transports
+	// Re-apply insecureSkipVerify to the fresh transports before publishing them.
 	if t.insecureSkipVerify {
-		t.h1Transport.SetInsecureSkipVerify(true)
-		t.h2Transport.SetInsecureSkipVerify(true)
-		if t.h3Transport != nil {
-			t.h3Transport.SetInsecureSkipVerify(true)
+		newH1.SetInsecureSkipVerify(true)
+		newH2.SetInsecureSkipVerify(true)
+		if newH3 != nil {
+			newH3.SetInsecureSkipVerify(true)
 		}
+	}
+
+	// Publish atomically; capture the old transports to close after unlocking.
+	t.fieldsMu.Lock()
+	oldH1, oldH2, oldH3 := t.h1Transport, t.h2Transport, t.h3Transport
+	t.proxy = proxy
+	t.h3ProxyError = newH3Err
+	t.tcpProxyError = routing.tcpProxyErr
+	t.h1Transport = newH1
+	t.h2Transport = newH2
+	t.h3Transport = newH3
+	t.fieldsMu.Unlock()
+
+	// Close the superseded transports outside the lock (QUIC Close can block).
+	if oldH1 != nil {
+		oldH1.Close()
+	}
+	if oldH2 != nil {
+		oldH2.Close()
+	}
+	if oldH3 != nil {
+		oldH3.Close()
 	}
 }
 
 // SetPreset changes the fingerprint preset
 func (t *Transport) SetPreset(presetName string) {
-	t.preset = fingerprint.Get(presetName)
+	preset := fingerprint.Get(presetName)
 
 	// Re-apply custom H2 settings to the fresh preset (if any)
 	if t.config != nil && t.config.CustomH2Settings != nil {
-		t.preset.HTTP2Settings = *t.config.CustomH2Settings
+		preset.HTTP2Settings = *t.config.CustomH2Settings
 	}
 
-	// Close all transports
-	t.h1Transport.Close()
-	t.h2Transport.Close()
-	t.h3Transport.Close()
+	// Snapshot the current proxy so the rebuilt transports keep routing through it.
+	t.fieldsMu.RLock()
+	proxy := t.proxy
+	t.fieldsMu.RUnlock()
 
-	// Recreate HTTP/1.1 and HTTP/2 with new preset, preserving transport config
-	var tcpProxy *ProxyConfig
-	if t.proxy != nil {
-		if t.proxy.TCPProxy != "" {
-			tcpProxy = &ProxyConfig{URL: t.proxy.TCPProxy}
-		} else {
-			tcpProxy = t.proxy
-		}
-	}
-	t.h1Transport = NewHTTP1TransportWithConfig(t.preset, t.dnsCache, tcpProxy, t.config)
-	t.h2Transport = NewHTTP2TransportWithConfig(t.preset, t.dnsCache, tcpProxy, t.config)
+	// Same routing rules as the constructor/SetProxy — including credential
+	// carry-over and the UDP-only anti-leak guard.
+	routing := deriveProxyRouting(proxy)
 
-	// Recreate HTTP/3 - with proxy support if applicable
-	if t.proxy != nil && t.proxy.URL != "" {
-		if isSOCKS5Proxy(t.proxy.URL) {
-			h3Transport, err := NewHTTP3TransportWithProxy(t.preset, t.dnsCache, t.proxy)
+	// Build outside the lock (construction + old-transport Close can block).
+	newH1 := NewHTTP1TransportWithConfig(preset, t.dnsCache, routing.tcpProxy, t.config)
+	newH2 := NewHTTP2TransportWithConfig(preset, t.dnsCache, routing.tcpProxy, t.config)
+
+	// Recreate HTTP/3 - with proxy support if applicable.
+	var newH3 *HTTP3Transport
+	var newH3Err error
+	if h3Proxy := routing.udpProxyConfig(); h3Proxy != nil {
+		udpProxyURL := routing.udpProxyURL
+		if isSOCKS5Proxy(udpProxyURL) {
+			h3Transport, err := NewHTTP3TransportWithProxy(preset, t.dnsCache, h3Proxy)
 			if err != nil {
-				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
+				newH3Err = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
+				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
 			} else {
-				t.h3Transport = h3Transport
+				newH3 = h3Transport
 			}
-		} else if isMASQUEProxy(t.proxy.URL) {
-			h3Transport, err := NewHTTP3TransportWithMASQUE(t.preset, t.dnsCache, t.proxy, nil)
+		} else if isMASQUEProxy(udpProxyURL) {
+			h3Transport, err := NewHTTP3TransportWithMASQUE(preset, t.dnsCache, h3Proxy, nil)
 			if err != nil {
-				t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
+				newH3Err = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
+				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
 			} else {
-				t.h3Transport = h3Transport
+				newH3 = h3Transport
 			}
 		} else {
-			t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
+			newH3Err = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
+			newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
 		}
 	} else {
-		t.h3Transport, _ = NewHTTP3Transport(t.preset, t.dnsCache)
+		newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
 	}
 
-	// Re-apply insecureSkipVerify to recreated transports
+	// Re-apply insecureSkipVerify to the fresh transports before publishing them.
 	if t.insecureSkipVerify {
-		t.h1Transport.SetInsecureSkipVerify(true)
-		t.h2Transport.SetInsecureSkipVerify(true)
-		if t.h3Transport != nil {
-			t.h3Transport.SetInsecureSkipVerify(true)
+		newH1.SetInsecureSkipVerify(true)
+		newH2.SetInsecureSkipVerify(true)
+		if newH3 != nil {
+			newH3.SetInsecureSkipVerify(true)
 		}
+	}
+
+	// Publish atomically; capture the old transports to close after unlocking.
+	t.fieldsMu.Lock()
+	oldH1, oldH2, oldH3 := t.h1Transport, t.h2Transport, t.h3Transport
+	t.preset = preset
+	t.h3ProxyError = newH3Err
+	t.tcpProxyError = routing.tcpProxyErr
+	t.h1Transport = newH1
+	t.h2Transport = newH2
+	t.h3Transport = newH3
+	t.fieldsMu.Unlock()
+
+	if oldH1 != nil {
+		oldH1.Close()
+	}
+	if oldH2 != nil {
+		oldH2.Close()
+	}
+	if oldH3 != nil {
+		oldH3.Close()
 	}
 }
 
@@ -661,6 +790,14 @@ func SupportsQUIC(proxyURL string) bool {
 // SetTimeout sets the request timeout
 func (t *Transport) SetTimeout(timeout time.Duration) {
 	t.timeout = timeout
+}
+
+// Timeout returns the transport's configured request timeout (the session-level
+// default; 0 means unbounded). Callers use it to derive a single overall
+// deadline that bounds a whole logical request across redirect hops and retries,
+// so a per-hop budget can't be multiplied by the number of hops.
+func (t *Transport) Timeout() time.Duration {
+	return t.timeout
 }
 
 // SetConnectTo sets a host mapping for domain fronting
@@ -741,6 +878,10 @@ func (t *Transport) SetHeaderOrder(order []string) {
 // GetHeaderOrder returns the current header order.
 // Returns preset's default order if no custom order is set.
 func (t *Transport) GetHeaderOrder() []string {
+	// Snapshot the preset first (its own lock, released here) so we never nest
+	// fieldsMu under customHeaderOrderMu.
+	preset := t.getPreset()
+
 	t.customHeaderOrderMu.RLock()
 	defer t.customHeaderOrderMu.RUnlock()
 
@@ -751,9 +892,9 @@ func (t *Transport) GetHeaderOrder() []string {
 	}
 
 	// Return preset's order
-	if len(t.preset.HeaderOrder) > 0 {
-		result := make([]string, len(t.preset.HeaderOrder))
-		for i, hp := range t.preset.HeaderOrder {
+	if preset != nil && len(preset.HeaderOrder) > 0 {
+		result := make([]string, len(preset.HeaderOrder))
+		for i, hp := range preset.HeaderOrder {
 			result[i] = hp.Key
 		}
 		return result
@@ -812,6 +953,47 @@ func (c *TransportConfig) GetECHConfig(ctx context.Context, targetHost string) [
 	return echConfig
 }
 
+// transportSnapshot is a consistent read of the mutable transport fields, taken
+// once at the top of a request. SetProxy/SetPreset/SetProtocol swap these under
+// fieldsMu; snapshotting avoids a data race with those mutators and gives the
+// whole dispatch a stable view (e.g. the proxy and its matching sub-transports).
+type transportSnapshot struct {
+	h1            *HTTP1Transport
+	h2            *HTTP2Transport
+	h3            *HTTP3Transport
+	proxy         *ProxyConfig
+	preset        *fingerprint.Preset
+	protocol      Protocol
+	h3ProxyError  error
+	tcpProxyError error
+}
+
+// snapshot reads the mutable fields under the read lock. The lock is released
+// before the caller does any network I/O.
+func (t *Transport) snapshot() transportSnapshot {
+	t.fieldsMu.RLock()
+	defer t.fieldsMu.RUnlock()
+	return transportSnapshot{
+		h1:            t.h1Transport,
+		h2:            t.h2Transport,
+		h3:            t.h3Transport,
+		proxy:         t.proxy,
+		preset:        t.preset,
+		protocol:      t.protocol,
+		h3ProxyError:  t.h3ProxyError,
+		tcpProxyError: t.tcpProxyError,
+	}
+}
+
+// getPreset returns the current preset under the read lock (grabbed and released
+// so callers can safely take other locks afterwards).
+func (t *Transport) getPreset() *fingerprint.Preset {
+	t.fieldsMu.RLock()
+	p := t.preset
+	t.fieldsMu.RUnlock()
+	return p
+}
+
 // Do executes an HTTP request
 func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 	// Parse URL to determine scheme
@@ -819,6 +1001,10 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 	if err != nil {
 		return nil, NewRequestError("parse_url", "", "", "", err)
 	}
+
+	// Snapshot the mutable fields once so a concurrent SetProxy/SetPreset/
+	// SetProtocol can't race the dispatch below (see transportSnapshot).
+	snap := t.snapshot()
 
 	// Establish ONE overall deadline for the whole request, covering any protocol
 	// fallback (H3 -> H2 -> H1). Each doHTTPx otherwise derives its own fresh
@@ -836,36 +1022,50 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 		defer cancel()
 	}
 
+	// tcpBlocked is non-nil only when a proxy IS configured but cannot carry TCP
+	// (a UDP-only MASQUE proxy). Any H1/H2 dispatch must then refuse rather than
+	// dial the target directly, which would leak the real client IP + SNI.
+	tcpBlocked := snap.tcpProxyError
+
 	// For HTTP (non-TLS), only HTTP/1.1 is supported
 	if parsedURL.Scheme == "http" {
+		if tcpBlocked != nil {
+			return nil, tcpBlocked
+		}
 		return t.doHTTP1(ctx, req)
 	}
 
 	// When proxy is configured, respect user's protocol choice
 	// Check for any proxy (URL, TCPProxy, or UDPProxy)
-	if t.proxy != nil && (t.proxy.URL != "" || t.proxy.TCPProxy != "" || t.proxy.UDPProxy != "") {
+	if snap.proxy != nil && (snap.proxy.URL != "" || snap.proxy.TCPProxy != "" || snap.proxy.UDPProxy != "") {
 		// QUIC capability is decided by the UDP-side proxy, matching how the H3
 		// transport is built (UDPProxy, else the unified URL). A TCP-only proxy
 		// never relays QUIC, and for a split config (TCPProxy=http,
 		// UDPProxy=socks5) keying off the TCP proxy would hide a perfectly good
 		// H3-over-proxy transport.
-		udpEffectiveProxyURL := t.proxy.UDPProxy
+		udpEffectiveProxyURL := snap.proxy.UDPProxy
 		if udpEffectiveProxyURL == "" {
-			udpEffectiveProxyURL = t.proxy.URL
+			udpEffectiveProxyURL = snap.proxy.URL
 		}
 
 		// Respect user's explicit protocol choice
-		switch t.protocol {
+		switch snap.protocol {
 		case ProtocolHTTP1:
+			if tcpBlocked != nil {
+				return nil, tcpBlocked
+			}
 			return t.doHTTP1(ctx, req)
 
 		case ProtocolHTTP2:
+			if tcpBlocked != nil {
+				return nil, tcpBlocked
+			}
 			return t.doHTTP2(ctx, req)
 
 		case ProtocolHTTP3:
 			// Check if H3 is possible with this proxy
-			if t.h3ProxyError != nil {
-				return nil, t.h3ProxyError
+			if snap.h3ProxyError != nil {
+				return nil, snap.h3ProxyError
 			}
 			if !SupportsQUIC(udpEffectiveProxyURL) {
 				return nil, fmt.Errorf("HTTP/3 requires a SOCKS5 or MASQUE proxy (current proxy does not support UDP)")
@@ -874,8 +1074,13 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 
 		case ProtocolAuto:
 			// Auto-select based on proxy capabilities
-			if t.h3ProxyError != nil {
-				// H3 proxy failed during init - use H2/H1 only
+			if snap.h3ProxyError != nil {
+				// H3 proxy failed during init - fall back to H2/H1, but only when
+				// TCP can actually reach the target through a proxy. With a UDP-only
+				// proxy there is no non-leaking TCP path, so surface the H3 error.
+				if tcpBlocked != nil {
+					return nil, snap.h3ProxyError
+				}
 				resp, err := t.doHTTP2(ctx, req)
 				if err == nil {
 					return resp, nil
@@ -889,6 +1094,12 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 			}
 
 			if SupportsQUIC(udpEffectiveProxyURL) {
+				if tcpBlocked != nil {
+					// UDP-only proxy (MASQUE): only H3 can reach the target. Racing
+					// would fire an H2 probe that dials direct and leaks the real
+					// IP + SNI, so go straight to H3 with no TCP fallback.
+					return t.doHTTP3(ctx, req)
+				}
 				// SOCKS5 or MASQUE proxy. Race H3 and H2 instead of trying H3
 				// first: when QUIC cannot actually relay through the proxy, the
 				// sequential path idles ~5s on the QUIC handshake before falling
@@ -897,6 +1108,9 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 				return t.doAuto(ctx, req)
 			}
 			// HTTP proxy - only supports H2/H1
+			if tcpBlocked != nil {
+				return nil, tcpBlocked
+			}
 			resp, err := t.doHTTP2(ctx, req)
 			if err == nil {
 				return resp, nil
@@ -909,11 +1123,14 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 			return t.doHTTP1(ctx, req)
 
 		default:
+			if tcpBlocked != nil {
+				return nil, tcpBlocked
+			}
 			return t.doHTTP2(ctx, req)
 		}
 	}
 
-	switch t.protocol {
+	switch snap.protocol {
 	case ProtocolHTTP1:
 		return t.doHTTP1(ctx, req)
 	case ProtocolHTTP2:
@@ -932,6 +1149,9 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 // When ALPN negotiates HTTP/1.1 instead of HTTP/2, the TLS connection is reused.
 func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error) {
 	host := extractHost(req.URL)
+
+	// Snapshot preset + h3 once so SetPreset/SetProxy can't race these reads.
+	snap := t.snapshot()
 
 	// Check if we already know the best protocol for this host
 	t.protocolSupportMu.RLock()
@@ -959,8 +1179,21 @@ func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error)
 		}
 	}
 
+	// Preset explicitly disables HTTP/2 (e.g. a custom JA3 preset with
+	// protocols.h2=false / ALPN http/1.1): skip the H2 attempt entirely and go
+	// straight to HTTP/1.1 rather than negotiating H2 then ALPN-downgrading.
+	if snap.preset.DisableHTTP2 && !snap.preset.SupportHTTP3 {
+		resp, err := t.doHTTP1(ctx, req)
+		if err == nil {
+			t.protocolSupportMu.Lock()
+			t.protocolSupport[host] = ProtocolHTTP1
+			t.protocolSupportMu.Unlock()
+		}
+		return resp, err
+	}
+
 	// Race HTTP/3 and HTTP/2 in parallel if H3 is supported
-	if t.preset.SupportHTTP3 && t.h3Transport != nil {
+	if snap.preset.SupportHTTP3 && snap.h3 != nil {
 		resp, protocol, err := t.raceH3H2(ctx, req)
 		if err == nil {
 			t.protocolSupportMu.Lock()
@@ -1049,9 +1282,12 @@ type connectDecision struct {
 // stall that a sequential "try H3 first" path pays whenever QUIC is blocked or
 // the proxy cannot relay UDP: H2 simply wins the race in well under a second.
 func (t *Transport) raceConnectProtocol(ctx context.Context, host, port string) connectDecision {
+	// Snapshot the sub-transports so a concurrent SetProxy/SetPreset swap can't
+	// race the pointer reads inside the probe closures.
+	snap := t.snapshot()
 	return raceTwoProbes(ctx, 6*time.Second,
-		func(c context.Context) error { return t.h3Transport.Connect(c, host, port) },
-		func(c context.Context) error { return t.h2Transport.Connect(c, host, port) },
+		func(c context.Context) error { return snap.h3.Connect(c, host, port) },
+		func(c context.Context) error { return snap.h2.Connect(c, host, port) },
 	)
 }
 
@@ -1069,6 +1305,11 @@ func raceTwoProbes(ctx context.Context, budget time.Duration, h3Probe, h2Probe f
 	winnerCh := make(chan Protocol, 1)
 	alpnErrCh := make(chan *ALPNMismatchError, 1)
 	doneCh := make(chan struct{})
+	// h2Done closes when the H2 probe goroutine has fully returned. The drainer
+	// (see drainLateALPN) waits on it so a late ALPN downgrade — an *ALPNMismatchError
+	// carrying a live *utls.UConn that the probe emits AFTER the race resolved —
+	// is read from alpnErrCh and its TLS conn closed, instead of leaking there.
+	h2Done := make(chan struct{})
 
 	// Race HTTP/3 connection
 	go func() {
@@ -1082,6 +1323,7 @@ func raceTwoProbes(ctx context.Context, budget time.Duration, h3Probe, h2Probe f
 
 	// Race HTTP/2 connection
 	go func() {
+		defer close(h2Done)
 		err := h2Probe(raceCtx)
 		if err == nil {
 			select {
@@ -1113,34 +1355,52 @@ func raceTwoProbes(ctx context.Context, budget time.Duration, h3Probe, h2Probe f
 	select {
 	case p := <-winnerCh:
 		cancel() // stop the other attempt
-		// Discard an ALPN-mismatch conn we won't use
-		select {
-		case alpnErr := <-alpnErrCh:
-			alpnErr.TLSConn.Close()
-		default:
-		}
+		// The H2 probe may still be mid-handshake and downgrade to HTTP/1.1 after
+		// this point; drain any such conn so its TLS socket can't leak.
+		drainLateALPN(h2Done, alpnErrCh)
 		return connectDecision{protocol: p}
 	case alpnErr := <-alpnErrCh:
 		cancel()
+		// This alpnErr's conn is handed to the caller to reuse; do NOT close it
+		// and do NOT drain (the probe emits exactly one alpnErr).
 		return connectDecision{alpnErr: alpnErr}
 	case <-doneCh:
 		cancel()
 		select {
 		case alpnErr := <-alpnErrCh:
+			// Downgrade conn already available — hand it to the caller.
 			return connectDecision{alpnErr: alpnErr}
 		default:
 		}
-		// No winner and no ALPN mismatch: default to H2 (caller tries H2 -> H1).
+		// No winner and no ALPN mismatch yet: default to H2 (caller tries H2 -> H1),
+		// but drain a late downgrade the still-running H2 probe may emit.
+		drainLateALPN(h2Done, alpnErrCh)
 		return connectDecision{protocol: ProtocolHTTP2}
 	case <-ctx.Done():
 		cancel()
-		select {
-		case alpnErr := <-alpnErrCh:
-			alpnErr.TLSConn.Close()
-		default:
-		}
+		drainLateALPN(h2Done, alpnErrCh)
 		return connectDecision{err: ctx.Err()}
 	}
+}
+
+// drainLateALPN closes the TLS connection carried by a late ALPN-downgrade error
+// that the H2 probe may still emit AFTER the race has resolved. It blocks (in a
+// fresh goroutine) until the probe has certainly finished — h2Done closed, so any
+// buffered send has already landed in alpnErrCh — then closes the conn exactly
+// once. The race is already cancelled by the time this is called, so the probe
+// unblocks promptly and this goroutine cannot leak. Only used on paths where the
+// alpnErr was NOT handed to the caller, so this is the sole owner of that conn.
+func drainLateALPN(h2Done <-chan struct{}, alpnErrCh <-chan *ALPNMismatchError) {
+	go func() {
+		<-h2Done
+		select {
+		case alpnErr := <-alpnErrCh:
+			if alpnErr != nil && alpnErr.TLSConn != nil {
+				alpnErr.TLSConn.Close()
+			}
+		default:
+		}
+	}()
 }
 
 // raceH3H2 races HTTP/3 and HTTP/2 connections in parallel, then makes the request
@@ -1206,6 +1466,7 @@ func isProtocolError(err error) bool {
 
 // doHTTP1 executes the request over HTTP/1.1
 func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error) {
+	snap := t.snapshot()
 	startTime := time.Now()
 	timing := &protocol.Timing{}
 
@@ -1260,7 +1521,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 
 	// Set preset headers (with ordering for fingerprinting)
 	// Pass "h1" protocol so Chrome presets don't send Priority header on HTTP/1.1
-	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1278,7 +1539,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 	reqStart := time.Now()
 
 	// Make request
-	resp, err := t.h1Transport.RoundTrip(httpReq)
+	resp, err := snap.h1.RoundTrip(httpReq)
 	if err != nil {
 		return nil, WrapError("roundtrip", host, port, "h1", err)
 	}
@@ -1326,6 +1587,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 // This is used when ALPN negotiation results in HTTP/1.1 instead of HTTP/2,
 // allowing the TLS connection to be reused instead of creating a new one.
 func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnErr *ALPNMismatchError) (*Response, error) {
+	snap := t.snapshot()
 	startTime := time.Now()
 	timing := &protocol.Timing{}
 
@@ -1374,7 +1636,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	}
 
 	// Set preset headers - pass "h1" protocol so Chrome presets don't send Priority header
-	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1392,7 +1654,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	reqStart := time.Now()
 
 	// Use the existing TLS connection for the HTTP/1.1 request
-	resp, err := t.h1Transport.RoundTripWithTLSConn(httpReq, alpnErr.TLSConn, host, port)
+	resp, err := snap.h1.RoundTripWithTLSConn(httpReq, alpnErr.TLSConn, host, port)
 	if err != nil {
 		return nil, WrapError("roundtrip", host, port, "h1", err)
 	}
@@ -1438,6 +1700,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 
 // doHTTP2 executes the request over HTTP/2
 func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error) {
+	snap := t.snapshot()
 	startTime := time.Now()
 	timing := &protocol.Timing{}
 
@@ -1458,7 +1721,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Get connection use count BEFORE the request
-	useCountBefore := t.h2Transport.GetConnectionUseCount(host, port)
+	useCountBefore := snap.h2.GetConnectionUseCount(host, port)
 
 	// Set timeout
 	timeout := t.timeout
@@ -1495,7 +1758,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1513,7 +1776,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	reqStart := time.Now()
 
 	// Make request
-	resp, err := t.h2Transport.RoundTrip(httpReq)
+	resp, err := snap.h2.RoundTrip(httpReq)
 	if err != nil {
 		return nil, WrapError("roundtrip", host, port, "h2", err)
 	}
@@ -1574,6 +1837,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 
 // doHTTP3 executes the request over HTTP/3
 func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error) {
+	snap := t.snapshot()
 	startTime := time.Now()
 	timing := &protocol.Timing{}
 
@@ -1594,7 +1858,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Get dial count BEFORE the request
-	dialCountBefore := t.h3Transport.GetDialCount()
+	dialCountBefore := snap.h3.GetDialCount()
 
 	// Set timeout
 	timeout := t.timeout
@@ -1631,7 +1895,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, t.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1649,7 +1913,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	reqStart := time.Now()
 
 	// Make request
-	resp, err := t.h3Transport.RoundTrip(httpReq)
+	resp, err := snap.h3.RoundTrip(httpReq)
 	if err != nil {
 		return nil, WrapError("roundtrip", host, port, "h3", err)
 	}
@@ -1760,16 +2024,22 @@ func (t *Transport) ClearProtocolCache() {
 
 // GetHTTP1Transport returns the HTTP/1.1 transport for TLS session cache access
 func (t *Transport) GetHTTP1Transport() *HTTP1Transport {
+	t.fieldsMu.RLock()
+	defer t.fieldsMu.RUnlock()
 	return t.h1Transport
 }
 
 // GetHTTP2Transport returns the HTTP/2 transport for TLS session cache access
 func (t *Transport) GetHTTP2Transport() *HTTP2Transport {
+	t.fieldsMu.RLock()
+	defer t.fieldsMu.RUnlock()
 	return t.h2Transport
 }
 
 // GetHTTP3Transport returns the HTTP/3 transport for TLS session cache access
 func (t *Transport) GetHTTP3Transport() *HTTP3Transport {
+	t.fieldsMu.RLock()
+	defer t.fieldsMu.RUnlock()
 	return t.h3Transport
 }
 
