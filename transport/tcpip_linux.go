@@ -45,20 +45,27 @@ func applyTCPFingerprint(conn syscall.RawConn, fp *fingerprint.TCPFingerprint) e
 			}
 		}
 
-		// TCP Window Size via SO_RCVBUF.
-		// Linux kernel doubles SO_RCVBUF internally (man 7 socket), so request half.
-		// Bounded by /proc/sys/net/core/rmem_max — if too low the kernel silently
-		// clamps, which is acceptable (window will just be smaller than intended).
+		// TCP window size. The advertised initial receive window is derived from
+		// the socket receive buffer, so request a buffer comfortably larger than
+		// WindowSize; the previous WindowSize/2 produced an advertised window of
+		// only ~WindowSize/2 (issue #73). TCP_WINDOW_CLAMP below caps the window at
+		// WindowSize, so over-requesting the buffer is safe. SO_RCVBUF is bounded
+		// by net.core.rmem_max; the clamp still holds the window at WindowSize as
+		// long as the (rmem_max-limited) buffer covers it, which the ~208KB default
+		// does for browser-sized windows.
+		//
+		// LIMITATION (window scale): the SYN window scale is chosen by the kernel
+		// from the receive buffer and is forced to 0 by the window clamp, and
+		// net.core.rmem_max caps the buffer far below what a large scale (Windows'
+		// wscale 8 needs ~16MB) requires. So the window SIZE is matched here but the
+		// window SCALE cannot be set to an arbitrary browser value via setsockopt on
+		// Linux (fp.WindowScale is advisory); matching it exactly needs kernel-level
+		// packet rewriting (nftables/eBPF) or a raised net.core.rmem_max.
 		if fp.WindowSize > 0 {
-			if e := syscall.SetsockoptInt(s, syscall.SOL_SOCKET, syscall.SO_RCVBUF, fp.WindowSize/2); e != nil {
+			if e := syscall.SetsockoptInt(s, syscall.SOL_SOCKET, syscall.SO_RCVBUF, fp.WindowSize*4); e != nil {
 				sysErr = fmt.Errorf("SO_RCVBUF: %w", e)
 				return
 			}
-		}
-
-		// TCP_WINDOW_CLAMP constrains the advertised window. Combined with
-		// SO_RCVBUF this controls the window scale factor in the SYN.
-		if fp.WindowSize > 0 {
 			if e := syscall.SetsockoptInt(s, syscall.IPPROTO_TCP, tcpWindowClamp, fp.WindowSize); e != nil {
 				sysErr = fmt.Errorf("TCP_WINDOW_CLAMP: %w", e)
 				return
