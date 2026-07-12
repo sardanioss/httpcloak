@@ -531,6 +531,12 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 			specToUse = &spec
 		}
 	}
+	// Apply the preset's TCP signature_algorithms override (e.g. Chrome 150's
+	// ML-DSA codepoints) on top of the ClientHelloID base. The JA3 path carries its
+	// own sig-algs via JA3Extras, so it is skipped here.
+	if ja3String == "" && specToUse != nil {
+		fingerprint.ApplySignatureAlgorithms(specToUse.Extensions, t.preset.SignatureAlgorithms)
+	}
 
 	// Fetch ECH config if needed. skipECH forces a no-ECH handshake, used by the
 	// graceful-degradation retry (issue #74) after a first attempt whose ECH
@@ -644,6 +650,10 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 				if spec, specErr := utls.UTLSIdToSpecWithSeed(t.preset.ClientHelloID, t.shuffleSeed); specErr == nil {
 					fallbackSpec = &spec
 				}
+			}
+			// Keep the same TCP signature_algorithms override on the fallback spec.
+			if fallbackJA3 == "" && fallbackSpec != nil {
+				fingerprint.ApplySignatureAlgorithms(fallbackSpec.Extensions, t.preset.SignatureAlgorithms)
 			}
 
 			// Redo TLS handshake on the clean connection

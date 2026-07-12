@@ -87,6 +87,55 @@ type Preset struct {
 	JA3               string               // JA3 fingerprint string. When set, parsed fresh per connection instead of using ClientHelloID.
 	JA3Extras         *JA3Extras           // Supplements JA3 parsing. nil = Chrome defaults.
 	BasedOn           string               // For custom presets: name of the parent preset (used by inheritance-loop detection). Empty for built-ins.
+
+	// SignatureAlgorithms, when non-empty, replaces the signature_algorithms
+	// extension emitted on TCP (HTTP/1.1 + HTTP/2), on top of whatever base spec
+	// the ClientHelloID (or JA3) produces. It lets a preset keep a byte-exact
+	// hand-tuned base spec (correct ALPS/ECH/key_share/GREASE ordering) while
+	// changing ONLY the sig-algs — e.g. adding Chrome 150's ML-DSA post-quantum
+	// codepoints (0x0904-0x0906) on top of the Chrome 146 base. Values are raw
+	// SignatureScheme (uint16) codepoints, so schemes uTLS has no named constant
+	// for (like ML-DSA) are still emitted verbatim.
+	SignatureAlgorithms []tls.SignatureScheme
+
+	// QUICSignatureAlgorithms is the HTTP/3 (QUIC) counterpart of
+	// SignatureAlgorithms. It is separate because a browser's QUIC ClientHello can
+	// advertise a DIFFERENT sig-algs set than its TCP one — e.g. Chrome 150 sends
+	// ML-DSA on TCP but NOT on QUIC (QUIC anti-amplification limits make large PQ
+	// certificate chains impractical), and adds rsa_pkcs1_sha1 there instead.
+	// Empty = leave the QUIC base ClientHelloID untouched.
+	QUICSignatureAlgorithms []tls.SignatureScheme
+}
+
+// SpecFor generates the uTLS ClientHelloSpec for id at the given shuffle seed and
+// overrides its signature_algorithms with sigAlgs (a no-op when sigAlgs is empty,
+// so a stock preset keeps its byte-exact base). Callers pass the TCP list
+// (Preset.SignatureAlgorithms) or the QUIC list (Preset.QUICSignatureAlgorithms).
+// A drop-in replacement for tls.UTLSIdToSpecWithSeed so every transport spec path
+// (H2/H3, fresh and PSK) can share one override point.
+func SpecFor(id tls.ClientHelloID, seed int64, sigAlgs []tls.SignatureScheme) (*tls.ClientHelloSpec, error) {
+	spec, err := tls.UTLSIdToSpecWithSeed(id, seed)
+	if err != nil {
+		return nil, err
+	}
+	ApplySignatureAlgorithms(spec.Extensions, sigAlgs)
+	return &spec, nil
+}
+
+// ApplySignatureAlgorithms replaces the signature_algorithms extension's list in
+// exts with algs when algs is non-empty. It operates on the shared []TLSExtension
+// slice, so the ClientHelloID-direct path (H1, mutating a live UConn's Extensions)
+// and the generated-spec path (H2/H3) use one override.
+func ApplySignatureAlgorithms(exts []tls.TLSExtension, algs []tls.SignatureScheme) {
+	if len(algs) == 0 {
+		return
+	}
+	for _, ext := range exts {
+		if sa, ok := ext.(*tls.SignatureAlgorithmsExtension); ok {
+			sa.SupportedSignatureAlgorithms = append([]tls.SignatureScheme(nil), algs...)
+			return
+		}
+	}
 }
 
 // TCPFingerprint contains TCP/IP stack parameters that identify the OS.
@@ -2160,6 +2209,54 @@ func Chrome149() *Preset {
 	}
 }
 
+// Chrome150Windows returns Chrome 150 on Windows. The base TLS/H2/QUIC fingerprint
+// is inherited byte-for-byte from the chrome-149 chain; Chrome 150 adds two things
+// over 149, both captured from a real Chrome 150:
+//   - TCP signature_algorithms now prepend the three ML-DSA post-quantum codepoints
+//     (0x0904-0x0906 = ML-DSA-44/65/87, draft-ietf-tls-mldsa), giving JA4
+//     t13d1516h2_8daaf6152771_806a8c22fdea. QUIC is left unchanged (Chrome does NOT
+//     advertise ML-DSA over QUIC — anti-amplification limits — so JA4 stays
+//     q13d0311h3_55b375c5d22e_653d80c3fe9d).
+//   - User-Agent bump and a sec-ch-ua brand rotation (GREASE brand became
+//     "Not;A=Brand" v="8", moved to first position).
+// Embedded JSON overrides just those; everything else inherits. Falls back to
+// Chrome149Windows if the JSON didn't load.
+func Chrome150Windows() *Preset {
+	if p := LookupCustom("chrome-150-windows"); p != nil {
+		return p
+	}
+	return Chrome149Windows()
+}
+
+// Chrome150Linux returns Chrome 150 on Linux. See Chrome150Windows.
+func Chrome150Linux() *Preset {
+	if p := LookupCustom("chrome-150-linux"); p != nil {
+		return p
+	}
+	return Chrome149Linux()
+}
+
+// Chrome150macOS returns Chrome 150 on macOS. See Chrome150Windows.
+func Chrome150macOS() *Preset {
+	if p := LookupCustom("chrome-150-macos"); p != nil {
+		return p
+	}
+	return Chrome149macOS()
+}
+
+// Chrome150 returns the Chrome 150 fingerprint preset auto-detected from the
+// running OS.
+func Chrome150() *Preset {
+	switch GetPlatformInfo().Platform {
+	case "Windows":
+		return Chrome150Windows()
+	case "macOS":
+		return Chrome150macOS()
+	default:
+		return Chrome150Linux()
+	}
+}
+
 // IOSChrome143 returns Chrome 143 on iOS fingerprint preset
 // Note: iOS Chrome uses WebKit (Apple requirement), so it has Safari's TLS AND HTTP/2 fingerprint
 // WebKit doesn't support Client Hints, so no sec-ch-ua headers
@@ -2732,13 +2829,17 @@ var presets = map[string]func() *Preset{
 	"chrome-149-windows": Chrome149Windows,
 	"chrome-149-linux":   Chrome149Linux,
 	"chrome-149-macos":   Chrome149macOS,
+	"chrome-150":         Chrome150,
+	"chrome-150-windows": Chrome150Windows,
+	"chrome-150-linux":   Chrome150Linux,
+	"chrome-150-macos":   Chrome150macOS,
 
-	// -latest aliases (always point to the newest version). Desktop tracks 149;
-	// mobile stays on 148 until Chrome 149 mobile captures are confirmed.
-	"chrome-latest":         Chrome149,
-	"chrome-latest-windows": Chrome149Windows,
-	"chrome-latest-linux":   Chrome149Linux,
-	"chrome-latest-macos":   Chrome149macOS,
+	// -latest aliases (always point to the newest version). Desktop tracks 150;
+	// mobile stays on 148 until newer mobile captures are confirmed.
+	"chrome-latest":         Chrome150,
+	"chrome-latest-windows": Chrome150Windows,
+	"chrome-latest-linux":   Chrome150Linux,
+	"chrome-latest-macos":   Chrome150macOS,
 	"firefox-latest":        Firefox148,
 	"safari-latest":         Safari18,
 	"chrome-latest-ios":     IOSChrome148,

@@ -568,6 +568,10 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 					break
 				}
 			}
+
+			// Apply the preset's TCP signature_algorithms override (e.g. Chrome 150
+			// ML-DSA) on the materialised extensions, same mechanism as the ALPN edit.
+			fingerprint.ApplySignatureAlgorithms(tlsConn.Extensions, t.preset.SignatureAlgorithms)
 		}
 		// Only set session cache for preset path or JA3 with PSK extension.
 		// Setting session cache on a spec without PSK extension can cause handshake failures.
@@ -618,6 +622,11 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 							break
 						}
 					}
+				}
+				// Apply the preset's TCP signature_algorithms override on the
+				// speculative-fallback ClientHelloID path (JA3 carries its own).
+				if effJA3 == "" {
+					fingerprint.ApplySignatureAlgorithms(tlsConn.Extensions, t.preset.SignatureAlgorithms)
 				}
 				// Only set session cache when not using a JA3 without PSK extension
 				if effJA3 == "" || fingerprint.JA3HasExtension(effJA3, "41") {

@@ -62,7 +62,8 @@ type TLSSpec struct {
 	JA3ExtrasSpec *JA3ExtrasSpec `json:"ja3_extras,omitempty"`
 
 	// Individual extension data (supplements client_hello or ja3)
-	SignatureAlgorithms            []uint16 `json:"signature_algorithms,omitempty"`
+	SignatureAlgorithms            []uint16 `json:"signature_algorithms,omitempty"`      // TCP (H1/H2) sig-algs override; overrides the ClientHelloID base
+	QUICSignatureAlgorithms        []uint16 `json:"quic_signature_algorithms,omitempty"` // HTTP/3 (QUIC) sig-algs override; separate because a browser's QUIC set can differ (e.g. Chrome 150 sends ML-DSA on TCP only)
 	DelegatedCredentialAlgorithms  []uint16 `json:"delegated_credential_algorithms,omitempty"`
 	ALPN                           []string `json:"alpn,omitempty"`
 	CertCompression    []string `json:"cert_compression,omitempty"` // "brotli", "zlib", "zstd"
@@ -478,6 +479,17 @@ func clonePreset(src *Preset) *Preset {
 		dst.JA3Extras = &extras
 	}
 
+	// Deep copy the sig-algs overrides so a child preset (based_on) inherits them
+	// yet can replace them without mutating the parent's backing array.
+	if src.SignatureAlgorithms != nil {
+		dst.SignatureAlgorithms = make([]tls.SignatureScheme, len(src.SignatureAlgorithms))
+		copy(dst.SignatureAlgorithms, src.SignatureAlgorithms)
+	}
+	if src.QUICSignatureAlgorithms != nil {
+		dst.QUICSignatureAlgorithms = make([]tls.SignatureScheme, len(src.QUICSignatureAlgorithms))
+		copy(dst.QUICSignatureAlgorithms, src.QUICSignatureAlgorithms)
+	}
+
 	return &dst
 }
 
@@ -567,7 +579,32 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 		}
 	}
 
+	// TCP / QUIC signature_algorithms overrides. These replace the
+	// signature_algorithms extension emitted on the wire on top of the
+	// ClientHelloID base (see Preset.SignatureAlgorithms / QUICSignatureAlgorithms),
+	// so a based_on preset can add sig-algs — e.g. Chrome 150's ML-DSA on TCP —
+	// without re-declaring client_hello. The JA3 path folds its sig-algs into
+	// JA3Extras, so these only apply to the ClientHelloID path.
+	if spec.JA3 == "" {
+		if len(spec.SignatureAlgorithms) > 0 {
+			p.SignatureAlgorithms = uint16sToSchemes(spec.SignatureAlgorithms)
+		}
+		if len(spec.QUICSignatureAlgorithms) > 0 {
+			p.QUICSignatureAlgorithms = uint16sToSchemes(spec.QUICSignatureAlgorithms)
+		}
+	}
+
 	return nil
+}
+
+// uint16sToSchemes converts JSON sig-alg codepoints to uTLS SignatureScheme
+// values (raw uint16, so post-quantum schemes with no named constant round-trip).
+func uint16sToSchemes(vs []uint16) []tls.SignatureScheme {
+	out := make([]tls.SignatureScheme, len(vs))
+	for i, v := range vs {
+		out[i] = tls.SignatureScheme(v)
+	}
+	return out
 }
 
 func buildJA3Extras(spec *JA3ExtrasSpec) (*JA3Extras, error) {
