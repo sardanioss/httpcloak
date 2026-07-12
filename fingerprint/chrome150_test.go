@@ -72,6 +72,42 @@ func TestChrome150Presets(t *testing.T) {
 	}
 }
 
+// Locks the Chrome 150 iOS preset. iOS Chrome is forced onto Safari/WebKit's TLS
+// stack (HelloIOS_18), so unlike the desktop chrome-150 line it must NOT carry the
+// ML-DSA signature_algorithms override — WebKit does not advertise ML-DSA. The
+// wire fingerprint is inherited byte-exact from the chrome-148 iOS base (verified
+// JA4 t13d2013h2_a09f3c656075_7f0f34a4126d against a real iOS 26.5 capture); this
+// guards the UA/header bump, the Safari TLS base, and the no-ML-DSA invariant.
+func TestChrome150IOSPreset(t *testing.T) {
+	p := Get("chrome-150-ios")
+	if p == nil {
+		t.Fatal("chrome-150-ios: not registered")
+	}
+	if !strings.Contains(p.UserAgent, "CriOS/150.0.7871.51") || !strings.Contains(p.UserAgent, "iPhone OS 26_5") {
+		t.Errorf("chrome-150-ios: UA = %q, want CriOS/150.0.7871.51 on iPhone OS 26_5 (based_on chain may have fallen back)", p.UserAgent)
+	}
+	// Safari/WebKit TLS, not desktop Chrome's ClientHello.
+	if p.ClientHelloID.Client != "iOS" {
+		t.Errorf("chrome-150-ios: ClientHelloID.Client = %q, want iOS (WebKit/Safari TLS)", p.ClientHelloID.Client)
+	}
+	// WebKit does not advertise ML-DSA — no signature_algorithms override.
+	if len(p.SignatureAlgorithms) != 0 {
+		t.Errorf("chrome-150-ios: SignatureAlgorithms must be empty (iOS/WebKit has no ML-DSA), got %v", p.SignatureAlgorithms)
+	}
+	if len(p.QUICSignatureAlgorithms) != 0 {
+		t.Errorf("chrome-150-ios: QUICSignatureAlgorithms must be empty, got %v", p.QUICSignatureAlgorithms)
+	}
+	// The iOS header block leads with sec-fetch-dest (Safari order), inherited from
+	// the 148 base; a based_on regression would drop it to desktop Chrome's order.
+	if len(p.HeaderOrder) == 0 || p.HeaderOrder[0].Key != "sec-fetch-dest" {
+		t.Errorf("chrome-150-ios: header order should lead with sec-fetch-dest, got %+v", p.HeaderOrder)
+	}
+	// chrome-latest-ios tracks the newest iOS preset (150).
+	if ua := Get("chrome-latest-ios").UserAgent; !strings.Contains(ua, "CriOS/150.0.7871.51") {
+		t.Errorf("chrome-latest-ios UA = %q, want CriOS/150.0.7871.51", ua)
+	}
+}
+
 // uint16sig mirrors utls.SignatureScheme (uint16) so the test can compare
 // codepoints without importing the alias under a second name.
 type uint16sig = uint16

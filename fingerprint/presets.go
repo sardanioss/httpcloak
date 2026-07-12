@@ -2101,6 +2101,21 @@ func IOSChrome148() *Preset {
 	return IOSChrome146()
 }
 
+// IOSChrome150 returns Chrome 150 on iOS — a pure header/UA bump over the 148 iOS
+// base (User-Agent: iOS 26_5_0, CriOS/150.0.7871.51). The TLS bytes (Safari/WebKit
+// HelloIOS_18) are unchanged, and verified byte-exact against a real iOS 26.5
+// capture: JA4 t13d2013h2_a09f3c656075_7f0f34a4126d, matching Akamai H2 and
+// peetprint. iOS Chrome does NOT advertise ML-DSA (that is a desktop/Android
+// Chromium-BoringSSL trait; iOS uses Safari's stack), so unlike the desktop
+// chrome-150 line this preset carries no signature_algorithms override.
+// Falls back to IOSChrome148 if the JSON didn't load.
+func IOSChrome150() *Preset {
+	if p := LookupCustom("chrome-150-ios"); p != nil {
+		return p
+	}
+	return IOSChrome148()
+}
+
 // AndroidChrome147 returns Chrome 147 on Android. Same diff pattern as
 // desktop (UA bump + sec-ch-ua brand rotation); inherits Linux-flavored
 // TLS from chrome-146-android. Falls back to AndroidChrome146.
@@ -2833,16 +2848,17 @@ var presets = map[string]func() *Preset{
 	"chrome-150-windows": Chrome150Windows,
 	"chrome-150-linux":   Chrome150Linux,
 	"chrome-150-macos":   Chrome150macOS,
+	"chrome-150-ios":     IOSChrome150,
 
-	// -latest aliases (always point to the newest version). Desktop tracks 150;
-	// mobile stays on 148 until newer mobile captures are confirmed.
+	// -latest aliases (always point to the newest version). Desktop + iOS track
+	// 150; Android stays on 148 until a newer Android capture is confirmed.
 	"chrome-latest":         Chrome150,
 	"chrome-latest-windows": Chrome150Windows,
 	"chrome-latest-linux":   Chrome150Linux,
 	"chrome-latest-macos":   Chrome150macOS,
 	"firefox-latest":        Firefox148,
 	"safari-latest":         Safari18,
-	"chrome-latest-ios":     IOSChrome148,
+	"chrome-latest-ios":     IOSChrome150,
 	"safari-latest-ios":     IOSSafari18,
 	"chrome-latest-android": AndroidChrome148,
 
