@@ -108,6 +108,59 @@ func TestChrome150IOSPreset(t *testing.T) {
 	}
 }
 
+// Locks the Chrome 150 Android preset. Android Chrome runs the same
+// Chromium/BoringSSL stack as desktop (only iOS is the WebKit exception), so
+// unlike chrome-150-ios it MUST carry the ML-DSA signature_algorithms override on
+// TCP (never on QUIC), while wearing the reduced-UA mobile identity
+// (sec-ch-ua-mobile ?1, sec-ch-ua-platform "Android"). Guards the ML-DSA
+// inheritance and the mobile header identity against a based_on regression.
+func TestChrome150AndroidPreset(t *testing.T) {
+	const mldsa44, mldsa65, mldsa87 = 0x0904, 0x0905, 0x0906
+	p := Get("chrome-150-android")
+	if p == nil {
+		t.Fatal("chrome-150-android: not registered")
+	}
+	if !strings.Contains(p.UserAgent, "Chrome/150.0.0.0") || !strings.Contains(p.UserAgent, "Android 10; K") || !strings.Contains(p.UserAgent, "Mobile") {
+		t.Errorf("chrome-150-android: UA = %q, want reduced Android Chrome/150 Mobile UA", p.UserAgent)
+	}
+	hdr := func(k string) string {
+		for _, h := range p.HeaderOrder {
+			if h.Key == k {
+				return h.Value
+			}
+		}
+		return p.Headers[k]
+	}
+	if got := hdr("sec-ch-ua-mobile"); got != "?1" {
+		t.Errorf("chrome-150-android: sec-ch-ua-mobile = %q, want ?1", got)
+	}
+	if got := hdr("sec-ch-ua-platform"); got != `"Android"` {
+		t.Errorf("chrome-150-android: sec-ch-ua-platform = %q, want \"Android\"", got)
+	}
+	// Android mirrors desktop: ML-DSA on TCP.
+	tcp := toUint16sig(p.SignatureAlgorithms)
+	has := func(v uint16sig) bool {
+		for _, a := range tcp {
+			if a == v {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []uint16sig{mldsa44, mldsa65, mldsa87} {
+		if !has(want) {
+			t.Errorf("chrome-150-android: TCP SignatureAlgorithms missing ML-DSA 0x%04x: %v", want, tcp)
+		}
+	}
+	// ...but not on QUIC.
+	if len(p.QUICSignatureAlgorithms) != 0 {
+		t.Errorf("chrome-150-android: QUICSignatureAlgorithms must be empty, got %v", p.QUICSignatureAlgorithms)
+	}
+	if ua := Get("chrome-latest-android").UserAgent; !strings.Contains(ua, "Chrome/150.0.0.0") {
+		t.Errorf("chrome-latest-android UA = %q, want Chrome/150.0.0.0", ua)
+	}
+}
+
 // uint16sig mirrors utls.SignatureScheme (uint16) so the test can compare
 // codepoints without importing the alias under a second name.
 type uint16sig = uint16

@@ -2178,6 +2178,26 @@ func AndroidChrome148() *Preset {
 	return AndroidChrome147()
 }
 
+// AndroidChrome150 returns Chrome 150 on Android. Android Chrome runs the same
+// Chromium/BoringSSL stack as desktop (the iOS line is the WebKit exception), and
+// the Android TLS base is HelloChrome_146_Linux — identical to desktop Linux — so
+// this preset carries the SAME ML-DSA signature_algorithms override as the desktop
+// chrome-150 line (ML-DSA on TCP, none on QUIC). Headers are the reduced-UA mobile
+// bump: Chrome/150 with the frozen "Android 10; K" model, sec-ch-ua-mobile ?1,
+// sec-ch-ua-platform "Android", and the version-keyed (platform-independent)
+// sec-ch-ua brand shared with desktop 150.
+//
+// DERIVED (not yet captured from a device): the TLS/JA4 and reduced UA/sec-ch-ua
+// are deterministic, but whether Chrome ships the ML-DSA sig-algs field trial on
+// Android is assumed to match desktop pending a real Android 150 capture.
+// Falls back to AndroidChrome148 if the JSON didn't load.
+func AndroidChrome150() *Preset {
+	if p := LookupCustom("chrome-150-android"); p != nil {
+		return p
+	}
+	return AndroidChrome148()
+}
+
 // Chrome149Windows returns Chrome 149 on Windows. The wire-level fingerprint is
 // byte-identical to 148 (verified against a real Chrome 149 capture: JA4
 // t13d1516h2_8daaf6152771_d8a2da3f94cd, peetprint
@@ -2849,9 +2869,10 @@ var presets = map[string]func() *Preset{
 	"chrome-150-linux":   Chrome150Linux,
 	"chrome-150-macos":   Chrome150macOS,
 	"chrome-150-ios":     IOSChrome150,
+	"chrome-150-android": AndroidChrome150,
 
-	// -latest aliases (always point to the newest version). Desktop + iOS track
-	// 150; Android stays on 148 until a newer Android capture is confirmed.
+	// -latest aliases (always point to the newest version). Desktop, iOS and
+	// Android all track 150.
 	"chrome-latest":         Chrome150,
 	"chrome-latest-windows": Chrome150Windows,
 	"chrome-latest-linux":   Chrome150Linux,
@@ -2860,7 +2881,7 @@ var presets = map[string]func() *Preset{
 	"safari-latest":         Safari18,
 	"chrome-latest-ios":     IOSChrome150,
 	"safari-latest-ios":     IOSSafari18,
-	"chrome-latest-android": AndroidChrome148,
+	"chrome-latest-android": AndroidChrome150,
 
 	// Backwards compatibility aliases (old naming convention)
 	"ios-chrome-143":        IOSChrome143,
