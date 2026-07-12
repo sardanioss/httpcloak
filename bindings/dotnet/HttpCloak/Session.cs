@@ -3771,6 +3771,39 @@ public sealed class HttpCloakHandler : DelegatingHandler
     /// </summary>
     public LocalProxyStats GetStats() => _proxy.GetStats();
 
+    // Internal header understood by the LocalProxy: upgrade a plain-HTTP proxy
+    // request back to HTTPS and apply the full browser fingerprint via a Session.
+    private const string SchemeHeader = "X-HTTPCloak-Scheme";
+
+    /// <summary>
+    /// Route an https:// request through httpcloak's fingerprinting path instead of
+    /// HttpClient's CONNECT tunnel. For an https:// URI through a proxy, HttpClient
+    /// issues CONNECT and then performs its OWN TLS handshake end to end, which
+    /// bypasses httpcloak entirely: the target sees .NET's TLS + header fingerprint,
+    /// not the browser preset. That made HttpCloakHandler behave differently from
+    /// Session and get blocked where Session was not (issue #79). Rewriting the URI
+    /// to http:// makes HttpClient send a plain absolute-form proxy request, which the
+    /// LocalProxy upgrades back to https via SchemeHeader and forwards through a
+    /// Session with the full TLS + header fingerprint. The localhost hop stays
+    /// plaintext; the fingerprinted TLS is between the LocalProxy and the target.
+    /// </summary>
+    private static void RouteThroughFingerprint(HttpRequestMessage request)
+    {
+        var uri = request.RequestUri;
+        if (uri == null || uri.Scheme != Uri.UriSchemeHttps)
+            return;
+
+        var builder = new UriBuilder(uri) { Scheme = Uri.UriSchemeHttp };
+        // Drop the port when it was the https default so the proxy upgrade yields a
+        // clean https://host; keep any explicit non-default port so it round-trips.
+        if (uri.IsDefaultPort)
+            builder.Port = -1;
+        request.RequestUri = builder.Uri;
+
+        if (!request.Headers.Contains(SchemeHeader))
+            request.Headers.Add(SchemeHeader, "https");
+    }
+
     /// <inheritdoc/>
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -3779,9 +3812,8 @@ public sealed class HttpCloakHandler : DelegatingHandler
         if (_disposed)
             throw new ObjectDisposedException(nameof(HttpCloakHandler));
 
-        // Just pass through - LocalProxy handles TLS fingerprinting
-        // HttpClient handles cookies, decompression, redirects natively
-        // TRUE streaming - no memory buffering!
+        // Force the LocalProxy fingerprinting path for https:// (avoid CONNECT).
+        RouteThroughFingerprint(request);
         return base.SendAsync(request, cancellationToken);
     }
 
@@ -3793,7 +3825,8 @@ public sealed class HttpCloakHandler : DelegatingHandler
         if (_disposed)
             throw new ObjectDisposedException(nameof(HttpCloakHandler));
 
-        // Synchronous version
+        // Force the LocalProxy fingerprinting path for https:// (avoid CONNECT).
+        RouteThroughFingerprint(request);
         return base.Send(request, cancellationToken);
     }
 
