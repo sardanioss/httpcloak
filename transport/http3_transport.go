@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	http "github.com/sardanioss/http"
@@ -226,6 +227,13 @@ type HTTP3Transport struct {
 	requestCount int64
 	dialCount    int64 // Number of times dialQUIC was called (new connections)
 	mu           sync.RWMutex
+
+	// ipv4FirstOverride transiently forces the Happy-Eyeballs QUIC dial to lead
+	// with IPv4 regardless of the DNS cache's PreferIPv4 knob. doHTTP3 sets it for
+	// a single redial after a forced-H3 roundtrip stalls on a path that completed
+	// its QUIC handshake but then blackholes application data (the IPv6 PMTU
+	// black-hole case), so the retry avoids the dead family. Reset right after.
+	ipv4FirstOverride atomic.Bool
 
 	// Configuration
 	quicConfig *quic.Config
@@ -1003,6 +1011,23 @@ func (t *HTTP3Transport) raceQUICDial(ctx context.Context, host string, ipv6Addr
 	return t.raceQUICDialWithECH(ctx, host, ipv6Addrs, ipv4Addrs, tlsCfg, cfg, echConfigList)
 }
 
+// SetIPv4FirstOverride transiently biases the next Happy-Eyeballs QUIC dials to
+// lead with IPv4. doHTTP3 flips it on for a single forced-H3 retry after the
+// leading family stalled the roundtrip, then flips it back.
+func (t *HTTP3Transport) SetIPv4FirstOverride(v bool) {
+	t.ipv4FirstOverride.Store(v)
+}
+
+// preferIPv4Ordering reports whether the QUIC dial should interleave IPv4 first.
+// It honors both the persistent DNS-cache PreferIPv4 knob and the transient
+// per-retry override set by SetIPv4FirstOverride.
+func (t *HTTP3Transport) preferIPv4Ordering() bool {
+	if t.ipv4FirstOverride.Load() {
+		return true
+	}
+	return t.dnsCache != nil && t.dnsCache.PreferIPv4()
+}
+
 // raceQUICDialWithECH implements Happy Eyeballs-style connection racing with pre-fetched ECH config
 // Tries IPv6 first with a short timeout, then falls back to IPv4 if needed
 func (t *HTTP3Transport) raceQUICDialWithECH(ctx context.Context, host string, ipv6Addrs, ipv4Addrs []*net.UDPAddr, tlsCfg *tls.Config, cfg *quic.Config, echConfigList []byte) (*quic.Conn, error) {
@@ -1038,7 +1063,7 @@ func (t *HTTP3Transport) raceQUICDialWithECH(ctx context.Context, host string, i
 	// honor the DNS cache's PreferIPv4 knob here to stay in step with the H1/H2
 	// direct path and the connection pools; default stays IPv6-first (RFC 8305).
 	var addrs []*net.UDPAddr
-	if t.dnsCache != nil && t.dnsCache.PreferIPv4() {
+	if t.preferIPv4Ordering() {
 		addrs = interleaveAddrs(ipv4Addrs, ipv6Addrs)
 	} else {
 		addrs = interleaveAddrs(ipv6Addrs, ipv4Addrs)
