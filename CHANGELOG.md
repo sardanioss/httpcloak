@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.8] - 2026-07-13
+
+### Added
+
+- **Chrome 150 across desktop, iOS and Android, with post-quantum signatures where the real browser sends them**: asking for the latest Chrome now gives you Chrome 150 on Windows, Linux, macOS, iOS and Android, and every `chrome-latest*` profile points at it. On the platforms that run Chromium's own stack (the three desktops and Android) the TLS handshake now advertises the post-quantum signature algorithms the current Chrome offers, so the signature list matches a real browser on the wire; iOS runs on the system stack and, exactly like the real thing, does not advertise them. Because the library keeps everything on the wire configurable, custom profiles get a new per-protocol control to add or drop the post-quantum signatures independently for the TCP and the QUIC handshakes, so you can opt in or out to match whatever you need. The desktop and iOS wire fingerprints were confirmed against real captures across the Python, Node and C# bindings; the Android one is derived from the shared desktop stack.
+
+### Fixed
+
+- **Forced HTTP/3 no longer hangs when a QUIC path goes quiet after connecting**: in HTTP/3-only mode there is no other protocol to fall back to, so a connection that finished its handshake but then stopped delivering the response (for example a network that quietly drops the larger response packets over IPv6 while keep-alives still flow) would leave the request waiting for the whole timeout. The request now bounds the wait for the first response, and if the path has stalled it drops that connection and retries once on a fresh one, preferring the other address family. Healthy connections and streaming bodies are untouched, so there is no cost on the normal path.
+
+- **A pointed encrypted-hello config domain can no longer stall the whole request (#74)**: when a session was aimed at an ECH configuration domain that did not actually front the real target, the TLS handshake could sit blocked for the entire request budget. The encrypted-hello attempt is now given its own short deadline, and if it stalls the session retries once in the clear and remembers the host is incompatible so later requests skip it.
+
+- **Streaming works against servers that only speak HTTP/1.1 (#75, #77)**: the streaming path had no HTTP/1.1 fallback, so a server that negotiated plain HTTP/1.1 broke streaming requests and then retried straight back into the same mismatch. Streaming now falls back to HTTP/1.1 cleanly.
+
+- **The C# handler and the session produce the same fingerprint (#79)**: `HttpCloakHandler` routed its requests differently from `Session`, so the two could look like different clients on the wire. The handler now goes through the same path as the session.
+
+- **The IPv6 TCP fingerprint is complete (#81)**: the outgoing SYN packet kept the operating system's default IPv6 hop limit instead of the value the impersonated browser's OS uses. It now carries the right one.
+
+- **The advertised TCP window size matches the fingerprint (#73)**: the window value in the SYN now lines up with the rest of the fingerprint. The window scale factor stays fixed by the host operating system's socket interface, which is a platform limitation rather than something the library can set.
+
+- **A broad networking robustness pass**: DNS now honours the real record TTLs, caches negative answers, and collapses duplicate concurrent lookups for the same host; proxy dialling tries every resolved address rather than the first, and MASQUE tunnels are keyed per host; every request path is now bounded by the configured timeout from start to finish; and the native library layer was hardened against crashes and memory issues under concurrent use.
+
+- **Python 3.14 free-threaded (no-GIL) builds are supported (#80)**.
+
 ## [1.6.8-beta.1] - 2026-06-05
 
 ### Fixed
