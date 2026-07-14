@@ -44,13 +44,17 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	http "github.com/sardanioss/http"
 	"io"
 	"math"
 	"math/rand"
 	"net"
-	http "github.com/sardanioss/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -429,6 +433,11 @@ type Request struct {
 
 	// Per-request retry override (nil = use client config)
 	DisableRetry bool
+
+	// IncludeTLSInfo populates Response.TLS with the leaf certificate's
+	// details. Off by default: parsing cert fields on every request isn't
+	// free, so opt in per-request rather than paying for it unconditionally.
+	IncludeTLSInfo bool
 }
 
 // SetHeader sets a header value, replacing any existing values.
@@ -490,9 +499,56 @@ type Response struct {
 	// Redirect history
 	RedirectHistory []*RedirectInfo
 
+	// TLS is the negotiated TLS connection's leaf-certificate info. Only
+	// populated when Request.IncludeTLSInfo is true.
+	TLS *TLSInfo
+
 	// bodyBytes caches the body after reading
 	bodyBytes []byte
 	bodyRead  bool
+}
+
+// TLSInfo describes the leaf certificate and negotiated parameters of a
+// response's TLS connection.
+type TLSInfo struct {
+	Version            string
+	CipherSuite        string
+	NegotiatedProtocol string
+	SubjectCN          string
+	Issuer             string
+	DNSNames           []string
+	NotBefore          time.Time
+	NotAfter           time.Time
+	SelfSigned         bool
+	SHA256Fingerprint  string
+}
+
+// buildTLSInfo extracts TLSInfo from the leaf certificate of a connection.
+// Takes primitives rather than a *tls.ConnectionState because the forked
+// http package's Response.TLS is actually *utls.ConnectionState (the
+// forked http aliases "tls" to github.com/sardanioss/utls) -- matching
+// certpin.go's own approach of never depending on that concrete type,
+// only on the standard x509 certificates it carries.
+// Returns nil if there are no peer certificates.
+func buildTLSInfo(version, cipherSuite uint16, negotiatedProtocol string, peerCertificates []*x509.Certificate) *TLSInfo {
+	if len(peerCertificates) == 0 {
+		return nil
+	}
+	leaf := peerCertificates[0]
+	fingerprint := sha256.Sum256(leaf.Raw)
+
+	return &TLSInfo{
+		Version:            tls.VersionName(version),
+		CipherSuite:        tls.CipherSuiteName(cipherSuite),
+		NegotiatedProtocol: negotiatedProtocol,
+		SubjectCN:          leaf.Subject.CommonName,
+		Issuer:             leaf.Issuer.CommonName,
+		DNSNames:           leaf.DNSNames,
+		NotBefore:          leaf.NotBefore,
+		NotAfter:           leaf.NotAfter,
+		SelfSigned:         bytes.Equal(leaf.RawIssuer, leaf.RawSubject),
+		SHA256Fingerprint:  hex.EncodeToString(fingerprint[:]),
+	}
 }
 
 // Close closes the response body.
@@ -1086,6 +1142,11 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 
 	timing.Total = float64(time.Since(startTime).Milliseconds())
 
+	var tlsInfo *TLSInfo
+	if req.IncludeTLSInfo && resp.TLS != nil {
+		tlsInfo = buildTLSInfo(resp.TLS.Version, resp.TLS.CipherSuite, resp.TLS.NegotiatedProtocol, resp.TLS.PeerCertificates)
+	}
+
 	response := &Response{
 		StatusCode:      resp.StatusCode,
 		Headers:         headers,
@@ -1095,6 +1156,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		Protocol:        usedProtocol,
 		Request:         req,
 		RedirectHistory: redirectHistory,
+		TLS:             tlsInfo,
 		bodyBytes:       respBody,
 		bodyRead:        true,
 	}
