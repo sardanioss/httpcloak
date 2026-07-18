@@ -1209,7 +1209,14 @@ func (c *Client) doHTTP2(ctx context.Context, host, port string, httpReq *http.R
 	}
 
 	firstByteTime := time.Now()
-	resp, err := conn.HTTP2Conn.RoundTrip(httpReq)
+	resp, err := conn.RoundTrip(httpReq)
+	if err == pool.ErrConnRetired {
+		conn, err = c.poolManager.GetConn(ctx, host, port)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to get replacement connection: %w", err)
+		}
+		resp, err = conn.RoundTrip(httpReq)
+	}
 	if err != nil {
 		return nil, "", fmt.Errorf("request failed: %w", err)
 	}

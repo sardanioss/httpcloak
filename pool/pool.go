@@ -13,6 +13,7 @@ import (
 
 	"io"
 
+	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/transport"
@@ -23,8 +24,9 @@ import (
 )
 
 var (
-	ErrPoolClosed    = errors.New("connection pool is closed")
-	ErrNoConnections = errors.New("no available connections")
+	ErrPoolClosed     = errors.New("connection pool is closed")
+	ErrNoConnections  = errors.New("no available connections")
+	ErrConnRetired    = errors.New("connection retired before request started")
 )
 
 // Conn represents a persistent connection
@@ -38,6 +40,8 @@ type Conn struct {
 	UseCount   int64
 	mu         sync.Mutex
 	closed     bool
+	retired    bool
+	inFlight   int
 }
 
 // IsHealthy checks if the connection is still usable
@@ -45,7 +49,7 @@ func (c *Conn) IsHealthy() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.closed {
+	if c.closed || c.retired {
 		return false
 	}
 
@@ -55,6 +59,92 @@ func (c *Conn) IsHealthy() bool {
 	}
 
 	return false
+}
+
+// RoundTrip executes a request and keeps the connection active until the
+// response body reaches EOF or is closed.
+func (c *Conn) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.mu.Lock()
+	if c.closed || c.retired || c.HTTP2Conn == nil {
+		c.mu.Unlock()
+		return nil, ErrConnRetired
+	}
+	c.inFlight++
+	h2Conn := c.HTTP2Conn
+	c.mu.Unlock()
+
+	resp, err := h2Conn.RoundTrip(req)
+	if err != nil {
+		c.release()
+		return nil, err
+	}
+	if resp.Body == nil {
+		c.release()
+		return resp, nil
+	}
+	resp.Body = &trackedBody{
+		ReadCloser: resp.Body,
+		release:    c.release,
+	}
+	return resp, nil
+}
+
+type trackedBody struct {
+	io.ReadCloser
+	release func()
+	once    sync.Once
+}
+
+func (b *trackedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil {
+		b.once.Do(b.release)
+	}
+	return n, err
+}
+
+func (b *trackedBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.once.Do(b.release)
+	return err
+}
+
+func (c *Conn) release() {
+	c.mu.Lock()
+	if c.inFlight > 0 {
+		c.inFlight--
+	}
+	closeNow := c.retired && c.inFlight == 0 && !c.closed
+	if closeNow {
+		c.closed = true
+	}
+	tlsConn := c.TLSConn
+	c.mu.Unlock()
+
+	if closeNow && tlsConn != nil {
+		go tlsConn.Close()
+	}
+}
+
+// Retire prevents new requests from using the connection and closes it after
+// all active response bodies have finished.
+func (c *Conn) Retire() {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.retired = true
+	closeNow := c.inFlight == 0
+	if closeNow {
+		c.closed = true
+	}
+	tlsConn := c.TLSConn
+	c.mu.Unlock()
+
+	if closeNow && tlsConn != nil {
+		go tlsConn.Close()
+	}
 }
 
 // Age returns how long the connection has been open
@@ -80,25 +170,17 @@ func (c *Conn) MarkUsed() {
 // Close closes the connection
 func (c *Conn) Close() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.closed {
+		c.mu.Unlock()
 		return nil
 	}
 	c.closed = true
+	c.retired = true
+	tlsConn := c.TLSConn
+	c.mu.Unlock()
 
-	var errs []error
-	if c.HTTP2Conn != nil {
-		// HTTP/2 connection close is handled by the underlying TLS conn
-	}
-	if c.TLSConn != nil {
-		if err := c.TLSConn.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if len(errs) > 0 {
-		return errs[0]
+	if tlsConn != nil {
+		return tlsConn.Close()
 	}
 	return nil
 }
@@ -250,7 +332,7 @@ func (p *HostPool) GetConn(ctx context.Context) (*Conn, error) {
 		if conn.IsHealthy() && conn.Age() < p.maxConnAge {
 			healthy = append(healthy, conn)
 		} else {
-			go conn.Close()
+			conn.Retire()
 		}
 	}
 	p.connections = healthy
@@ -941,7 +1023,7 @@ func (p *HostPool) CloseIdle() {
 	active := make([]*Conn, 0, len(p.connections))
 	for _, conn := range p.connections {
 		if conn.IdleTime() > p.maxIdleTime || conn.Age() > p.maxConnAge || !conn.IsHealthy() {
-			go conn.Close()
+			conn.Retire()
 		} else {
 			active = append(active, conn)
 		}
