@@ -172,14 +172,14 @@ func NewQUICHostPool(host, port string, preset *fingerprint.Preset, dnsCache *dn
 	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
 
 	if preset != nil && preset.QUICClientHelloID.Client != "" {
-		if spec, err := utls.UTLSIdToSpecWithSeed(preset.QUICClientHelloID, shuffleSeed); err == nil {
-			cachedSpec = &spec
+		if spec, err := quicClientHelloSpec(preset, preset.QUICClientHelloID, shuffleSeed); err == nil {
+			cachedSpec = spec
 		}
 	}
 	// Also generate PSK spec for session resumption
 	if preset != nil && preset.QUICPSKClientHelloID.Client != "" {
-		if spec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
-			cachedPSKSpec = &spec
+		if spec, err := quicClientHelloSpec(preset, preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
+			cachedPSKSpec = spec
 		}
 	}
 	return NewQUICHostPoolWithCachedSpec(host, "", port, preset, dnsCache, cachedSpec, cachedPSKSpec, shuffleSeed)
@@ -315,16 +315,16 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	// Use PSK spec ONLY when resuming a session (matches proxy path behavior)
 	if hasSession && p.cachedPSKSpec != nil && p.preset != nil && p.preset.QUICPSKClientHelloID.Client != "" {
 		// Generate fresh PSK spec for this connection
-		if spec, err := utls.UTLSIdToSpecWithSeed(p.preset.QUICPSKClientHelloID, p.shuffleSeed); err == nil {
-			selectedSpec = &spec
+		if spec, err := quicClientHelloSpec(p.preset, p.preset.QUICPSKClientHelloID, p.shuffleSeed); err == nil {
+			selectedSpec = spec
 		}
 		clientHelloID = &p.preset.QUICPSKClientHelloID
 	}
 	// Use regular spec for fresh connections
 	if selectedSpec == nil && p.cachedClientHelloSpec != nil && p.preset != nil && p.preset.QUICClientHelloID.Client != "" {
 		// Generate fresh regular spec
-		if spec, err := utls.UTLSIdToSpecWithSeed(p.preset.QUICClientHelloID, p.shuffleSeed); err == nil {
-			selectedSpec = &spec
+		if spec, err := quicClientHelloSpec(p.preset, p.preset.QUICClientHelloID, p.shuffleSeed); err == nil {
+			selectedSpec = spec
 		}
 		clientHelloID = &p.preset.QUICClientHelloID
 	}
@@ -615,15 +615,15 @@ func NewQUICManager(preset *fingerprint.Preset, dnsCache *dns.Cache) *QUICManage
 	// Generate and cache ClientHelloSpec with shuffled extensions
 	// Chrome shuffles extensions once per session, not per connection
 	if preset != nil && preset.QUICClientHelloID.Client != "" {
-		if spec, err := utls.UTLSIdToSpecWithSeed(preset.QUICClientHelloID, shuffleSeed); err == nil {
-			m.cachedSpec = &spec
+		if spec, err := quicClientHelloSpec(preset, preset.QUICClientHelloID, shuffleSeed); err == nil {
+			m.cachedSpec = spec
 		}
 	}
 
 	// Also cache PSK variant if available
 	if preset != nil && preset.QUICPSKClientHelloID.Client != "" {
-		if spec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
-			m.cachedPSKSpec = &spec
+		if spec, err := quicClientHelloSpec(preset, preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
+			m.cachedPSKSpec = spec
 		}
 	}
 
@@ -872,4 +872,3 @@ func resolveTransportParamOrder(order string) quic.TransportParameterOrderMode {
 		return quic.TransportParameterOrderChrome
 	}
 }
-
