@@ -2198,6 +2198,36 @@ func isClientHintHeader(key string) bool {
 	return len(key) >= 7 && strings.EqualFold(key[:7], "sec-ch-")
 }
 
+// presetSendsSecFetch reports whether a preset describes a client that sends
+// Sec-Fetch-* metadata at all, by looking for those headers in the HPACK
+// position table it declares.
+//
+// The XHR coercion below rewrites Sec-Fetch-* and Accept to keep a *browser*
+// coherent on API calls. A preset for a non-browser client - okhttp, curl, a
+// native mobile SDK - has no navigation headers to correct, so running that
+// coercion on one does not fix an incoherence, it invents four headers the
+// client never sends. Presets like that are exactly what issue #76 asks for,
+// and a custom preset built through describe -> mutate -> load can already
+// produce one today.
+//
+// The position table is the right signal because it is the only one every
+// browser preset agrees on: all 79 built-ins list the Sec-Fetch-* family there,
+// none of them carries sec-fetch-mode in the emit set, and H2HeaderOrder()
+// falls back to Chrome's table when a preset declares no H2 config. So every
+// preset that behaves like a browser today keeps behaving identically, and only
+// one that deliberately declares a table without Sec-Fetch-* opts out.
+//
+// A plain prefix match is enough: HTTP/2 field names are lowercase by
+// definition (RFC 9113 8.2.1), and every built-in table follows that.
+func presetSendsSecFetch(preset *fingerprint.Preset) bool {
+	for _, key := range preset.H2HeaderOrder() {
+		if strings.HasPrefix(key, "sec-fetch-") {
+			return true
+		}
+	}
+	return false
+}
+
 func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool) {
 	// In TLS-only mode, skip applying preset headers but still set header order
 	if !tlsOnly {
@@ -2226,7 +2256,11 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 		// request is from method, Content-Type, Accept, and any user-supplied
 		// Sec-Fetch-* headers. WAFs like Akamai flag navigation headers on
 		// API endpoints as bot behavior.
-		if sniffXHRMode(httpReq.Method, userHeaders) {
+		//
+		// Skipped for presets that describe a client sending no Sec-Fetch-* at
+		// all; see presetSendsSecFetch for why inferring that from the preset
+		// leaves every browser preset untouched.
+		if presetSendsSecFetch(preset) && sniffXHRMode(httpReq.Method, userHeaders) {
 			// Preserve any explicitly user-supplied Sec-Fetch-Mode/Dest/Site;
 			// the sniff coercion is for "user said nothing, infer XHR" — once
 			// they pin a value (e.g. mode=no-cors, dest=image, site=same-origin)
