@@ -11,6 +11,7 @@ import (
 	http "github.com/sardanioss/http"
 	"net/textproto"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1149,12 +1150,23 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 		}
 	}
 
-	// Write remaining headers (not in specified order)
-	for key, values := range req.Header {
-		// Key from map iteration is already canonical
-		if written[key] {
-			continue
+	// Write remaining headers (not in specified order). Sorted rather than
+	// ranged over directly: Go randomises map iteration per range, so an
+	// unsorted remainder puts a different header order on the wire for every
+	// request, which is itself a fingerprint. applyPresetHeaders normally names
+	// every header up front and leaves this loop empty; the sort is what keeps
+	// the fallback stable when it does not.
+	remaining := make([]string, 0, len(req.Header))
+	for key := range req.Header {
+		if !written[key] {
+			remaining = append(remaining, key)
 		}
+	}
+	sort.Strings(remaining)
+
+	for _, key := range remaining {
+		// Key from map iteration is already canonical
+		values := req.Header[key]
 		// Skip Host (already written) and certain headers
 		if strings.EqualFold(key, "Host") {
 			continue
