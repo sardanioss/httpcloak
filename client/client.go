@@ -1499,11 +1499,14 @@ func applyTLSOnlyHeaders(httpReq *http.Request, preset *fingerprint.Preset, req 
 	// Use H2HeaderOrder (full HPACK position table) so user-supplied headers
 	// outside the default emit set (cache-control, content-type, cookie, …)
 	// land in their real-Chrome position instead of being appended at the end.
-	if len(customHeaderOrder) > 0 {
-		httpReq.Header[http.HeaderOrderKey] = customHeaderOrder
-	} else {
-		httpReq.Header[http.HeaderOrderKey] = preset.H2HeaderOrder()
+	// CompleteHeaderOrder names whatever is still left over so it can't fall
+	// through to the encoders' randomised map iteration. User headers are
+	// already merged into httpReq.Header above, hence the nil.
+	explicitOrder := customHeaderOrder
+	if len(explicitOrder) == 0 {
+		explicitOrder = preset.H2HeaderOrder()
 	}
+	httpReq.Header[http.HeaderOrderKey] = transport.CompleteHeaderOrder(explicitOrder, preset.H2HeaderOrder(), httpReq.Header, nil)
 
 	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)
 	if order := preset.H2PseudoHeaderOrder(); order != nil {
@@ -1577,12 +1580,13 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 	// Set header order for HTTP/2 and HTTP/3 fingerprinting
 	// Use H2HeaderOrder (full HPACK position table) — see the matching
 	// comment in transport.applyPresetHeaders for the rationale. Caller
-	// override still wins.
-	if len(customHeaderOrder) > 0 {
-		httpReq.Header[http.HeaderOrderKey] = customHeaderOrder
-	} else {
-		httpReq.Header[http.HeaderOrderKey] = preset.H2HeaderOrder()
+	// override still wins, completed with the preset table and then whatever
+	// is left, so nothing reaches the encoders' randomised map iteration.
+	explicitOrder := customHeaderOrder
+	if len(explicitOrder) == 0 {
+		explicitOrder = preset.H2HeaderOrder()
 	}
+	httpReq.Header[http.HeaderOrderKey] = transport.CompleteHeaderOrder(explicitOrder, preset.H2HeaderOrder(), httpReq.Header, nil)
 
 	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)
 	if order := preset.H2PseudoHeaderOrder(); order != nil {
