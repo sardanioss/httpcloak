@@ -1502,11 +1502,7 @@ func applyTLSOnlyHeaders(httpReq *http.Request, preset *fingerprint.Preset, req 
 	// CompleteHeaderOrder names whatever is still left over so it can't fall
 	// through to the encoders' randomised map iteration. User headers are
 	// already merged into httpReq.Header above, hence the nil.
-	explicitOrder := customHeaderOrder
-	if len(explicitOrder) == 0 {
-		explicitOrder = preset.H2HeaderOrder()
-	}
-	httpReq.Header[http.HeaderOrderKey] = transport.CompleteHeaderOrder(explicitOrder, preset.H2HeaderOrder(), httpReq.Header, nil)
+	httpReq.Header[http.HeaderOrderKey] = transport.CompleteHeaderOrder(customHeaderOrder, preset.H2HeaderOrder(), httpReq.Header, nil)
 
 	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)
 	if order := preset.H2PseudoHeaderOrder(); order != nil {
@@ -1582,11 +1578,7 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 	// comment in transport.applyPresetHeaders for the rationale. Caller
 	// override still wins, completed with the preset table and then whatever
 	// is left, so nothing reaches the encoders' randomised map iteration.
-	explicitOrder := customHeaderOrder
-	if len(explicitOrder) == 0 {
-		explicitOrder = preset.H2HeaderOrder()
-	}
-	httpReq.Header[http.HeaderOrderKey] = transport.CompleteHeaderOrder(explicitOrder, preset.H2HeaderOrder(), httpReq.Header, nil)
+	httpReq.Header[http.HeaderOrderKey] = transport.CompleteHeaderOrder(customHeaderOrder, preset.H2HeaderOrder(), httpReq.Header, nil)
 
 	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)
 	if order := preset.H2PseudoHeaderOrder(); order != nil {

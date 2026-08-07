@@ -860,6 +860,9 @@ func (t *Transport) SetECHConfigDomain(domain string) {
 // SetHeaderOrder sets a custom header order for all requests.
 // Pass nil or empty slice to reset to preset's default order.
 // Order should contain lowercase header names.
+//
+// The list is a prefix, not a replacement — see CompleteHeaderOrder, which does
+// the assembly.
 func (t *Transport) SetHeaderOrder(order []string) {
 	t.customHeaderOrderMu.Lock()
 	defer t.customHeaderOrderMu.Unlock()
@@ -2203,11 +2206,13 @@ func isClientHintHeader(key string) bool {
 // request carries, so none is left to an encoder's map-iteration fallback.
 //
 // The list is assembled in three passes: explicitOrder (a caller's
-// SetHeaderOrder, or presetOrder when there is none); then presetOrder, so a
-// partial custom list does not cost the caller the preset's ordering for the
-// headers they did not name; then everything still unplaced, sorted by name.
-// Names are lowercased and de-duplicated. userHeaders may be nil when the
-// caller has already merged them into header.
+// SetHeaderOrder, empty when there is none); then presetOrder, so a partial
+// custom list does not cost the caller the preset's ordering for the headers
+// they did not name; then everything still unplaced, sorted by name. An empty
+// explicitOrder needs no special case — pass one falls through and pass two
+// lays down the preset table on its own. Names are lowercased and
+// de-duplicated. userHeaders may be nil when the caller has already merged
+// them into header.
 //
 // Both remainders were previously emitted in Go map order, which is randomised
 // on every range. A header order that differs per request is itself a
@@ -2384,11 +2389,7 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 	// fingerprinting bug — when callers added cache-control/content-type/
 	// cookie, the fork couldn't slot them and appended them after `priority`
 	// instead of placing them where real Chrome does.
-	explicitOrder := customHeaderOrder
-	if len(explicitOrder) == 0 {
-		explicitOrder = preset.H2HeaderOrder()
-	}
-	httpReq.Header[http.HeaderOrderKey] = CompleteHeaderOrder(explicitOrder, preset.H2HeaderOrder(), httpReq.Header, userHeaders)
+	httpReq.Header[http.HeaderOrderKey] = CompleteHeaderOrder(customHeaderOrder, preset.H2HeaderOrder(), httpReq.Header, userHeaders)
 
 	// Set pseudo-header order: custom (Akamai) > preset H2Config > heuristic
 	if len(customPseudoOrder) > 0 {

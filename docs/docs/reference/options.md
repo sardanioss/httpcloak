@@ -147,7 +147,7 @@ Methods on `*Session` itself, called after `NewSession` returns. These aren't `S
 | `GetProxy() string` | Current unified or TCP proxy URL. |
 | `GetTCPProxy() string` | Current TCP proxy URL. |
 | `GetUDPProxy() string` | Current UDP proxy URL. |
-| `SetHeaderOrder(order []string)` | Override the preset's header order. Lowercase names. `nil` resets to preset default. |
+| `SetHeaderOrder(order []string)` | Override the preset's header order. Lowercase names. Treated as a prefix: named headers lead, the preset's table covers the rest, anything left over is sorted. `nil` resets to preset default. |
 | `GetHeaderOrder() []string` | Current header order, or preset default if no override. |
 | `SetSessionIdentifier(id string)` | TLS-cache key namespace. Used when a session is registered with `LocalProxy` so distributed caches isolate per-session tickets. |
 | `Warmup(ctx, url) error` | Simulates a real browser page load: fetches HTML + CSS/JS/image subresources with realistic headers, priorities, and timing. Warms TLS, cookies, ticket cache. |

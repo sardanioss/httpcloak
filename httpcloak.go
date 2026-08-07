@@ -1033,6 +1033,11 @@ func (s *Session) GetUDPProxy() string {
 // SetHeaderOrder sets a custom header order for all requests.
 // Pass nil or empty slice to reset to preset's default order.
 // Order should contain lowercase header names.
+//
+// The list is a prefix, not a replacement: the headers named here lead in the
+// order given, the preset's own table then covers whatever they did not name,
+// and anything still unplaced follows sorted by name. A partial list therefore
+// costs nothing for the headers it leaves out.
 func (s *Session) SetHeaderOrder(order []string) {
 	s.inner.SetHeaderOrder(order)
 }

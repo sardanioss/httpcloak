@@ -205,7 +205,7 @@ The reserved-slot bit is what matters. The preset's full HPACK position table, s
 
 - **Casing.** HTTP/2 and HTTP/3 are lowercase on the wire, and the preset stores everything lowercase. Pass `User-Agent: foo` and the lib normalizes it to `user-agent: foo` for H2/H3. On HTTP/1.1, casing is preserved per the request map.
 - **Removing a preset header.** Set it to `""` in your headers map and the lib won't emit it. Useful for dropping `Accept-Encoding` or similar defaults.
-- **Custom headers vs each other.** Five custom headers the preset doesn't reserve slots for all pile up at the end in the order you added them.
+- **Custom headers vs each other.** Custom headers the preset reserves no slot for are emitted after the preset's own headers, sorted by name. Sorting is deliberate rather than a fallback: the request header map has no insertion order to preserve in the first place, and ranging over it directly — which is what the library used to do — put a different order on the wire for every request, which is its own fingerprint. Sorted is also what a browser sends for `fetch()`, since the Fetch standard sorts field names before they ever reach the network stack.
 - **Cookie.** Don't set `Cookie` directly unless you've thought it through. The session jar handles it. See [Per-Request Cookies](../cookies-and-state/per-request-cookies) for the override path.
 
 ## Inspecting what went out
@@ -217,6 +217,8 @@ httpbin.org/headers is fine for "did my custom header show up?" checks, but it r
 ## Header order overrides
 
 `SetHeaderOrder(order []string)` mutates the session's emit sequence at runtime. The next request through the session uses the new order on the wire. `GetHeaderOrder()` returns whatever's currently active, custom or preset-default. Pass `nil` or an empty slice to `SetHeaderOrder` and the session falls back to the preset's baked-in order, which is what you want most of the time.
+
+The list you pass is a prefix, not a whole-cloth replacement. The headers you name lead, in the order you named them; the preset's own table then covers every header you left out; anything still unplaced follows, sorted by name. So a short list is a safe way to pin the first few positions without giving up the preset's ordering for everything else. Pass a complete list and the two later passes have nothing left to do, which is the old behaviour exactly.
 
 This is the nuclear option. The preset's order is copied from a real browser capture, and any deviation from it is new fingerprint signal that the target can hash. Use this method only when you've confirmed (with peet output, with a captured PCAP, with vendor docs) that the target runs a header-order check no shipped preset matches. That situation is rare. For nearly every site, `chrome-latest` or `firefox-148` or `safari-18` already lines up.
 
@@ -242,7 +244,7 @@ Two situations come up in practice. First is rotating between known-good orders 
 
 Heads up on persistence: the custom order is held in memory on the transport. `Save` / `LoadSession` round-trip the preset, cookies, TLS tickets, and ECH configs, but they don't currently serialize a custom header order. If you set a custom order, save the session, then load it, the session comes back on the preset's default. Re-apply your `SetHeaderOrder` call after `LoadSession` if you need the override to stick.
 
-Custom orders don't disable the preset's HPACK position table for situational headers. The preset reserves slots for headers Chrome only emits some of the time (`cache-control`, `content-type`, `content-length`, `cookie`, `origin`, `referer`), and those slots stay live on top of whatever base order you set. So a custom order of `[user-agent, accept, x-my-header]` plus a POST with `Content-Type: application/json` and a `Cookie` from the jar still places `content-type` and `cookie` at the offsets the preset reserves for them. The custom order replaces the default base sequence, not the slot machinery underneath.
+Custom orders don't disable the preset's HPACK position table for situational headers. The preset reserves slots for headers Chrome only emits some of the time (`cache-control`, `content-type`, `content-length`, `cookie`, `origin`, `referer`), and those slots stay live on top of whatever base order you set. So a custom order of `[user-agent, accept, x-my-header]` plus a POST with `Content-Type: application/json` and a `Cookie` from the jar still places `content-type` and `cookie` at the offsets the preset reserves for them, behind the three headers you named. Your list sets the leading sequence; the slot machinery underneath keeps running for everything else.
 
 <Tabs groupId="lang">
 <TabItem value="go" label="Go">

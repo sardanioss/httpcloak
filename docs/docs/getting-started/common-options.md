@@ -215,7 +215,7 @@ var r = session.Get("https://httpbin.org/headers", headers: new() {
 </TabItem>
 </Tabs>
 
-To override the preset's header order entirely, use `SetHeaderOrder` on the session. See [Reference: Options](/reference/options) for that one.
+To lead the preset's header order with headers of your own, use `SetHeaderOrder` on the session. See [Reference: Options](/reference/options) for that one.
 
 ## Cookies
 

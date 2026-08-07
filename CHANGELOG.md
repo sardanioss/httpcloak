@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Headers the preset reserves no slot for now keep a stable order instead of a random one**: any header outside the impersonated browser's ordering table — custom `X-` headers, API tokens, signature headers — fell through to Go's map iteration in both the HTTP/1.1 writer and the HTTP/2 header encoder, and that iteration is deliberately randomised. The same four custom headers produced eight distinct arrangements across eight requests on HTTP/1.1, and seven across eight on HTTP/2. A header order that changes on every request is itself a strong signal, because no browser produces one, and it landed on exactly the requests most likely to be carrying something worth checking. Every header is now named up front, so nothing reaches the randomised fallback, and HTTP/1.1, HTTP/2 and HTTP/3 all agree on the result.
+
+### Changed
+
+- **A partial `SetHeaderOrder` now extends the preset's order rather than replacing it**: the list you passed used to replace the preset's ordering table wholesale, which meant every preset header you did not name joined the randomised remainder described above — so reaching for the documented ordering control made your fingerprint worse than leaving it alone. Your list is now a prefix override: the headers you name come first in the order you gave them, then the preset's own table covers everything you did not name, then anything still unplaced follows sorted by name. Passing a complete order list behaves exactly as before, and passing `nil` or an empty list still resets to the preset default.
+
 ## [1.6.8] - 2026-07-13
 
 ### Added

@@ -1,6 +1,8 @@
 package transport
 
 import (
+	"bufio"
+	"bytes"
 	"strings"
 	"testing"
 
@@ -126,4 +128,87 @@ func assertOrder(t *testing.T, got, want []string) {
 		t.Errorf("header order mismatch\n got: %s\nwant: %s",
 			strings.Join(got, " → "), strings.Join(want, " → "))
 	}
+}
+
+// writeH1Order runs the HTTP/1.1 header writer over req and returns the header
+// names in the order they hit the wire, lowercased. The writer does not touch
+// its receiver, so a zero-value transport is enough and the test stays off the
+// network.
+func writeH1Order(t *testing.T, req *http.Request) []string {
+	t.Helper()
+	var buf bytes.Buffer
+	bw := bufio.NewWriter(&buf)
+	(&HTTP1Transport{}).writeHeadersInOrder(bw, req, false)
+	if err := bw.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	var names []string
+	for _, line := range strings.Split(buf.String(), "\r\n") {
+		if line == "" {
+			continue
+		}
+		name, _, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		names = append(names, strings.ToLower(strings.TrimSpace(name)))
+	}
+	return names
+}
+
+// The HTTP/1.1 writer's remainder loop is the fallback for any request that
+// reaches it without a complete order list. It used to range over req.Header
+// directly, and Go randomises map iteration on every range, so it put a
+// different header order on the wire for each request. applyPresetHeaders now
+// names every header up front and normally leaves this loop empty — this pins
+// the fallback, so dropping the sort in writeHeadersInOrder cannot quietly
+// restore the per-request randomisation.
+func TestWriteHeadersInOrder_RemainderIsSortedNotRandom(t *testing.T) {
+	newReq := func() *http.Request {
+		return &http.Request{
+			Method: "GET",
+			Header: http.Header{
+				"X-Delta":   {"4"},
+				"X-Bravo":   {"2"},
+				"X-Alpha":   {"1"},
+				"X-Charlie": {"3"},
+				"X-Echo":    {"5"},
+				"X-Foxtrot": {"6"},
+			},
+		}
+	}
+
+	want := []string{"x-alpha", "x-bravo", "x-charlie", "x-delta", "x-echo", "x-foxtrot"}
+	first := writeH1Order(t, newReq())
+	assertOrder(t, first, want)
+
+	// Randomised map iteration only shows up across repeated ranges.
+	for i := 0; i < 200; i++ {
+		got := writeH1Order(t, newReq())
+		if strings.Join(got, ",") != strings.Join(first, ",") {
+			t.Fatalf("h1 wire order varied between requests:\n first: %s\n run %d: %s",
+				strings.Join(first, " → "), i, strings.Join(got, " → "))
+		}
+	}
+}
+
+// The two halves of the fix have to compose: CompleteHeaderOrder names every
+// header, so by the time the writer runs its remainder loop there is nothing
+// left for it to iterate over, and the wire order is exactly the order list
+// (minus the names the request does not actually carry).
+func TestWriteHeadersInOrder_CompleteOrderLeavesNoRemainder(t *testing.T) {
+	presetOrder := []string{"user-agent", "accept", "accept-encoding"}
+	header := http.Header{
+		"User-Agent": {"chrome"},
+		"Accept":     {"*/*"},
+		"X-Delta":    {"4"},
+		"X-Alpha":    {"1"},
+	}
+	header[http.HeaderOrderKey] = CompleteHeaderOrder(nil, presetOrder, header, nil)
+
+	// accept-encoding is reserved by the preset but absent from the request, so
+	// it is named in the order list and skipped on the wire.
+	assertOrder(t, writeH1Order(t, &http.Request{Method: "GET", Header: header}),
+		[]string{"user-agent", "accept", "x-alpha", "x-delta"})
 }
