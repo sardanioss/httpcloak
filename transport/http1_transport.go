@@ -70,20 +70,27 @@ type http1Conn struct {
 	poisoned atomic.Bool
 }
 
-// poison unblocks whatever this connection is currently blocked on and marks it
-// unfit for reuse.
+// poison unblocks whatever this connection is currently blocked on and retires
+// it: the socket is dropped, not merely flagged.
 //
-// It deliberately touches only the socket deadline and an atomic flag. doRequest
-// holds c.mu for the full duration of an exchange and close() also takes c.mu,
-// so a watchdog that tried to close the connection would deadlock against the
-// very exchange it is trying to interrupt. Setting a deadline in the past makes
-// any in-flight Read or Write return immediately, and net.Conn deadlines are
-// safe to set from another goroutine.
+// It deliberately goes straight at the socket instead of calling close().
+// doRequest holds c.mu for the full duration of an exchange and close() also
+// takes c.mu, so a watchdog routed through close() would wait on the very read
+// it is trying to interrupt. c.mu guards the bookkeeping, though, not the
+// socket: SetDeadline and Close both need no lock, are safe from another
+// goroutine, and either one unblocks an in-flight Read or Write. Closing as
+// well as moving the deadline means no ordering accident can hand a live but
+// poisoned connection to the next request.
+//
+// c.closed stays false so a later close() still runs its bookkeeping; the
+// second Close on the socket is a no-op error we do not care about.
 func (c *http1Conn) poison() {
 	c.poisoned.Store(true)
-	if c.conn != nil {
-		c.conn.SetDeadline(time.Now())
+	if c.conn == nil {
+		return
 	}
+	c.conn.SetDeadline(time.Now())
+	c.conn.Close()
 }
 
 // contextError reports why the request context ended, or nil if it has not.
@@ -104,6 +111,26 @@ func contextError(ctx context.Context) error {
 	return nil
 }
 
+// translateBodyError reports a body read that ended because the caller gave up
+// as the caller's own cancellation. Without it they get the raw socket error the
+// poisoned deadline produced ("i/o timeout"), indistinguishable from a genuine
+// network fault, and a retry loop happily re-issues a request the caller
+// deliberately abandoned. RoundTrip covers the header wait this way already;
+// the body read is the longer and more commonly cancelled half.
+//
+// It does not gate on conn.poisoned: when the context carried a deadline,
+// doRequest armed the socket with that same deadline, so the read fails on its
+// own a hair before the watchdog gets there and poisoned is still false.
+func translateBodyError(ctx context.Context, err error) error {
+	if ctx == nil {
+		return err
+	}
+	if ctxErr := contextError(ctx); ctxErr != nil {
+		return ctxErr
+	}
+	return err
+}
+
 // watchContext makes a cancelled context interrupt an in-flight HTTP/1.1
 // exchange, and returns a function that stops watching.
 //
@@ -119,16 +146,18 @@ func watchContext(ctx context.Context, conn *http1Conn) func() {
 		return func() {}
 	}
 	stop := make(chan struct{})
-	var finished atomic.Bool
+	exited := make(chan struct{})
 	go func() {
+		defer close(exited)
 		select {
 		case <-done:
 			// Both channels can be closed by the time this goroutine runs: the
 			// exchange finishes, then doHTTP1's deferred cancel fires micro-
 			// seconds later. A select with two ready cases picks at random, so
-			// without this guard the watchdog could poison a healthy connection
-			// just as it returned to the pool, silently killing keep-alive.
-			if !finished.Load() {
+			// re-check before poisoning a connection that already completed.
+			select {
+			case <-stop:
+			default:
 				conn.poison()
 			}
 		case <-stop:
@@ -137,8 +166,12 @@ func watchContext(ctx context.Context, conn *http1Conn) func() {
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			finished.Store(true)
 			close(stop)
+			// Wait for the watchdog to settle. Callers read conn.poisoned right
+			// after this returns to decide whether to pool the connection; the
+			// value has to be final by then, or a poisoned connection races
+			// into the pool.
+			<-exited
 		})
 	}
 }
@@ -270,6 +303,7 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 				transport: t,
 				keepAlive: t.shouldKeepAlive(req, resp),
 				stopWatch: stopWatch,
+				ctx:       req.Context(),
 			}
 			return resp, nil
 		}
@@ -308,6 +342,7 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		transport: t,
 		keepAlive: t.shouldKeepAlive(req, resp),
 		stopWatch: stopWatch,
+		ctx:       req.Context(),
 	}
 
 	return resp, nil
@@ -360,6 +395,7 @@ func (t *HTTP1Transport) RoundTripWithTLSConn(req *http.Request, tlsConn *utls.U
 		body:      resp.Body,
 		conn:      conn,
 		stopWatch: stopWatch,
+		ctx:       req.Context(),
 	}
 
 	return resp, nil
@@ -377,12 +413,17 @@ type pooledBodyWrapper struct {
 	// stopWatch ends the request's context watchdog. It stays armed until the
 	// body is done, so a cancellation during the body read unblocks too.
 	stopWatch func()
+	ctx       context.Context
 }
 
 func (w *pooledBodyWrapper) Read(p []byte) (n int, err error) {
 	n, err = w.body.Read(p)
 	if err == io.EOF {
 		w.handleClose()
+		return n, err
+	}
+	if err != nil {
+		err = translateBodyError(w.ctx, err)
 	}
 	return n, err
 }
@@ -434,10 +475,15 @@ type streamBodyWrapper struct {
 	body      io.ReadCloser
 	conn      *http1Conn
 	stopWatch func()
+	ctx       context.Context
 }
 
 func (w *streamBodyWrapper) Read(p []byte) (n int, err error) {
-	return w.body.Read(p)
+	n, err = w.body.Read(p)
+	if err != nil && err != io.EOF {
+		err = translateBodyError(w.ctx, err)
+	}
+	return n, err
 }
 
 func (w *streamBodyWrapper) Close() error {
@@ -499,6 +545,7 @@ func (t *HTTP1Transport) StreamRoundTrip(req *http.Request) (*http.Response, err
 		body:      resp.Body,
 		conn:      conn,
 		stopWatch: stopWatch,
+		ctx:       req.Context(),
 	}
 
 	return resp, nil
