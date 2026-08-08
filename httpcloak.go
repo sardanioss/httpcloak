@@ -25,6 +25,7 @@ package httpcloak
 import (
 	"bytes"
 	"context"
+	stdtls "crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
@@ -374,36 +375,38 @@ type Session struct {
 type SessionOption func(*sessionConfig)
 
 type sessionConfig struct {
-	preset             string
-	proxy              string
-	tcpProxy           string // Proxy for TCP-based protocols (HTTP/1.1, HTTP/2)
-	udpProxy           string // Proxy for UDP-based protocols (HTTP/3 via MASQUE)
-	timeout            time.Duration
-	forceHTTP1         bool
-	forceHTTP2         bool
-	forceHTTP3         bool
-	disableHTTP3       bool
-	insecureSkipVerify bool
-	disableRedirects   bool
-	maxRedirects       int
-	retryCount         int
-	retryWaitMin       time.Duration
-	retryWaitMax       time.Duration
-	retryOnStatus      []int
-	preferIPv4         bool
-	connectTo          map[string]string // Domain fronting: request_host -> connect_host
-	echConfigDomain    string            // Domain to fetch ECH config from
-	tlsOnly            bool              // TLS-only mode: skip preset headers, set all manually
-	quicIdleTimeout    time.Duration     // QUIC idle timeout (default: 30s)
-	localAddr          string            // Local IP address to bind outgoing connections
-	keyLogFile         string            // Path to write TLS key log for Wireshark decryption
-	disableECH            bool   // Disable ECH lookup for faster first request
-	enableSpeculativeTLS bool   // Enable speculative TLS optimization for proxy connections
-	switchProtocol        string // Protocol to switch to after Refresh() (e.g. "h1", "h2", "h3")
-	withoutCookieJar      bool   // Disable internal cookie jar entirely (caller manages cookies via headers)
-	withoutConditionalCache bool // Disable ETag / If-Modified-Since handling entirely
-	withoutClientHints    bool   // Disable all UA client hints (trio + high-entropy)
-	withoutHighEntropyClientHints bool // Disable only the high-entropy UA client hints
+	preset                        string
+	proxy                         string
+	tcpProxy                      string // Proxy for TCP-based protocols (HTTP/1.1, HTTP/2)
+	udpProxy                      string // Proxy for UDP-based protocols (HTTP/3 via MASQUE)
+	timeout                       time.Duration
+	forceHTTP1                    bool
+	forceHTTP2                    bool
+	forceHTTP3                    bool
+	disableHTTP3                  bool
+	insecureSkipVerify            bool
+	tlsVerifyPeerCertificate      func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	tlsVerifyConnection           func(cs stdtls.ConnectionState) error
+	disableRedirects              bool
+	maxRedirects                  int
+	retryCount                    int
+	retryWaitMin                  time.Duration
+	retryWaitMax                  time.Duration
+	retryOnStatus                 []int
+	preferIPv4                    bool
+	connectTo                     map[string]string // Domain fronting: request_host -> connect_host
+	echConfigDomain               string            // Domain to fetch ECH config from
+	tlsOnly                       bool              // TLS-only mode: skip preset headers, set all manually
+	quicIdleTimeout               time.Duration     // QUIC idle timeout (default: 30s)
+	localAddr                     string            // Local IP address to bind outgoing connections
+	keyLogFile                    string            // Path to write TLS key log for Wireshark decryption
+	disableECH                    bool              // Disable ECH lookup for faster first request
+	enableSpeculativeTLS          bool              // Enable speculative TLS optimization for proxy connections
+	switchProtocol                string            // Protocol to switch to after Refresh() (e.g. "h1", "h2", "h3")
+	withoutCookieJar              bool              // Disable internal cookie jar entirely (caller manages cookies via headers)
+	withoutConditionalCache       bool              // Disable ETag / If-Modified-Since handling entirely
+	withoutClientHints            bool              // Disable all UA client hints (trio + high-entropy)
+	withoutHighEntropyClientHints bool              // Disable only the high-entropy UA client hints
 
 	// Distributed session cache
 	sessionCacheBackend       transport.SessionCacheBackend
@@ -483,6 +486,64 @@ func WithDisableHTTP3() SessionOption {
 func WithInsecureSkipVerify() SessionOption {
 	return func(c *sessionConfig) {
 		c.insecureSkipVerify = true
+	}
+}
+
+// WithVerifyPeerCertificate installs a certificate verification callback,
+// mirroring crypto/tls.Config.VerifyPeerCertificate.
+//
+// It runs after the normal certificate checks, with the raw certificates and
+// any chains the default verifier built; returning an error aborts the
+// handshake. This is the hook for certificate pinning. Pair it with
+// WithInsecureSkipVerify to replace the default verification rather than add
+// to it.
+func WithVerifyPeerCertificate(fn func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error) SessionOption {
+	return func(c *sessionConfig) {
+		c.tlsVerifyPeerCertificate = fn
+	}
+}
+
+// WithVerifyConnection installs a connection verification callback, mirroring
+// crypto/tls.Config.VerifyConnection. It runs after WithVerifyPeerCertificate,
+// on every handshake including resumptions.
+//
+// The state is the standard library type, translated from the underlying uTLS
+// connection state. Everything a verification callback normally reads is
+// populated; ExportKeyingMaterial on it is not usable, because that plumbing
+// cannot be reconstructed from outside crypto/tls.
+func WithVerifyConnection(fn func(cs stdtls.ConnectionState) error) SessionOption {
+	return func(c *sessionConfig) {
+		c.tlsVerifyConnection = fn
+	}
+}
+
+// WithTLSConfig takes the verification settings from a standard *tls.Config.
+//
+// Reaching for a tls.Config is the reflex, so this accepts one, but be clear on
+// what it reads. Honoured: VerifyPeerCertificate, VerifyConnection and
+// InsecureSkipVerify. Ignored: everything that shapes the ClientHello, which is
+// CipherSuites, MinVersion, MaxVersion, CurvePreferences, NextProtos,
+// ServerName and the rest. Those come from the browser preset. Letting a caller
+// override them would quietly destroy the fingerprint the library exists to
+// reproduce, and the damage would only be visible to whoever is fingerprinting
+// at the other end.
+//
+// Prefer WithVerifyPeerCertificate and WithVerifyConnection, which make the
+// supported surface obvious. A nil config is ignored.
+func WithTLSConfig(cfg *stdtls.Config) SessionOption {
+	return func(c *sessionConfig) {
+		if cfg == nil {
+			return
+		}
+		if cfg.VerifyPeerCertificate != nil {
+			c.tlsVerifyPeerCertificate = cfg.VerifyPeerCertificate
+		}
+		if cfg.VerifyConnection != nil {
+			c.tlsVerifyConnection = cfg.VerifyConnection
+		}
+		if cfg.InsecureSkipVerify {
+			c.insecureSkipVerify = true
+		}
 	}
 }
 
@@ -792,26 +853,28 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 	}
 
 	sessionCfg := &protocol.SessionConfig{
-		Preset:             cfg.preset,
-		Proxy:              cfg.proxy,
-		TCPProxy:           cfg.tcpProxy,
-		UDPProxy:           cfg.udpProxy,
-		Timeout:            int(cfg.timeout.Seconds()),
-		InsecureSkipVerify: cfg.insecureSkipVerify,
-		FollowRedirects:    !cfg.disableRedirects,
-		MaxRedirects:       cfg.maxRedirects,
-		PreferIPv4:         cfg.preferIPv4,
-		ConnectTo:          cfg.connectTo,
-		ECHConfigDomain:    cfg.echConfigDomain,
-		TLSOnly:            cfg.tlsOnly,
-		QuicIdleTimeout:    int(cfg.quicIdleTimeout.Seconds()),
-		LocalAddress:       cfg.localAddr,
-		KeyLogFile:         cfg.keyLogFile,
-		DisableECH:            cfg.disableECH,
-		EnableSpeculativeTLS: cfg.enableSpeculativeTLS,
-		SwitchProtocol:          cfg.switchProtocol,
-		WithoutCookieJar:        cfg.withoutCookieJar,
-		WithoutConditionalCache: cfg.withoutConditionalCache,
+		Preset:                        cfg.preset,
+		Proxy:                         cfg.proxy,
+		TCPProxy:                      cfg.tcpProxy,
+		UDPProxy:                      cfg.udpProxy,
+		Timeout:                       int(cfg.timeout.Seconds()),
+		InsecureSkipVerify:            cfg.insecureSkipVerify,
+		TLSVerifyPeerCertificate:      cfg.tlsVerifyPeerCertificate,
+		TLSVerifyConnection:           cfg.tlsVerifyConnection,
+		FollowRedirects:               !cfg.disableRedirects,
+		MaxRedirects:                  cfg.maxRedirects,
+		PreferIPv4:                    cfg.preferIPv4,
+		ConnectTo:                     cfg.connectTo,
+		ECHConfigDomain:               cfg.echConfigDomain,
+		TLSOnly:                       cfg.tlsOnly,
+		QuicIdleTimeout:               int(cfg.quicIdleTimeout.Seconds()),
+		LocalAddress:                  cfg.localAddr,
+		KeyLogFile:                    cfg.keyLogFile,
+		DisableECH:                    cfg.disableECH,
+		EnableSpeculativeTLS:          cfg.enableSpeculativeTLS,
+		SwitchProtocol:                cfg.switchProtocol,
+		WithoutCookieJar:              cfg.withoutCookieJar,
+		WithoutConditionalCache:       cfg.withoutConditionalCache,
 		WithoutClientHints:            cfg.withoutClientHints,
 		WithoutHighEntropyClientHints: cfg.withoutHighEntropyClientHints,
 	}
@@ -873,16 +936,16 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 		return nil, s.configErr
 	}
 	sReq := &transport.Request{
-		Method:                  req.Method,
-		URL:                     req.URL,
-		Headers:                 req.Headers,
-		BodyReader:              req.Body,
-		TLSOnly:                 req.TLSOnly,
-		FollowRedirects:         req.FollowRedirects,
-		DisableConditionalCache: req.DisableConditionalCache,
+		Method:                        req.Method,
+		URL:                           req.URL,
+		Headers:                       req.Headers,
+		BodyReader:                    req.Body,
+		TLSOnly:                       req.TLSOnly,
+		FollowRedirects:               req.FollowRedirects,
+		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
-		Timeout:                 req.Timeout,
+		Timeout:                       req.Timeout,
 	}
 
 	resp, err := s.inner.Request(ctx, sReq)
@@ -919,16 +982,16 @@ func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Re
 		return nil, s.configErr
 	}
 	sReq := &transport.Request{
-		Method:                  req.Method,
-		URL:                     req.URL,
-		Headers:                 req.Headers,
-		BodyReader:              bodyReader,
-		TLSOnly:                 req.TLSOnly,
-		FollowRedirects:         req.FollowRedirects,
-		DisableConditionalCache: req.DisableConditionalCache,
+		Method:                        req.Method,
+		URL:                           req.URL,
+		Headers:                       req.Headers,
+		BodyReader:                    bodyReader,
+		TLSOnly:                       req.TLSOnly,
+		FollowRedirects:               req.FollowRedirects,
+		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
-		Timeout:                 req.Timeout,
+		Timeout:                       req.Timeout,
 	}
 
 	resp, err := s.inner.Request(ctx, sReq)
@@ -1257,16 +1320,16 @@ func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, 
 		return nil, s.configErr
 	}
 	sReq := &transport.Request{
-		Method:                  req.Method,
-		URL:                     req.URL,
-		Headers:                 req.Headers,
-		BodyReader:              req.Body,
-		TLSOnly:                 req.TLSOnly,
-		FollowRedirects:         req.FollowRedirects,
-		DisableConditionalCache: req.DisableConditionalCache,
+		Method:                        req.Method,
+		URL:                           req.URL,
+		Headers:                       req.Headers,
+		BodyReader:                    req.Body,
+		TLSOnly:                       req.TLSOnly,
+		FollowRedirects:               req.FollowRedirects,
+		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
-		Timeout:                 req.Timeout,
+		Timeout:                       req.Timeout,
 	}
 
 	resp, err := s.inner.RequestStream(ctx, sReq)

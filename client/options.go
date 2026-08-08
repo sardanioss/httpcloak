@@ -16,6 +16,7 @@ package client
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"time"
 )
 
@@ -85,9 +86,16 @@ type ClientConfig struct {
 	// Default: false.
 	InsecureSkipVerify bool
 
-	// TLSConfig is a custom TLS configuration for advanced use cases.
-	// Most users should not need to set this.
+	// TLSConfig is a custom TLS configuration. Only its verification fields are
+	// read; see WithTLSConfig for exactly which, and why the rest are ignored.
 	TLSConfig *tls.Config
+
+	// VerifyPeerCertificate and VerifyConnection are caller-supplied certificate
+	// verification hooks, mirroring the crypto/tls.Config fields of the same
+	// name. Set them via WithVerifyPeerCertificate / WithVerifyConnection, or
+	// indirectly via WithTLSConfig.
+	VerifyPeerCertificate func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	VerifyConnection      func(cs tls.ConnectionState) error
 
 	// DisableKeepAlives disables HTTP keep-alives.
 	// When true, each request opens a new connection.
@@ -148,15 +156,15 @@ type ClientConfig struct {
 // DefaultConfig returns default client configuration
 func DefaultConfig() *ClientConfig {
 	return &ClientConfig{
-		Preset:          "chrome-latest",
-		Timeout:         30 * time.Second,
-		FollowRedirects: true,
-		MaxRedirects:    10,
-		RetryEnabled:    false,
-		MaxRetries:      3,
-		RetryWaitMin:    1 * time.Second,
-		RetryWaitMax:    30 * time.Second,
-		RetryOnStatus:   []int{429, 500, 502, 503, 504},
+		Preset:             "chrome-latest",
+		Timeout:            30 * time.Second,
+		FollowRedirects:    true,
+		MaxRedirects:       10,
+		RetryEnabled:       false,
+		MaxRetries:         3,
+		RetryWaitMin:       1 * time.Second,
+		RetryWaitMax:       30 * time.Second,
+		RetryOnStatus:      []int{429, 500, 502, 503, 504},
 		InsecureSkipVerify: false,
 		DisableKeepAlives:  false,
 		DisableH3:          false,
@@ -286,10 +294,61 @@ func WithInsecureSkipVerify() Option {
 	}
 }
 
-// WithTLSConfig sets a custom TLS configuration
+// WithTLSConfig takes the verification settings from a standard *tls.Config.
+//
+// Be clear on what this reads. Honoured: VerifyPeerCertificate,
+// VerifyConnection and InsecureSkipVerify. Ignored: everything that shapes the
+// ClientHello, which is CipherSuites, MinVersion, MaxVersion,
+// CurvePreferences, NextProtos, ServerName and the rest. Those come from the
+// browser preset. Letting a caller override them would quietly destroy the
+// fingerprint this library exists to reproduce, and the damage would only be
+// visible to whoever is fingerprinting at the other end.
+//
+// Prefer WithVerifyPeerCertificate and WithVerifyConnection, which make the
+// supported surface obvious. A nil config is ignored.
 func WithTLSConfig(tlsConfig *tls.Config) Option {
 	return func(c *ClientConfig) {
+		if tlsConfig == nil {
+			return
+		}
 		c.TLSConfig = tlsConfig
+		if tlsConfig.VerifyPeerCertificate != nil {
+			c.VerifyPeerCertificate = tlsConfig.VerifyPeerCertificate
+		}
+		if tlsConfig.VerifyConnection != nil {
+			c.VerifyConnection = tlsConfig.VerifyConnection
+		}
+		if tlsConfig.InsecureSkipVerify {
+			c.InsecureSkipVerify = true
+		}
+	}
+}
+
+// WithVerifyPeerCertificate installs a certificate verification callback,
+// mirroring crypto/tls.Config.VerifyPeerCertificate.
+//
+// It runs after the normal certificate checks, with the raw certificates and
+// any chains the default verifier built; returning an error aborts the
+// handshake. This is the hook for certificate pinning. Pair it with
+// WithInsecureSkipVerify to replace the default verification rather than add
+// to it.
+func WithVerifyPeerCertificate(fn func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error) Option {
+	return func(c *ClientConfig) {
+		c.VerifyPeerCertificate = fn
+	}
+}
+
+// WithVerifyConnection installs a connection verification callback, mirroring
+// crypto/tls.Config.VerifyConnection. It runs after WithVerifyPeerCertificate,
+// on every handshake including resumptions.
+//
+// The state is the standard library type, translated from the underlying uTLS
+// connection state. Everything a verification callback normally reads is
+// populated; ExportKeyingMaterial on it is not usable, because that plumbing
+// cannot be reconstructed from outside crypto/tls.
+func WithVerifyConnection(fn func(cs tls.ConnectionState) error) Option {
+	return func(c *ClientConfig) {
+		c.VerifyConnection = fn
 	}
 }
 

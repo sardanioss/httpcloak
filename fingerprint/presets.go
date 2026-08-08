@@ -2292,6 +2292,91 @@ func Chrome150() *Preset {
 	}
 }
 
+// Chrome151Windows returns Chrome 151 on Windows. Pure header diff over the
+// chrome-150 chain, verified against real Chrome 151 captures over both TCP and
+// QUIC. Everything below the header layer is unchanged: the same cipher list,
+// supported groups, ALPS, ECH and brotli cert compression, the same Akamai H2
+// fingerprint (1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p), and the same
+// signature_algorithms including the three ML-DSA codepoints inherited from 150
+// (JA4 t13d1516h2_8daaf6152771_806a8c22fdea).
+//
+// Two header values move, and the second is not what a naive version bump would
+// produce - Chrome's greased brand list reseeds off the major version, so the
+// separator characters, the GREASE version and the brand ORDER all changed at
+// once:
+//
+//	150: "Not;A=Brand";v="8",  "Chromium";v="150", "Google Chrome";v="150"
+//	151: "Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"
+//
+// Falls back to Chrome150Windows if the JSON didn't load.
+func Chrome151Windows() *Preset {
+	if p := LookupCustom("chrome-151-windows"); p != nil {
+		return p
+	}
+	return Chrome150Windows()
+}
+
+// Chrome151Linux returns Chrome 151 on Linux. See Chrome151Windows.
+func Chrome151Linux() *Preset {
+	if p := LookupCustom("chrome-151-linux"); p != nil {
+		return p
+	}
+	return Chrome150Linux()
+}
+
+// Chrome151macOS returns Chrome 151 on macOS. See Chrome151Windows.
+func Chrome151macOS() *Preset {
+	if p := LookupCustom("chrome-151-macos"); p != nil {
+		return p
+	}
+	return Chrome150macOS()
+}
+
+// Chrome151 returns the Chrome 151 fingerprint preset auto-detected from the
+// running OS.
+func Chrome151() *Preset {
+	switch GetPlatformInfo().Platform {
+	case "Windows":
+		return Chrome151Windows()
+	case "macOS":
+		return Chrome151macOS()
+	default:
+		return Chrome151Linux()
+	}
+}
+
+// AndroidChrome151 returns Chrome 151 on Android. Same header diff as desktop
+// (UA bump plus the reseeded sec-ch-ua brand list); Android uses the reduced UA
+// so there is no build number to track. Inherits the chrome-150-android TLS
+// bytes. Falls back to AndroidChrome150.
+func AndroidChrome151() *Preset {
+	if p := LookupCustom("chrome-151-android"); p != nil {
+		return p
+	}
+	return AndroidChrome150()
+}
+
+// IOSChrome151 returns Chrome 151 on iOS. Like the rest of the iOS Chrome line
+// this is WebKit underneath, so it carries Safari's TLS and H2 fingerprint and
+// sends no client hints at all - which means the User-Agent is the only thing
+// that changes between iOS versions.
+//
+// PROVISIONAL: iOS Chrome spells its version out in full (CriOS/150.0.7871.51
+// for 150) rather than using the reduced desktop form, and that build number
+// cannot be derived from the major version. The value here is a placeholder
+// pending a real iOS 151 capture. Because of that, "chrome-latest-ios"
+// deliberately still resolves to IOSChrome150, so nobody gets an unverified
+// fingerprint without asking for it by name. Once a capture lands, correct the
+// user_agent in fingerprint/embedded/chrome-151-ios.json and repoint the alias.
+//
+// Falls back to IOSChrome150.
+func IOSChrome151() *Preset {
+	if p := LookupCustom("chrome-151-ios"); p != nil {
+		return p
+	}
+	return IOSChrome150()
+}
+
 // IOSChrome143 returns Chrome 143 on iOS fingerprint preset
 // Note: iOS Chrome uses WebKit (Apple requirement), so it has Safari's TLS AND HTTP/2 fingerprint
 // WebKit doesn't support Client Hints, so no sec-ch-ua headers
@@ -2870,18 +2955,27 @@ var presets = map[string]func() *Preset{
 	"chrome-150-macos":   Chrome150macOS,
 	"chrome-150-ios":     IOSChrome150,
 	"chrome-150-android": AndroidChrome150,
+	"chrome-151":         Chrome151,
+	"chrome-151-windows": Chrome151Windows,
+	"chrome-151-linux":   Chrome151Linux,
+	"chrome-151-macos":   Chrome151macOS,
+	"chrome-151-ios":     IOSChrome151,
+	"chrome-151-android": AndroidChrome151,
 
-	// -latest aliases (always point to the newest version). Desktop, iOS and
-	// Android all track 150.
-	"chrome-latest":         Chrome150,
-	"chrome-latest-windows": Chrome150Windows,
-	"chrome-latest-linux":   Chrome150Linux,
-	"chrome-latest-macos":   Chrome150macOS,
+	// -latest aliases (always point to the newest version). Desktop and Android
+	// track 151. iOS stays on 150 on purpose: the iOS User-Agent carries a full
+	// build number that cannot be derived from the major version, so
+	// chrome-151-ios is provisional until a real capture confirms it (see
+	// IOSChrome151).
+	"chrome-latest":         Chrome151,
+	"chrome-latest-windows": Chrome151Windows,
+	"chrome-latest-linux":   Chrome151Linux,
+	"chrome-latest-macos":   Chrome151macOS,
 	"firefox-latest":        Firefox148,
 	"safari-latest":         Safari18,
 	"chrome-latest-ios":     IOSChrome150,
 	"safari-latest-ios":     IOSSafari18,
-	"chrome-latest-android": AndroidChrome150,
+	"chrome-latest-android": AndroidChrome151,
 
 	// Backwards compatibility aliases (old naming convention)
 	"ios-chrome-143":        IOSChrome143,

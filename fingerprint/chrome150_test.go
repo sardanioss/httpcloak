@@ -66,9 +66,9 @@ func TestChrome150Presets(t *testing.T) {
 		}
 	}
 
-	// chrome-latest tracks the newest desktop preset (150).
-	if ua := Get("chrome-latest").UserAgent; !strings.Contains(ua, "Chrome/150.0.0.0") {
-		t.Errorf("chrome-latest UA = %q, want Chrome/150.0.0.0", ua)
+	// chrome-latest tracks the newest desktop preset, now 151.
+	if ua := Get("chrome-latest").UserAgent; !strings.Contains(ua, "Chrome/151.0.0.0") {
+		t.Errorf("chrome-latest UA = %q, want Chrome/151.0.0.0", ua)
 	}
 }
 
@@ -156,8 +156,8 @@ func TestChrome150AndroidPreset(t *testing.T) {
 	if len(p.QUICSignatureAlgorithms) != 0 {
 		t.Errorf("chrome-150-android: QUICSignatureAlgorithms must be empty, got %v", p.QUICSignatureAlgorithms)
 	}
-	if ua := Get("chrome-latest-android").UserAgent; !strings.Contains(ua, "Chrome/150.0.0.0") {
-		t.Errorf("chrome-latest-android UA = %q, want Chrome/150.0.0.0", ua)
+	if ua := Get("chrome-latest-android").UserAgent; !strings.Contains(ua, "Chrome/151.0.0.0") {
+		t.Errorf("chrome-latest-android UA = %q, want Chrome/151.0.0.0", ua)
 	}
 }
 

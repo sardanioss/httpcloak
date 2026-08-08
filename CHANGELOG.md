@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.9] - 2026-08-08
+
+### Added
+
+- **Chrome 151**: asking for the latest Chrome now gives you Chrome 151 on Windows, Linux, macOS and Android, and the matching `chrome-latest*` profiles point at it. Everything below the header layer is unchanged from Chrome 150, including the post-quantum signature algorithms, and that was confirmed against real Chrome 151 captures over both TCP and QUIC. Worth noting for anyone building profiles by hand: the browser's brand list is not a simple version bump between 150 and 151. The separator characters, the filler brand's version and the order the three brands appear in all changed at once, so the value has to be transcribed from a capture rather than derived. A Chrome 151 iOS profile ships too, but iOS spells its version out in full and that build number cannot be derived, so it is provisional and `chrome-latest-ios` deliberately still resolves to the confirmed 150 profile until a capture lands.
+
+- **Certificate verification callbacks (#85)**: you can now supply your own certificate checks, either individually or by handing over a standard TLS config, and they work the same way the standard library's do: one callback receives the raw certificates and any chains that were built, the other receives the completed connection state, and returning an error from either aborts the handshake. This is what you want for certificate pinning. Only the verification parts of a supplied TLS config are read; the parts that would reshape the handshake are deliberately ignored, because honouring them would silently change how the client looks on the wire, which is the one thing this library exists to keep stable.
+
+### Fixed
+
+- **Supplied TLS configuration was accepted and then ignored (#85)**: the option to pass a TLS configuration already existed, so code that set verification callbacks compiled and looked correct, but nothing ever read it and the callbacks never ran. Anyone relying on them for certificate pinning was performing no extra verification at all while believing they were. They now run, and rejecting a certificate genuinely fails the request.
+
+- **Long downloads no longer get cut off after about two minutes (#83)**: for HTTP/2 a request is considered finished as soon as the response headers arrive, but the body can keep streaming for minutes afterwards. The connection pool was only tracking the first part, so a large or slow download looked completely idle and the pool would close the connection out from under the reader, roughly two minutes in. Connections are now held for as long as the body is actually being read, and a connection is never closed while a response is still streaming on it, however old it looks. A body that is abandoned without being closed is still reclaimed after a long idle period, so this cannot leak connections.
+
+- **Response bodies could be silently corrupted under concurrency**: response bodies were read into buffers taken from a shared pool, and the buffer was handed to the caller while still belonging to that pool. On one path it was returned to the pool while the response still pointed into it, so a later request could overwrite a body that had already been handed out. There was no crash and no error, just wrong bytes. Bodies now always belong solely to the caller.
+
+- **Two QUIC transport settings were being dropped, and two more were being sent that no browser sends**: on HTTP/3 connections the configured datagram frame size and the browser-specific transport parameters were lost before the handshake was assembled, so the connection advertised an internal default and omitted two parameters a real browser always includes. Separately, two parameters were being sent that a real Chrome does not send at all. One of them was worse than a stray value: producing it required opening and timing a throwaway TCP connection to the destination before the HTTP/3 request, which is itself something a browser never does. All four are corrected, and the HTTP/3 handshake now matches a real Chrome 151 capture parameter for parameter. This changes the HTTP/3 handshake for every Chrome profile, not just the newest one.
+
 ## [1.6.8] - 2026-07-13
 
 ### Added

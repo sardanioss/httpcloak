@@ -320,6 +320,7 @@ type Transport struct {
 
 	// Configuration
 	insecureSkipVerify bool
+	tlsVerify          *TLSVerify
 
 	// H3 proxy initialization error - if set, H3 requests will fail with this error
 	// instead of silently bypassing the proxy
@@ -564,6 +565,19 @@ func (t *Transport) SetInsecureSkipVerify(skip bool) {
 	}
 	if t.h3Transport != nil {
 		t.h3Transport.SetInsecureSkipVerify(skip)
+	}
+}
+
+// SetTLSVerify installs caller-supplied certificate verification hooks on every
+// protocol transport. Verification only; nothing here alters the ClientHello.
+func (t *Transport) SetTLSVerify(v *TLSVerify) {
+	t.tlsVerify = v
+	t.h1Transport.SetTLSVerify(v)
+	if t.h2Transport != nil {
+		t.h2Transport.SetTLSVerify(v)
+	}
+	if t.h3Transport != nil {
+		t.h3Transport.SetTLSVerify(v)
 	}
 }
 
@@ -1548,7 +1562,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 	timing.FirstByte = float64(time.Since(reqStart).Milliseconds())
 
 	// Read response body with pre-allocation for known content length
-	body, releaseBody, err := readBodyOptimized(resp.Body, resp.ContentLength)
+	body, err := readBodyOptimized(resp.Body, resp.ContentLength)
 	if err != nil {
 		return nil, NewRequestError("read_body", host, port, "h1", err)
 	}
@@ -1558,12 +1572,9 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
-			releaseBody() // Release pooled buffer on error
 			return nil, NewRequestError("decompress", host, port, "h1", err)
 		}
-		releaseBody() // Release original pooled buffer after decompression
 		body = decompressed
-		releaseBody = func() {} // Decompressed buffer is not pooled
 	}
 
 	timing.Total = float64(time.Since(startTime).Milliseconds())
@@ -1663,7 +1674,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	timing.FirstByte = float64(time.Since(reqStart).Milliseconds())
 
 	// Read response body with pre-allocation for known content length
-	body, releaseBody, err := readBodyOptimized(resp.Body, resp.ContentLength)
+	body, err := readBodyOptimized(resp.Body, resp.ContentLength)
 	if err != nil {
 		return nil, NewRequestError("read_body", host, port, "h1", err)
 	}
@@ -1673,12 +1684,9 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
-			releaseBody()
 			return nil, NewRequestError("decompress", host, port, "h1", err)
 		}
-		releaseBody()
 		body = decompressed
-		releaseBody = func() {}
 	}
 
 	timing.Total = float64(time.Since(startTime).Milliseconds())
@@ -1785,7 +1793,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	timing.FirstByte = float64(time.Since(reqStart).Milliseconds())
 
 	// Read response body with pre-allocation for known content length
-	body, releaseBody, err := readBodyOptimized(resp.Body, resp.ContentLength)
+	body, err := readBodyOptimized(resp.Body, resp.ContentLength)
 	if err != nil {
 		return nil, NewRequestError("read_body", host, port, "h2", err)
 	}
@@ -1795,12 +1803,9 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
-			releaseBody()
 			return nil, NewRequestError("decompress", host, port, "h2", err)
 		}
-		releaseBody()
 		body = decompressed
-		releaseBody = func() {}
 	}
 
 	timing.Total = float64(time.Since(startTime).Milliseconds())
@@ -1931,7 +1936,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	timing.FirstByte = float64(time.Since(reqStart).Milliseconds())
 
 	// Read response body with pre-allocation for known content length
-	body, releaseBody, err := readBodyOptimized(resp.Body, resp.ContentLength)
+	body, err := readBodyOptimized(resp.Body, resp.ContentLength)
 	if err != nil {
 		return nil, NewRequestError("read_body", host, port, "h3", err)
 	}
@@ -1941,12 +1946,9 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
-			releaseBody()
 			return nil, NewRequestError("decompress", host, port, "h3", err)
 		}
-		releaseBody()
 		body = decompressed
-		releaseBody = func() {}
 	}
 
 	timing.Total = float64(time.Since(startTime).Milliseconds())
@@ -2470,43 +2472,46 @@ func buildHeadersMap(h http.Header) map[string][]string {
 	return headers
 }
 
-// readBodyOptimized reads the response body with pooled buffers when Content-Length is known
-// Returns the body slice, a release function to return the buffer to the pool, and any error.
-// The release function should be called when the body is no longer needed to enable buffer reuse.
-func readBodyOptimized(body io.Reader, contentLength int64) ([]byte, func(), error) {
+// readBodyOptimized reads a response body and returns a buffer owned solely by
+// the caller.
+//
+// The returned slice never aliases a pooled buffer. It used to, when
+// Content-Length was known: the pooled buffer was handed straight to the caller
+// and escaped into the Response. Nothing ever returned it to the pool on the
+// common path, and on the Content-Encoding path it was returned to the pool
+// while the Response still pointed into it, so a later request could overwrite
+// a body that had already been given to the caller.
+//
+// Pooling bought nothing there in any case. The caller needs a stable buffer for
+// the lifetime of the Response, so an allocation of the final size is required
+// either way, and reading straight into it is one allocation with no copy.
+//
+// The chunked path still uses a pooled scratch buffer, where it genuinely helps:
+// it avoids the repeated grow-and-copy that io.ReadAll does starting from 512
+// bytes. That buffer is copied out of and released before returning.
+func readBodyOptimized(body io.Reader, contentLength int64) ([]byte, error) {
 	if contentLength > 0 {
-		// Use pooled buffer for known sizes up to 100MB
-		if contentLength <= 100*1024*1024 {
-			bufPtr, release := getPooledBuffer(contentLength)
-			buf := (*bufPtr)[:contentLength]
-			n, err := io.ReadFull(body, buf)
-			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-				release()
-				return nil, nil, err
-			}
-			return buf[:n], release, nil
-		}
-		// For very large bodies, allocate directly
 		buf := make([]byte, contentLength)
 		n, err := io.ReadFull(body, buf)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			return nil, nil, err
+			return nil, err
 		}
-		return buf[:n], func() {}, nil
+		return buf[:n], nil
 	}
-	// For unknown/chunked content length, use pooled buffer to avoid repeated grow+copy.
-	// io.ReadAll starts at 512 bytes and doubles — wasteful for typical 50-500KB responses.
-	// We use a 1MB pooled buffer and read into it directly.
+
+	// Unknown/chunked length: read into a pooled scratch buffer, then copy out.
 	bufPtr, release := getPooledBuffer(1 * 1024 * 1024)
 	buf := *bufPtr
 	n := 0
 	for {
 		if n == len(buf) {
-			// Buffer full — grow by doubling (rare: response > 1MB with no Content-Length)
-			release() // release pool buffer, we're outgrowing it
-			release = func() {}
+			// Buffer full — grow by doubling (rare: response > 1MB with no Content-Length).
+			// Copy before releasing: once the buffer is back in the pool another
+			// goroutine can take it and start writing over what we are reading.
 			newBuf := make([]byte, len(buf)*2)
 			copy(newBuf, buf[:n])
+			release()
+			release = func() {}
 			buf = newBuf
 		}
 		nn, err := body.Read(buf[n:])
@@ -2516,14 +2521,14 @@ func readBodyOptimized(body io.Reader, contentLength int64) ([]byte, func(), err
 		}
 		if err != nil {
 			release()
-			return nil, nil, err
+			return nil, err
 		}
 	}
-	// Copy to right-sized slice so we don't hold the full pool buffer
+	// Copy to a right-sized slice so the caller does not hold the scratch buffer
 	result := make([]byte, n)
 	copy(result, buf[:n])
 	release()
-	return result, func() {}, nil
+	return result, nil
 }
 
 func decompress(data []byte, encoding string) ([]byte, error) {

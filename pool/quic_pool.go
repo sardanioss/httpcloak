@@ -159,6 +159,7 @@ type QUICHostPool struct {
 	echConfigDomain    string // Domain to fetch ECH config from
 	disableECH         bool   // Disable automatic ECH fetching (Chrome doesn't always use ECH)
 	insecureSkipVerify bool   // Skip TLS certificate verification (for testing)
+	tlsVerify          *transport.TLSVerify // Caller-supplied cert verification hooks
 	localAddr          string // Local IP to bind outgoing connections
 }
 
@@ -291,6 +292,7 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		MinVersion:         tls.VersionTLS13,
 		KeyLogWriter:       keyLogWriter,
 	}
+	p.tlsVerify.Apply(tlsConfig)
 
 	// Only enable session cache if we have PSK spec - prevents panic when session
 	// is cached but spec doesn't have PSK extension (TOCTOU race mitigation)
@@ -581,6 +583,7 @@ type QUICManager struct {
 	echConfigDomain    string            // Domain to fetch ECH config from
 	disableECH         bool              // Disable automatic ECH fetching
 	insecureSkipVerify bool              // Skip TLS certificate verification
+	tlsVerify          *transport.TLSVerify // Caller-supplied cert verification hooks
 	localAddr          string            // Local IP to bind outgoing connections
 
 	// Cached TLS specs - shared across all QUICHostPools for consistent fingerprint
@@ -679,6 +682,14 @@ func (m *QUICManager) SetInsecureSkipVerify(skip bool) {
 	m.insecureSkipVerify = skip
 }
 
+// SetTLSVerify installs caller-supplied certificate verification hooks.
+// Verification only; the ClientHello is untouched.
+func (m *QUICManager) SetTLSVerify(v *transport.TLSVerify) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tlsVerify = v
+}
+
 // SetLocalAddr sets the local IP address for outgoing connections
 func (m *QUICManager) SetLocalAddr(addr string) {
 	m.mu.Lock()
@@ -746,6 +757,7 @@ func (m *QUICManager) GetPool(host, port string) (*QUICHostPool, error) {
 	pool.disableECH = m.disableECH
 	// Pass InsecureSkipVerify to the pool
 	pool.insecureSkipVerify = m.insecureSkipVerify
+	pool.tlsVerify = m.tlsVerify
 	// Pass localAddr for IPv6 rotation
 	if m.localAddr != "" {
 		pool.localAddr = m.localAddr

@@ -80,6 +80,12 @@ func (s *Session) forkOne() *Session {
 	if cfgCopy.InsecureSkipVerify {
 		t.SetInsecureSkipVerify(true)
 	}
+	if cfgCopy.TLSVerifyPeerCertificate != nil || cfgCopy.TLSVerifyConnection != nil {
+		t.SetTLSVerify(&transport.TLSVerify{
+			VerifyPeerCertificate: cfgCopy.TLSVerifyPeerCertificate,
+			VerifyConnection:      cfgCopy.TLSVerifyConnection,
+		})
+	}
 	if cfgCopy.ForceHTTP1 {
 		t.SetProtocol(transport.ProtocolHTTP1)
 	} else if cfgCopy.ForceHTTP2 {

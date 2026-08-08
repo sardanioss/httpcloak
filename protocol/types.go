@@ -9,6 +9,11 @@
 // here is the shape the root package's NewSession marshals internally.
 package protocol
 
+import (
+	"crypto/tls"
+	"crypto/x509"
+)
+
 // MessageType represents the type of IPC message
 type MessageType string
 
@@ -173,6 +178,12 @@ type SessionConfig struct {
 
 	// TLS options
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+
+	// TLSVerifyPeerCertificate and TLSVerifyConnection are caller-supplied
+	// certificate verification hooks. Not serialisable, so they carry no JSON
+	// tag and are ignored by any config that round-trips through JSON.
+	TLSVerifyPeerCertificate func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error `json:"-"`
+	TLSVerifyConnection      func(cs tls.ConnectionState) error                                  `json:"-"`
 
 	// Connection options
 	DisableKeepAlives bool `json:"disableKeepAlives,omitempty"`

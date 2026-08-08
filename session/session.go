@@ -200,6 +200,14 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 		t.SetInsecureSkipVerify(true)
 	}
 
+	// Install caller-supplied TLS verification hooks (issue #85)
+	if config.TLSVerifyPeerCertificate != nil || config.TLSVerifyConnection != nil {
+		t.SetTLSVerify(&transport.TLSVerify{
+			VerifyPeerCertificate: config.TLSVerifyPeerCertificate,
+			VerifyConnection:      config.TLSVerifyConnection,
+		})
+	}
+
 	// Set protocol preference
 	if config.ForceHTTP1 {
 		t.SetProtocol(transport.ProtocolHTTP1)

@@ -22,7 +22,6 @@ import (
 	"github.com/sardanioss/httpcloak/proxy"
 	"github.com/sardanioss/quic-go"
 	"github.com/sardanioss/quic-go/http3"
-	"github.com/sardanioss/quic-go/quicvarint"
 	"github.com/sardanioss/udpbara"
 	tls "github.com/sardanioss/utls"
 	utls "github.com/sardanioss/utls"
@@ -37,18 +36,15 @@ const (
 )
 
 // QUIC transport parameter IDs (Chrome-specific)
+//
+// Only the two below are actually sent. Chrome was previously also credited
+// with google_version (0x4752 / 18258) and initial_rtt (0x3127 / 12583), but a
+// real Chrome 151 QUIC capture sends neither: its ClientHello carries exactly
+// 1, 3, 4, 5, 6, 7, 8, 9, 15, 17, 32, 12584 and one GREASE parameter. Sending
+// the extra two was a fingerprint mismatch on every Chrome H3 request.
 const (
 	tpVersionInformation      = 0x11   // RFC 9368 version negotiation
-	tpGoogleVersion           = 0x4752 // Google's custom version param (18258)
-	tpInitialRTT              = 0x3127 // initial_rtt (12583) - Chrome's cached SRTT
 	tpGoogleConnectionOptions = 0x3128 // Google's connection options param (12584)
-)
-
-// RTT measurement state — measure once per process, re-measure after ResetInitialRTT().
-var (
-	rttMu           sync.Mutex
-	rttMeasured     bool
-	cachedRTTParams map[uint64][]byte // cached Chrome params with measured RTT
 )
 
 // BuildChromeTransportParams creates Chrome-like QUIC transport parameters.
@@ -69,12 +65,6 @@ func BuildChromeTransportParams() map[uint64][]byte {
 	versionInfo = binary.BigEndian.AppendUint32(versionInfo, 0x00000001)
 	params[tpVersionInformation] = versionInfo
 
-	// google_version (0x4752 / 18258) - Google's custom parameter
-	// Format: 4-byte version
-	googleVersion := make([]byte, 4)
-	binary.BigEndian.PutUint32(googleVersion, 0x00000001) // QUICv1
-	params[tpGoogleVersion] = googleVersion
-
 	// google_connection_options (0x3128 / 12584) - 4-byte QUIC tag(s).
 	// Stable Chrome ships with kQuicOptions default "ORIG" (origin-frame
 	// experiment hint), per Chromium net/base/features.cc:
@@ -85,12 +75,6 @@ func BuildChromeTransportParams() map[uint64][]byte {
 	// override, which is rare on the open web — bot fingerprinters flag it.
 	params[tpGoogleConnectionOptions] = []byte("ORIG")
 
-	// initial_rtt (0x3127) - Chrome sends cached SRTT in microseconds
-	// Default 100ms (100000us); MeasureInitialRTT overrides with real RTT
-	initialRTT := make([]byte, 0, 8)
-	initialRTT = quicvarint.Append(initialRTT, 100000) // 100ms fallback
-	params[tpInitialRTT] = initialRTT
-
 	// Note: GREASE transport param is NOT added here — quic-go's Chrome-mode
 	// marshaling (transport_parameters.go) already inserts exactly 1 GREASE param
 	// at the correct position (after max_datagram_frame_size).
@@ -98,76 +82,47 @@ func BuildChromeTransportParams() map[uint64][]byte {
 	return params
 }
 
-// MeasureInitialRTT measures TCP RTT to host:port and returns Chrome transport
-// params with the measured RTT. Called once per process (cached); subsequent
-// calls return the cached params. If measurement fails, returns params with
-// default 100ms RTT.
-func MeasureInitialRTT(ctx context.Context, host string, port int) map[uint64][]byte {
-	rttMu.Lock()
-	defer rttMu.Unlock()
-	if rttMeasured {
-		return cachedRTTParams
-	}
-	rttMeasured = true
-
-	// Start with default Chrome params (100ms RTT)
-	cachedRTTParams = BuildChromeTransportParams()
-
-	// Quick TCP SYN-ACK RTT probe (connect + immediate close)
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	start := time.Now()
-	dialer := net.Dialer{}
-	conn, err := dialer.DialContext(probeCtx, "tcp", addr)
-	rtt := time.Since(start)
-	if conn != nil {
-		conn.Close()
-	}
-	if err != nil {
-		return cachedRTTParams // keep default 100ms
-	}
-
-	// Update with measured RTT
-	rttValue := make([]byte, 0, 8)
-	rttValue = quicvarint.Append(rttValue, uint64(rtt.Microseconds()))
-	cachedRTTParams[tpInitialRTT] = rttValue
-	return cachedRTTParams
+// MeasureInitialRTT returns the Chrome QUIC transport parameter set.
+//
+// Deprecated: this used to open a throwaway TCP connection to the target purely
+// to time the SYN-ACK, so the round-trip could be sent as Chrome's initial_rtt
+// (0x3127) transport parameter. Real Chrome sends no such parameter, so it has
+// been dropped, and with it the probe: a stray TCP connect to the origin ahead
+// of an HTTP/3 request was itself an observable tell. The function is kept so
+// existing callers keep compiling, and now simply returns the standard Chrome
+// parameters without touching the network.
+func MeasureInitialRTT(_ context.Context, _ string, _ int) map[uint64][]byte {
+	return BuildChromeTransportParams()
 }
 
-// MeasureAndSetInitialRTT measures TCP RTT and sets the global transport params.
-// Deprecated: Use MeasureInitialRTT and pass params via quic.Config.AdditionalTransportParameters instead.
+// MeasureAndSetInitialRTT sets the global Chrome transport params.
+//
+// Deprecated: pass params via quic.Config.AdditionalTransportParameters
+// instead. No RTT is measured; see MeasureInitialRTT.
 func MeasureAndSetInitialRTT(ctx context.Context, host string, port int) {
-	params := MeasureInitialRTT(ctx, host, port)
-	quic.SetAdditionalTransportParameters(params)
+	quic.SetAdditionalTransportParameters(MeasureInitialRTT(ctx, host, port))
 }
 
-// ResetInitialRTT allows re-measurement for new sessions/hosts.
-func ResetInitialRTT() {
-	rttMu.Lock()
-	defer rttMu.Unlock()
-	rttMeasured = false
-	cachedRTTParams = nil
-}
+// ResetInitialRTT is a no-op.
+//
+// Deprecated: there is no cached RTT state to reset any more; see
+// MeasureInitialRTT.
+func ResetInitialRTT() {}
 
-// AdditionalTransportParamsForPreset returns per-connection additional QUIC transport
-// params appropriate for the given preset. For Chrome presets, returns Chrome-specific
-// params (google_connection_options, google_version, version_information, initial_rtt).
-// For non-Chrome presets (e.g. Firefox), returns nil so these Chrome-specific params
-// are not sent. If ctx/host/port are provided and the preset is Chrome, includes
-// measured RTT; otherwise uses default 100ms.
-func AdditionalTransportParamsForPreset(preset *fingerprint.Preset, ctx context.Context, host string, port int) map[uint64][]byte {
+// AdditionalTransportParamsForPreset returns per-connection additional QUIC
+// transport params appropriate for the given preset. For Chrome presets that is
+// version_information (0x11) and google_connection_options (0x3128). For
+// non-Chrome presets (e.g. Firefox) it returns nil so these Chrome-specific
+// params are not sent.
+//
+// The ctx/host/port parameters are unused and retained for API compatibility;
+// they previously drove the initial_rtt probe.
+func AdditionalTransportParamsForPreset(preset *fingerprint.Preset, _ context.Context, _ string, _ int) map[uint64][]byte {
 	if preset == nil {
 		return nil
 	}
-	order := preset.H3QUICTransportParamOrder()
-	if order != "chrome" {
+	if preset.H3QUICTransportParamOrder() != "chrome" {
 		return nil
-	}
-	// For Chrome presets, measure RTT and return Chrome params
-	if ctx != nil && host != "" && port > 0 {
-		return MeasureInitialRTT(ctx, host, port)
 	}
 	return BuildChromeTransportParams()
 }
@@ -266,6 +221,7 @@ type HTTP3Transport struct {
 
 	// Skip TLS certificate verification (for testing)
 	insecureSkipVerify bool
+	tlsVerify          *TLSVerify
 
 	// Skip ECH lookup for faster first request (ECH is optional privacy feature)
 	disableECH bool
@@ -275,6 +231,12 @@ type HTTP3Transport struct {
 }
 
 // SetInsecureSkipVerify sets whether to skip TLS certificate verification
+// SetTLSVerify installs caller-supplied certificate verification hooks.
+// Only verification is configurable; nothing here affects the ClientHello.
+func (t *HTTP3Transport) SetTLSVerify(v *TLSVerify) {
+	t.tlsVerify = v
+}
+
 func (t *HTTP3Transport) SetInsecureSkipVerify(skip bool) {
 	t.insecureSkipVerify = skip
 	if t.tlsConfig != nil {
@@ -432,6 +394,7 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		InsecureSkipVerify: t.insecureSkipVerify,
 		KeyLogWriter:       keyLogWriter,
 	}
+	t.tlsVerify.Apply(t.tlsConfig)
 	if t.cachedClientHelloSpecPSK != nil {
 		t.tlsConfig.ClientSessionCache = t.sessionCache
 	}
@@ -588,6 +551,7 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		InsecureSkipVerify: t.insecureSkipVerify,
 		KeyLogWriter:       keyLogWriter,
 	}
+	t.tlsVerify.Apply(t.tlsConfig)
 	if t.cachedClientHelloSpecPSK != nil {
 		t.tlsConfig.ClientSessionCache = t.sessionCache
 	}
@@ -722,6 +686,7 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		InsecureSkipVerify: t.insecureSkipVerify,
 		KeyLogWriter:       keyLogWriter,
 	}
+	t.tlsVerify.Apply(t.tlsConfig)
 	if t.cachedClientHelloSpecPSK != nil {
 		t.tlsConfig.ClientSessionCache = t.sessionCache
 	}
@@ -1924,6 +1889,7 @@ func (t *HTTP3Transport) Connect(ctx context.Context, host, port string) error {
 		InsecureSkipVerify: t.insecureSkipVerify,
 		KeyLogWriter:       keyLogWriter,
 	}
+	t.tlsVerify.Apply(tlsCfg)
 
 	// Fetch ECH configs from DNS HTTPS records (use request host for ECH). Skipped
 	// for a host that recently stalled/rejected ECH (issue #74). Non-blocking - if
@@ -2031,6 +1997,7 @@ func (t *HTTP3Transport) connectViaProxy(ctx context.Context, host, port string)
 		InsecureSkipVerify: t.insecureSkipVerify,
 		KeyLogWriter:       keyLogWriter,
 	}
+	t.tlsVerify.Apply(tlsCfg)
 
 	conn, err := dialFunc(ctx, net.JoinHostPort(host, port), tlsCfg, nil)
 	if err != nil {

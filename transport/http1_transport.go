@@ -42,6 +42,7 @@ type HTTP1Transport struct {
 	connectTimeout      time.Duration
 	responseTimeout     time.Duration
 	insecureSkipVerify  bool
+	tlsVerify           *TLSVerify
 	localAddr           string // Local IP to bind outgoing connections
 
 	// Cleanup
@@ -137,6 +138,12 @@ func (t *HTTP1Transport) getConnectHost(requestHost string) string {
 }
 
 // SetInsecureSkipVerify sets whether to skip TLS verification
+// SetTLSVerify installs caller-supplied certificate verification hooks.
+// Only verification is configurable; nothing here affects the ClientHello.
+func (t *HTTP1Transport) SetTLSVerify(v *TLSVerify) {
+	t.tlsVerify = v
+}
+
 func (t *HTTP1Transport) SetInsecureSkipVerify(skip bool) {
 	t.insecureSkipVerify = skip
 }
@@ -522,6 +529,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			PreferSkipResumptionOnNilExtension: true,                 // Skip resumption if spec has no PSK extension
 			KeyLogWriter:                       keyLogWriter,
 		}
+		t.tlsVerify.Apply(tlsConfig)
 		// Only set session cache when not using a JA3 without PSK extension
 		if effJA3 == "" || fingerprint.JA3HasExtension(effJA3, "41") {
 			tlsConfig.ClientSessionCache = t.sessionCache

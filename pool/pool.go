@@ -132,6 +132,7 @@ type HostPool struct {
 	maxConnAge         time.Duration
 	connectTimeout     time.Duration
 	insecureSkipVerify bool
+	tlsVerify          *transport.TLSVerify
 	proxyURL           string
 	localAddr          string // Local IP to bind outgoing connections
 
@@ -359,6 +360,7 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 		EncryptedClientHelloConfigList:      echConfigList, // ECH configuration (if available)
 		KeyLogWriter:                        keyLogWriter,
 	}
+	p.tlsVerify.Apply(tlsConfig)
 
 	// Generate fresh spec for this connection to avoid race condition
 	// utls's ApplyPreset mutates the spec (clears KeyShares.Data, etc.), so each
@@ -987,6 +989,7 @@ type Manager struct {
 	maxConnsPerHost    int               // 0 = unlimited
 	proxyURL           string            // Proxy URL (optional)
 	insecureSkipVerify bool              // Skip TLS verification
+	tlsVerify          *transport.TLSVerify // Caller-supplied cert verification hooks
 	connectTo          map[string]string // Domain fronting: request host -> connect host
 	echConfig          []byte            // Custom ECH configuration
 	echConfigDomain    string            // Domain to fetch ECH config from
@@ -1162,6 +1165,7 @@ func (m *Manager) GetPool(host, port string) (*HostPool, error) {
 		sniHost = host // Original request host for TLS ServerName
 	}
 	pool = NewHostPoolWithConfig(connectHost, sniHost, port, m.preset, m.dnsCache, m.insecureSkipVerify, m.proxyURL, m.cachedSpec, m.cachedPSKSpec, m.shuffleSeed, m.sessionCache)
+	pool.tlsVerify = m.tlsVerify
 	if m.maxConnsPerHost > 0 {
 		pool.SetMaxConns(m.maxConnsPerHost)
 	}
@@ -1198,6 +1202,14 @@ func (m *Manager) GetDNSCache() *dns.Cache {
 }
 
 // SetConnectTo sets a host mapping for domain fronting
+// SetTLSVerify installs caller-supplied certificate verification hooks on every
+// pool created from here on. Verification only; the ClientHello is untouched.
+func (m *Manager) SetTLSVerify(v *transport.TLSVerify) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tlsVerify = v
+}
+
 func (m *Manager) SetConnectTo(requestHost, connectHost string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

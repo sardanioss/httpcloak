@@ -74,13 +74,13 @@ import (
 // Client is an HTTP client with connection pooling and fingerprint spoofing
 // By default, it tries HTTP/3 first, then HTTP/2, then HTTP/1.1 as fallback
 type Client struct {
-	poolManager      *pool.Manager
-	quicManager      *pool.QUICManager
-	masqueTransport  *transport.HTTP3Transport // MASQUE proxy transport (if using MASQUE)
+	poolManager       *pool.Manager
+	quicManager       *pool.QUICManager
+	masqueTransport   *transport.HTTP3Transport // MASQUE proxy transport (if using MASQUE)
 	socks5H3Transport *transport.HTTP3Transport // SOCKS5 UDP relay transport for HTTP/3
-	h1Transport      *transport.HTTP1Transport
-	preset           *fingerprint.Preset
-	config           *ClientConfig
+	h1Transport       *transport.HTTP1Transport
+	preset            *fingerprint.Preset
+	config            *ClientConfig
 
 	// Authentication
 	auth Auth
@@ -205,6 +205,27 @@ func NewClient(presetName string, opts ...Option) *Client {
 	}
 	if socks5H3Transport != nil {
 		socks5H3Transport.SetInsecureSkipVerify(config.InsecureSkipVerify)
+	}
+
+	// Install caller-supplied TLS verification hooks (issue #85). Previously
+	// WithTLSConfig stored the config and nothing ever read it, so the callbacks
+	// silently never fired.
+	if config.VerifyPeerCertificate != nil || config.VerifyConnection != nil {
+		tlsVerify := &transport.TLSVerify{
+			VerifyPeerCertificate: config.VerifyPeerCertificate,
+			VerifyConnection:      config.VerifyConnection,
+		}
+		h2Manager.SetTLSVerify(tlsVerify)
+		h1Transport.SetTLSVerify(tlsVerify)
+		if quicManager != nil {
+			quicManager.SetTLSVerify(tlsVerify)
+		}
+		if masqueTransport != nil {
+			masqueTransport.SetTLSVerify(tlsVerify)
+		}
+		if socks5H3Transport != nil {
+			socks5H3Transport.SetTLSVerify(tlsVerify)
+		}
 	}
 
 	// Propagate ConnectTo mappings (domain fronting)
@@ -1750,7 +1771,6 @@ func sniffXHRMode(req *Request) bool {
 	// submissions always carry one of the form Content-Types above.
 	return true
 }
-
 
 // applyNavigationModeHeaders sets headers for page navigation (human clicked link)
 // Uses preset's values for Accept/Accept-Encoding/Accept-Language when available,

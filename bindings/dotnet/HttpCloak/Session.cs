@@ -14,7 +14,22 @@ internal sealed class AsyncCallbackManager
     private static readonly Lazy<AsyncCallbackManager> _instance = new(() => new AsyncCallbackManager());
     public static AsyncCallbackManager Instance => _instance.Value;
 
-    private readonly ConcurrentDictionary<long, TaskCompletionSource<Response>> _pendingRequests = new();
+    // The start timestamp travels with the TCS so the completed Response carries
+    // a real Elapsed. Without it every async response reported Elapsed=0, while
+    // the sync methods timed themselves with a Stopwatch.
+    private readonly struct Pending
+    {
+        public Pending(TaskCompletionSource<Response> tcs, long startTimestamp)
+        {
+            Tcs = tcs;
+            StartTimestamp = startTimestamp;
+        }
+
+        public TaskCompletionSource<Response> Tcs { get; }
+        public long StartTimestamp { get; }
+    }
+
+    private readonly ConcurrentDictionary<long, Pending> _pendingRequests = new();
     private readonly Native.AsyncCallback _callback;
     private readonly object _lock = new();
 
@@ -24,10 +39,18 @@ internal sealed class AsyncCallbackManager
         _callback = OnCallback;
     }
 
+    // Stopwatch.GetElapsedTime is .NET 7+; net6.0 is still a target framework.
+    private static TimeSpan ElapsedSince(long startTimestamp)
+        => TimeSpan.FromSeconds((System.Diagnostics.Stopwatch.GetTimestamp() - startTimestamp)
+                                / (double)System.Diagnostics.Stopwatch.Frequency);
+
     private void OnCallback(long callbackId, IntPtr responseJsonPtr, IntPtr errorPtr)
     {
-        if (!_pendingRequests.TryRemove(callbackId, out var tcs))
+        if (!_pendingRequests.TryRemove(callbackId, out var pending))
             return;
+
+        var tcs = pending.Tcs;
+        TimeSpan elapsed = ElapsedSince(pending.StartTimestamp);
 
         try
         {
@@ -68,7 +91,7 @@ internal sealed class AsyncCallbackManager
                         return;
                     }
 
-                    tcs.TrySetResult(new Response(responseData));
+                    tcs.TrySetResult(new Response(responseData, elapsed));
                 }
                 catch (Exception ex)
                 {
@@ -98,7 +121,7 @@ internal sealed class AsyncCallbackManager
         // Register callback with Go - each request gets unique ID
         long callbackId = Native.RegisterCallback(_callback);
 
-        _pendingRequests[callbackId] = tcs;
+        _pendingRequests[callbackId] = new Pending(tcs, System.Diagnostics.Stopwatch.GetTimestamp());
 
         // Wire up cancellation: cancel the Go context and the TCS
         if (cancellationToken.CanBeCanceled)
@@ -110,7 +133,7 @@ internal sealed class AsyncCallbackManager
                 Native.CancelRequest(id);
                 // Cancel the C# Task so the caller is unblocked immediately
                 if (_pendingRequests.TryRemove(id, out var removed))
-                    removed.TrySetCanceled(cancellationToken);
+                    removed.Tcs.TrySetCanceled(cancellationToken);
             });
         }
 
