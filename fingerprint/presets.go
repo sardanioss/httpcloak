@@ -1026,6 +1026,59 @@ func Firefox148() *Preset {
 	}
 }
 
+// Firefox133Windows returns Firefox 133 on Windows. Firefox has no UA Client
+// Hints and NSS emits the same ClientHello on every OS, so a platform variant
+// differs from the auto-detected base in exactly one place: the OS token of the
+// User-Agent. The variant presets live in embedded JSON (based_on the auto base,
+// user_agent override only); this falls back to the auto-detected base if the
+// JSON didn't load, mirroring the Chrome 150 accessors.
+func Firefox133Windows() *Preset {
+	if p := LookupCustom("firefox-133-windows"); p != nil {
+		return p
+	}
+	return Firefox133()
+}
+
+// Firefox133Linux returns Firefox 133 on Linux. See Firefox133Windows.
+func Firefox133Linux() *Preset {
+	if p := LookupCustom("firefox-133-linux"); p != nil {
+		return p
+	}
+	return Firefox133()
+}
+
+// Firefox133macOS returns Firefox 133 on macOS. See Firefox133Windows.
+func Firefox133macOS() *Preset {
+	if p := LookupCustom("firefox-133-macos"); p != nil {
+		return p
+	}
+	return Firefox133()
+}
+
+// Firefox148Windows returns Firefox 148 on Windows. See Firefox133Windows.
+func Firefox148Windows() *Preset {
+	if p := LookupCustom("firefox-148-windows"); p != nil {
+		return p
+	}
+	return Firefox148()
+}
+
+// Firefox148Linux returns Firefox 148 on Linux. See Firefox133Windows.
+func Firefox148Linux() *Preset {
+	if p := LookupCustom("firefox-148-linux"); p != nil {
+		return p
+	}
+	return Firefox148()
+}
+
+// Firefox148macOS returns Firefox 148 on macOS. See Firefox133Windows.
+func Firefox148macOS() *Preset {
+	if p := LookupCustom("firefox-148-macos"); p != nil {
+		return p
+	}
+	return Firefox148()
+}
+
 // Chrome143 returns the Chrome 143 fingerprint preset with platform-specific TLS fingerprint
 func Chrome143() *Preset {
 	p := GetPlatformInfo()
@@ -2817,71 +2870,80 @@ func AndroidChrome145() *Preset {
 
 // presets is a map of all available presets
 var presets = map[string]func() *Preset{
-	"chrome-133":         Chrome133,
-	"chrome-141":         Chrome141,
-	"chrome-143":         Chrome143,
-	"chrome-143-windows": Chrome143Windows,
-	"chrome-143-linux":   Chrome143Linux,
-	"chrome-143-macos":   Chrome143macOS,
-	"chrome-144":         Chrome144,
-	"chrome-144-windows": Chrome144Windows,
-	"chrome-144-linux":   Chrome144Linux,
-	"chrome-144-macos":   Chrome144macOS,
-	"chrome-145":         Chrome145,
-	"chrome-145-windows": Chrome145Windows,
-	"chrome-145-linux":   Chrome145Linux,
-	"chrome-145-macos":   Chrome145macOS,
-	"chrome-146":         Chrome146,
-	"chrome-146-windows": Chrome146Windows,
-	"chrome-146-linux":   Chrome146Linux,
-	"chrome-146-macos":   Chrome146macOS,
-	"chrome-147":         Chrome147,
-	"chrome-147-windows": Chrome147Windows,
-	"chrome-147-linux":   Chrome147Linux,
-	"chrome-147-macos":   Chrome147macOS,
-	"firefox-133":        Firefox133,
-	"firefox-148":        Firefox148,
-	"safari-18":          Safari18,
-	"chrome-143-ios":     IOSChrome143,
-	"chrome-144-ios":     IOSChrome144,
-	"chrome-145-ios":     IOSChrome145,
-	"chrome-146-ios":     IOSChrome146,
-	"safari-17-ios":      IOSSafari17,
-	"safari-18-ios":      IOSSafari18,
-	"chrome-143-android": AndroidChrome143,
-	"chrome-144-android": AndroidChrome144,
-	"chrome-145-android": AndroidChrome145,
-	"chrome-146-android": AndroidChrome146,
-	"chrome-147-ios":     IOSChrome147,
-	"chrome-147-android": AndroidChrome147,
-	"chrome-148-ios":     IOSChrome148,
-	"chrome-148":         Chrome148,
-	"chrome-148-windows": Chrome148Windows,
-	"chrome-148-linux":   Chrome148Linux,
-	"chrome-148-macos":   Chrome148macOS,
-	"chrome-148-android": AndroidChrome148,
-	"chrome-149":         Chrome149,
-	"chrome-149-windows": Chrome149Windows,
-	"chrome-149-linux":   Chrome149Linux,
-	"chrome-149-macos":   Chrome149macOS,
-	"chrome-150":         Chrome150,
-	"chrome-150-windows": Chrome150Windows,
-	"chrome-150-linux":   Chrome150Linux,
-	"chrome-150-macos":   Chrome150macOS,
-	"chrome-150-ios":     IOSChrome150,
-	"chrome-150-android": AndroidChrome150,
+	"chrome-133":          Chrome133,
+	"chrome-141":          Chrome141,
+	"chrome-143":          Chrome143,
+	"chrome-143-windows":  Chrome143Windows,
+	"chrome-143-linux":    Chrome143Linux,
+	"chrome-143-macos":    Chrome143macOS,
+	"chrome-144":          Chrome144,
+	"chrome-144-windows":  Chrome144Windows,
+	"chrome-144-linux":    Chrome144Linux,
+	"chrome-144-macos":    Chrome144macOS,
+	"chrome-145":          Chrome145,
+	"chrome-145-windows":  Chrome145Windows,
+	"chrome-145-linux":    Chrome145Linux,
+	"chrome-145-macos":    Chrome145macOS,
+	"chrome-146":          Chrome146,
+	"chrome-146-windows":  Chrome146Windows,
+	"chrome-146-linux":    Chrome146Linux,
+	"chrome-146-macos":    Chrome146macOS,
+	"chrome-147":          Chrome147,
+	"chrome-147-windows":  Chrome147Windows,
+	"chrome-147-linux":    Chrome147Linux,
+	"chrome-147-macos":    Chrome147macOS,
+	"firefox-133":         Firefox133,
+	"firefox-133-windows": Firefox133Windows,
+	"firefox-133-linux":   Firefox133Linux,
+	"firefox-133-macos":   Firefox133macOS,
+	"firefox-148":         Firefox148,
+	"firefox-148-windows": Firefox148Windows,
+	"firefox-148-linux":   Firefox148Linux,
+	"firefox-148-macos":   Firefox148macOS,
+	"safari-18":           Safari18,
+	"chrome-143-ios":      IOSChrome143,
+	"chrome-144-ios":      IOSChrome144,
+	"chrome-145-ios":      IOSChrome145,
+	"chrome-146-ios":      IOSChrome146,
+	"safari-17-ios":       IOSSafari17,
+	"safari-18-ios":       IOSSafari18,
+	"chrome-143-android":  AndroidChrome143,
+	"chrome-144-android":  AndroidChrome144,
+	"chrome-145-android":  AndroidChrome145,
+	"chrome-146-android":  AndroidChrome146,
+	"chrome-147-ios":      IOSChrome147,
+	"chrome-147-android":  AndroidChrome147,
+	"chrome-148-ios":      IOSChrome148,
+	"chrome-148":          Chrome148,
+	"chrome-148-windows":  Chrome148Windows,
+	"chrome-148-linux":    Chrome148Linux,
+	"chrome-148-macos":    Chrome148macOS,
+	"chrome-148-android":  AndroidChrome148,
+	"chrome-149":          Chrome149,
+	"chrome-149-windows":  Chrome149Windows,
+	"chrome-149-linux":    Chrome149Linux,
+	"chrome-149-macos":    Chrome149macOS,
+	"chrome-150":          Chrome150,
+	"chrome-150-windows":  Chrome150Windows,
+	"chrome-150-linux":    Chrome150Linux,
+	"chrome-150-macos":    Chrome150macOS,
+	"chrome-150-ios":      IOSChrome150,
+	"chrome-150-android":  AndroidChrome150,
 
 	// -latest aliases (always point to the newest version). Desktop, iOS and
 	// Android all track 150.
-	"chrome-latest":         Chrome150,
-	"chrome-latest-windows": Chrome150Windows,
-	"chrome-latest-linux":   Chrome150Linux,
-	"chrome-latest-macos":   Chrome150macOS,
-	"firefox-latest":        Firefox148,
-	"safari-latest":         Safari18,
-	"chrome-latest-ios":     IOSChrome150,
-	"safari-latest-ios":     IOSSafari18,
-	"chrome-latest-android": AndroidChrome150,
+	"chrome-latest":          Chrome150,
+	"chrome-latest-windows":  Chrome150Windows,
+	"chrome-latest-linux":    Chrome150Linux,
+	"chrome-latest-macos":    Chrome150macOS,
+	"firefox-latest":         Firefox148,
+	"firefox-latest-windows": Firefox148Windows,
+	"firefox-latest-linux":   Firefox148Linux,
+	"firefox-latest-macos":   Firefox148macOS,
+	"safari-latest":          Safari18,
+	"chrome-latest-ios":      IOSChrome150,
+	"safari-latest-ios":      IOSSafari18,
+	"chrome-latest-android":  AndroidChrome150,
 
 	// Backwards compatibility aliases (old naming convention)
 	"ios-chrome-143":        IOSChrome143,

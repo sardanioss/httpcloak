@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "preset": {
+    "name": "firefox-148-windows",
+    "based_on": "firefox-148",
+    "headers": {
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
+    }
+  }
+}

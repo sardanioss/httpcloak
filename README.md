@@ -1034,7 +1034,14 @@ response.Protocol
 | `chrome-143-linux` | Linux | ✅ | ✅ |
 | `chrome-141` | Auto | ✅ | ❌ |
 | `chrome-133` | Auto | ✅ | ❌ |
+| `firefox-148` | Auto | ✅ | ❌ |
+| `firefox-148-windows` | Windows | ✅ | ❌ |
+| `firefox-148-macos` | macOS | ✅ | ❌ |
+| `firefox-148-linux` | Linux | ✅ | ❌ |
 | `firefox-133` | Auto | ❌ | ❌ |
+| `firefox-133-windows` | Windows | ❌ | ❌ |
+| `firefox-133-macos` | macOS | ❌ | ❌ |
+| `firefox-133-linux` | Linux | ❌ | ❌ |
 | `safari-18` | macOS | ❌ | ✅ |
 | `safari-18-ios` | iOS | ❌ | ✅ |
 | `safari-17-ios` | iOS | ❌ | ❌ |
