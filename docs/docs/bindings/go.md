@@ -313,9 +313,12 @@ func (r *Response) Text() (string, error)
 func (r *Response) JSON(v interface{}) error
 func (r *Response) GetHeader(key string) string
 func (r *Response) GetHeaders(key string) []string
+func (r *Response) Location() (*url.URL, error)
 ```
 
 `Bytes`, `Text`, `JSON` cache the body after the first read. `GetHeader` / `GetHeaders` look up case-insensitively against the lowercase keys.
+
+`Location` mirrors `net/http`'s `Response.Location`: it parses the `Location` header and resolves a relative target against the URL that produced the response (`FinalURL`), so a 3xx surfaced with redirects disabled gives you the absolute next URL directly. It returns `httpcloak.ErrNoLocation` when the response has no `Location` header.
 
 `History` is the list of intermediate redirects the request went through. Each entry has `StatusCode`, `URL`, and `Headers`.
 

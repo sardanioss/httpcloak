@@ -263,6 +263,27 @@ func (r *Response) GetHeaders(key string) []string {
 	return r.Headers[strings.ToLower(key)]
 }
 
+// ErrNoLocation is returned by Response.Location when the response has no
+// Location header.
+var ErrNoLocation = errors.New("httpcloak/transport: no Location header in response")
+
+// Location returns the URL of the response's "Location" header, if present.
+// A relative Location is resolved against the URL of the request that produced
+// the response (FinalURL), mirroring net/http's Response.Location.
+// ErrNoLocation is returned when no Location header is present.
+func (r *Response) Location() (*url.URL, error) {
+	lv := r.GetHeader("Location")
+	if lv == "" {
+		return nil, ErrNoLocation
+	}
+	if r.FinalURL != "" {
+		if base, err := url.Parse(r.FinalURL); err == nil {
+			return base.Parse(lv)
+		}
+	}
+	return url.Parse(lv)
+}
+
 // Bytes returns the response body as a byte slice.
 // If the body has already been read, returns the cached bytes.
 // Otherwise reads the body and caches it.
