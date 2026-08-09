@@ -526,11 +526,16 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 				newMethod = "GET"
 			}
 
-			// Create redirect request
+			// Create redirect request. HeaderOrder rides along because the
+			// caller's headers do (see the copy loop below): a header they
+			// slotted explicitly on this hop would otherwise be re-placed by the
+			// preset table or the sorted tail on the next one, so the ordering
+			// has to follow the headers it orders or the two disagree mid-chain.
 			newReq := &transport.Request{
-				Method:  newMethod,
-				URL:     redirectURL,
-				Headers: make(map[string][]string),
+				Method:      newMethod,
+				URL:         redirectURL,
+				Headers:     make(map[string][]string),
+				HeaderOrder: req.HeaderOrder,
 			}
 
 			// Browser-parity scheme/origin policy for the new hop:

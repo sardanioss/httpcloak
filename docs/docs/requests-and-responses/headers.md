@@ -351,3 +351,38 @@ s.SetHeaderOrder(null);
 </Tabs>
 
 Verify the result on [tls.peet.ws/api/all](https://tls.peet.ws/api/all). The `http2.sent_frames[].headers` array shows the exact order on the wire after your override, and that's the only place to confirm the change took effect.
+
+## Per-request header order
+
+`SetHeaderOrder` is session state behind a lock. If one endpoint out of many needs a different order — you're adding a header no browser sends and it has to sit in a specific slot — driving it through the session means set, send, restore, with every concurrent request on that session serialized behind the window where the override is live. Get the interleaving wrong and an unrelated request goes out under someone else's order.
+
+`Request.HeaderOrder` is the per-request form. It's read off the request, never from shared state, so parallel requests each carry their own and no lock is involved:
+
+```go
+s := httpcloak.NewSession("chrome-latest")
+defer s.Close()
+
+resp, err := s.Do(ctx, &httpcloak.Request{
+    Method:  "POST",
+    URL:     "https://api.example.com/v1/checkout",
+    Headers: map[string][]string{"x-api-token": {token}},
+    HeaderOrder: []string{
+        "content-length",
+        "sec-ch-ua",
+        "x-api-token",
+        "content-type",
+        "user-agent",
+        "accept",
+    },
+})
+```
+
+The rules match `SetHeaderOrder` exactly, so everything above still applies — it's a prefix, the preset's table covers what you leave out, and the situational slots keep working underneath. Three things specific to the per-request form:
+
+- **It replaces the session order, it doesn't merge with it.** A request that names an order ignores whatever `SetHeaderOrder` installed; a request that doesn't (nil or empty) uses the session order as before. There's no merge because two prefixes can't be combined without one silently reordering the other.
+- **Nothing is left behind.** The next request without a `HeaderOrder` goes out on the session order, unchanged. `GetHeaderOrder()` never reflects a per-request value.
+- **It carries across followed redirects**, because the headers it orders already do. The redirect path replays your request headers onto each hop (minus the usual scrubs: `Cookie`, `Content-*` on a method change, `Authorization` cross-origin, `Referer` on a downgrade). If the ordering didn't follow them, a header you slotted explicitly on hop 0 would still be sent on hop 1 but re-placed by the preset table or the sorted tail — the header set and its order would disagree mid-chain. If you want a *different* order per hop, turn off automatic redirects with `WithoutRedirects()` and drive the chain yourself.
+
+Names are case-insensitive here, unlike the lowercase-only convention `SetHeaderOrder` documents — the transport lowercases them either way, so you can pass the same casing you use in your `Headers` map.
+
+The same field exists on `client.Request` for the lower-level `client` package. It is Go-only for now: the Python, Node.js, and .NET bindings still expose the session-wide `set_header_order` / `setHeaderOrder` / `SetHeaderOrder` only.
