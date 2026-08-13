@@ -88,10 +88,8 @@ internal sealed class AsyncCallbackManager
 
     /// <summary>
     /// Register a new async request. Returns (callbackId, Task).
-    /// When a CancellationToken is provided, cancellation will cancel the Task
-    /// (the Go goroutine continues but the caller is unblocked immediately).
     /// </summary>
-    public (long CallbackId, Task<Response> Task) RegisterRequest(CancellationToken cancellationToken = default)
+    public (long CallbackId, Task<Response> Task) RegisterRequest()
     {
         var tcs = new TaskCompletionSource<Response>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -100,21 +98,29 @@ internal sealed class AsyncCallbackManager
 
         _pendingRequests[callbackId] = tcs;
 
-        // Wire up cancellation: cancel the Go context and the TCS
-        if (cancellationToken.CanBeCanceled)
-        {
-            var id = callbackId;
-            cancellationToken.Register(() =>
-            {
-                // Cancel the in-flight Go request (cancels context.Context → aborts DNS/TCP/TLS/HTTP)
-                Native.CancelRequest(id);
-                // Cancel the C# Task so the caller is unblocked immediately
-                if (_pendingRequests.TryRemove(id, out var removed))
-                    removed.TrySetCanceled(cancellationToken);
-            });
-        }
-
         return (callbackId, tcs.Task);
+    }
+
+    public void RegisterCancellation(long callbackId, Task<Response> task, CancellationToken cancellationToken)
+    {
+        if (!cancellationToken.CanBeCanceled)
+            return;
+
+        var registration = cancellationToken.Register(() =>
+        {
+            if (_pendingRequests.TryRemove(callbackId, out var removed))
+            {
+                removed.TrySetCanceled(cancellationToken);
+                Native.CancelRequest(callbackId);
+                Native.UnregisterCallback(callbackId);
+            }
+        });
+
+        _ = task.ContinueWith(
+            _ => registration.Dispose(),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 }
 
@@ -827,6 +833,8 @@ public sealed class Session : IDisposable
     public Task<Response> GetAsync(string url, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false)
     {
         ThrowIfDisposed();
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromCanceled<Response>(cancellationToken);
 
         url = AddParamsToUrl(url, parameters);
         headers = ApplyAuth(headers, auth);
@@ -849,8 +857,9 @@ public sealed class Session : IDisposable
             ? JsonSerializer.Serialize(options, JsonContext.Relaxed.RequestOptions)
             : null;
 
-        var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest(cancellationToken);
+        var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest();
         Native.GetAsync(_handle, url, optionsJson, callbackId);
+        AsyncCallbackManager.Instance.RegisterCancellation(callbackId, task, cancellationToken);
 
         return task;
     }
@@ -868,6 +877,8 @@ public sealed class Session : IDisposable
     public Task<Response> PostAsync(string url, string? body = null, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false)
     {
         ThrowIfDisposed();
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromCanceled<Response>(cancellationToken);
 
         url = AddParamsToUrl(url, parameters);
         headers = ApplyAuth(headers, auth);
@@ -905,8 +916,9 @@ public sealed class Session : IDisposable
             ? JsonSerializer.Serialize(options, JsonContext.Relaxed.RequestOptions)
             : null;
 
-        var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest(cancellationToken);
+        var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest();
         Native.PostAsync(_handle, url, wireBody, optionsJson, callbackId);
+        AsyncCallbackManager.Instance.RegisterCancellation(callbackId, task, cancellationToken);
 
         return task;
     }
@@ -951,6 +963,8 @@ public sealed class Session : IDisposable
     public Task<Response> RequestAsync(string method, string url, string? body = null, Dictionary<string, string>? headers = null, int? timeout = null, (string, string)? auth = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false)
     {
         ThrowIfDisposed();
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromCanceled<Response>(cancellationToken);
 
         url = AddParamsToUrl(url, parameters);
         headers = ApplyAuth(headers, auth);
@@ -973,8 +987,9 @@ public sealed class Session : IDisposable
 
         string requestJson = JsonSerializer.Serialize(request, JsonContext.Relaxed.RequestConfig);
 
-        var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest(cancellationToken);
+        var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest();
         Native.RequestAsync(_handle, requestJson, callbackId);
+        AsyncCallbackManager.Instance.RegisterCancellation(callbackId, task, cancellationToken);
 
         return task;
     }
@@ -1048,6 +1063,8 @@ public sealed class Session : IDisposable
     public Task<Response> RequestBinaryAsync(string method, string url, byte[] body, Dictionary<string, string>? headers = null, int? timeout = null, (string, string)? auth = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false)
     {
         ThrowIfDisposed();
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromCanceled<Response>(cancellationToken);
 
         url = AddParamsToUrl(url, parameters);
         headers = ApplyAuth(headers, auth);
@@ -1070,8 +1087,9 @@ public sealed class Session : IDisposable
 
         string requestJson = JsonSerializer.Serialize(request, JsonContext.Relaxed.RequestConfig);
 
-        var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest(cancellationToken);
+        var (callbackId, task) = AsyncCallbackManager.Instance.RegisterRequest();
         Native.RequestAsync(_handle, requestJson, callbackId);
+        AsyncCallbackManager.Instance.RegisterCancellation(callbackId, task, cancellationToken);
 
         return task;
     }
