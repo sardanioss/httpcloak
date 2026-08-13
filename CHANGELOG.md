@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Response.Location()` resolves the redirect target the way `net/http` does**: the standard library's `http.Response` has a `Location()` method that parses the `Location` header into a `*url.URL` and resolves it against the request URL, so a relative `/login` comes back as the full `https://host/login`. httpcloak responses only exposed the raw header string, which left anyone inspecting a 3xx with redirects disabled to re-implement that resolution by hand. The `Response` types in the root, `client`, and `transport` packages now carry the same method: it parses the header, resolves a relative target against the URL that produced the response (`FinalURL`), and returns the package's `ErrNoLocation` sentinel when no `Location` header is present — matching `net/http` semantics exactly, which is locked by a parity test that runs the same cases through both implementations.
+
 ## [1.6.9] - 2026-08-08
 
 ### Added
