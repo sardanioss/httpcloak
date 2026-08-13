@@ -8,10 +8,12 @@ import (
 	"math/rand"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"io"
 
+	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/transport"
@@ -48,6 +50,107 @@ type QUICConn struct {
 	UseCount   int64
 	mu         sync.Mutex
 	closed     bool
+
+	// Same lifecycle state as Conn — see the comments there. HTTP3RT.Close()
+	// tears down every stream underneath this transport at once, so an idle
+	// reap during a download is just as fatal here (issue #83).
+	inFlight       int32
+	closeRequested bool
+	lastProgress   atomic.Int64
+}
+
+// release marks one request as finished with the connection. If a close was
+// deferred because requests were still streaming, it happens here. This is the
+// ONLY place inFlight is decremented.
+func (c *QUICConn) release() {
+	c.mu.Lock()
+	c.inFlight--
+	c.LastUsedAt = time.Now()
+	shouldClose := c.closeRequested && c.inFlight <= 0
+	c.mu.Unlock()
+
+	if shouldClose {
+		c.Close()
+	}
+}
+
+// requestClose closes the connection now if nothing is using it, otherwise
+// defers the close until the last in-flight response body is done.
+func (c *QUICConn) requestClose() {
+	c.mu.Lock()
+	if c.inFlight > 0 {
+		c.closeRequested = true
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	c.Close()
+}
+
+// RoundTrip sends a request on this connection and keeps it marked in-use for
+// the lifetime of the response body. See (*Conn).RoundTrip for why the refcount
+// lives here and not in GetConn, and why UseCount is not bumped.
+func (c *QUICConn) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.mu.Lock()
+	// Retired or dead: reject BEFORE anything is written, so the caller can
+	// retry on a fresh connection with the request body still intact.
+	if c.closed || c.closeRequested || c.HTTP3RT == nil {
+		c.mu.Unlock()
+		return nil, ErrConnRetired
+	}
+	c.inFlight++
+	c.LastUsedAt = time.Now()
+	rt := c.HTTP3RT
+	c.mu.Unlock()
+	c.lastProgress.Store(time.Now().UnixNano())
+
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		c.release()
+		return nil, err
+	}
+
+	c.mu.Lock()
+	c.LastUsedAt = time.Now()
+	c.mu.Unlock()
+	c.lastProgress.Store(time.Now().UnixNano())
+
+	if resp.Body == nil {
+		c.release()
+	} else {
+		resp.Body = &quicConnBodyGuard{ReadCloser: resp.Body, conn: c}
+	}
+	return resp, nil
+}
+
+// quicConnBodyGuard is the QUICConn twin of connBodyGuard.
+type quicConnBodyGuard struct {
+	io.ReadCloser
+	conn *QUICConn
+	once sync.Once
+}
+
+func (g *quicConnBodyGuard) Read(p []byte) (int, error) {
+	n, err := g.ReadCloser.Read(p)
+	if n > 0 {
+		g.conn.lastProgress.Store(time.Now().UnixNano())
+	}
+	if err != nil {
+		// io.EOF included: the transfer is over, stop holding the connection
+		// even if the caller forgets to Close.
+		g.release()
+	}
+	return n, err
+}
+
+func (g *quicConnBodyGuard) Close() error {
+	err := g.ReadCloser.Close()
+	g.release()
+	return err
+}
+
+func (g *quicConnBodyGuard) release() {
+	g.once.Do(g.conn.release)
 }
 
 // IsHealthy checks if the QUIC connection is still usable
@@ -151,10 +254,13 @@ type QUICHostPool struct {
 	sessionCache tls.ClientSessionCache
 
 	// Configuration
-	maxConns           int
-	maxIdleTime        time.Duration
-	maxConnAge         time.Duration
-	connectTimeout     time.Duration
+	maxConns    int
+	maxIdleTime time.Duration
+	maxConnAge  time.Duration
+	// abandonedBodyTimeout bounds how long a connection may be held by a
+	// response body that has produced no bytes.
+	abandonedBodyTimeout time.Duration
+	connectTimeout       time.Duration
 	echConfig          []byte // Custom ECH configuration
 	echConfigDomain    string // Domain to fetch ECH config from
 	disableECH         bool   // Disable automatic ECH fetching (Chrome doesn't always use ECH)
@@ -205,6 +311,7 @@ func NewQUICHostPoolWithCachedSpec(host, sniHost, port string, preset *fingerpri
 		maxConns:              0, // 0 = unlimited
 		maxIdleTime:           90 * time.Second,
 		maxConnAge:            5 * time.Minute,
+		abandonedBodyTimeout:  10 * time.Minute,
 		connectTimeout:        30 * time.Second,
 		cachedClientHelloSpec: cachedSpec,                       // Use manager's cached spec for consistent TLS shuffle
 		cachedPSKSpec:         cachedPSKSpec,                    // PSK spec for session resumption
@@ -229,13 +336,88 @@ func (p *QUICHostPool) SetLocalAddr(addr string) {
 	p.localAddr = addr
 }
 
+// isConnUsable reports whether a connection may be handed out for a NEW request.
+// Split from isConnDestroyable for the same reason as in HostPool: "too old to
+// start another request on" is not "safe to close" (issue #83).
+func (p *QUICHostPool) isConnUsable(conn *QUICConn) bool {
+	conn.mu.Lock()
+	closed := conn.closed
+	retired := conn.closeRequested
+	createdAt := conn.CreatedAt
+	lastUsedAt := conn.LastUsedAt
+	inFlight := conn.inFlight
+	rt := conn.HTTP3RT
+	quicConn := conn.QUICConn
+	conn.mu.Unlock()
+
+	if closed || retired {
+		return false
+	}
+	if time.Since(createdAt) > p.maxConnAge {
+		return false
+	}
+	if inFlight == 0 && time.Since(lastUsedAt) > p.maxIdleTime {
+		return false
+	}
+	if quicConn != nil {
+		select {
+		case <-quicConn.Context().Done():
+			return false
+		default:
+		}
+	}
+	return rt != nil
+}
+
+// isConnDestroyable reports whether a connection can be closed right now.
+// Never while requests are on it, except past the abandoned-body bound.
+func (p *QUICHostPool) isConnDestroyable(conn *QUICConn) bool {
+	conn.mu.Lock()
+	closed := conn.closed
+	inFlight := conn.inFlight
+	createdAt := conn.CreatedAt
+	lastUsedAt := conn.LastUsedAt
+	rt := conn.HTTP3RT
+	quicConn := conn.QUICConn
+	conn.mu.Unlock()
+
+	if closed {
+		return true
+	}
+
+	if inFlight > 0 {
+		last := lastUsedAt
+		if progress := conn.lastProgress.Load(); progress > 0 {
+			if t := time.Unix(0, progress); t.After(last) {
+				last = t
+			}
+		}
+		return time.Since(last) > p.abandonedBodyTimeout
+	}
+
+	if rt == nil {
+		return true
+	}
+	if quicConn != nil {
+		select {
+		case <-quicConn.Context().Done():
+			return true
+		default:
+		}
+	}
+	if time.Since(createdAt) > p.maxConnAge {
+		return true
+	}
+	return time.Since(lastUsedAt) > p.maxIdleTime
+}
+
 // GetConn returns an available QUIC connection or creates a new one
 func (p *QUICHostPool) GetConn(ctx context.Context) (*QUICConn, error) {
 	p.mu.Lock()
 
 	// First, try to find an existing healthy connection
 	for i, conn := range p.connections {
-		if conn.IsHealthy() && conn.IdleTime() < p.maxIdleTime && conn.Age() < p.maxConnAge {
+		if p.isConnUsable(conn) {
 			// Move to end (LRU)
 			p.connections = append(p.connections[:i], p.connections[i+1:]...)
 			p.connections = append(p.connections, conn)
@@ -245,19 +427,29 @@ func (p *QUICHostPool) GetConn(ctx context.Context) (*QUICConn, error) {
 		}
 	}
 
-	// Clean up unhealthy connections
-	healthy := make([]*QUICConn, 0, len(p.connections))
+	// Clean up connections we can no longer use. Unusable-but-streaming conns
+	// are retired, not closed, and stay tracked in p.connections so Stats(),
+	// a later CloseIdle() pass and QUICHostPool.Close() can all still reach
+	// them (dropping them here is how an fd escapes client.Close()).
+	kept := make([]*QUICConn, 0, len(p.connections))
+	serving := 0
 	for _, conn := range p.connections {
-		if conn.IsHealthy() && conn.Age() < p.maxConnAge {
-			healthy = append(healthy, conn)
-		} else {
+		if p.isConnDestroyable(conn) {
 			go conn.Close()
+			continue
 		}
+		if p.isConnUsable(conn) {
+			serving++
+		} else {
+			go conn.requestClose()
+		}
+		kept = append(kept, conn)
 	}
-	p.connections = healthy
+	p.connections = kept
 
-	// Check if we can create a new connection (0 = unlimited)
-	if p.maxConns > 0 && len(p.connections) >= p.maxConns {
+	// Check if we can create a new connection (0 = unlimited). Counts
+	// connections that can still serve a request; see HostPool.GetConn.
+	if p.maxConns > 0 && serving >= p.maxConns {
 		p.mu.Unlock()
 		return nil, ErrNoConnections
 	}
@@ -501,18 +693,26 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	return conn, nil
 }
 
-// CloseIdle closes connections that have been idle too long
+// CloseIdle closes connections that have been idle too long.
+//
+// Destroyable, NOT "not usable": HTTP3RT.Close() kills every stream under this
+// transport, so reaping a connection whose body is still streaming is the
+// issue #83 failure in its H3 form. Such a connection is retired and kept
+// tracked until its last body finishes or the abandoned-body bound fires.
 func (p *QUICHostPool) CloseIdle() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	active := make([]*QUICConn, 0, len(p.connections))
 	for _, conn := range p.connections {
-		if conn.IdleTime() > p.maxIdleTime || conn.Age() > p.maxConnAge || !conn.IsHealthy() {
+		if p.isConnDestroyable(conn) {
 			go conn.Close()
-		} else {
-			active = append(active, conn)
+			continue
 		}
+		if !p.isConnUsable(conn) {
+			go conn.requestClose()
+		}
+		active = append(active, conn)
 	}
 	p.connections = active
 }

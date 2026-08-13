@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	http "github.com/sardanioss/http"
@@ -177,7 +178,18 @@ func (c *HTTP3Client) Do(ctx context.Context, req *Request) (*Response, error) {
 
 	// Send request via HTTP/3
 	firstByteTime := time.Now()
-	resp, err := conn.HTTP3RT.RoundTrip(httpReq)
+	// conn.RoundTrip keeps the pooled connection busy for the response body's
+	// life, so the reaper cannot close it mid-download (issue #83).
+	resp, err := conn.RoundTrip(httpReq)
+	if errors.Is(err, pool.ErrConnRetired) {
+		// Pre-send rejection only: nothing was written and httpReq's body was
+		// never read, so one retry on a fresh connection is method-safe.
+		conn, err = c.quicManager.GetConn(ctx, host, port)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get QUIC connection: %w", err)
+		}
+		resp, err = conn.RoundTrip(httpReq)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("HTTP/3 request failed: %w", err)
 	}

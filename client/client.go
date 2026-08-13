@@ -49,6 +49,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	http "github.com/sardanioss/http"
 	"io"
@@ -1265,7 +1266,16 @@ func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.R
 	}
 
 	firstByteTime := time.Now()
-	resp, err := conn.HTTP3RT.RoundTrip(httpReq)
+	// See doHTTP2: conn.RoundTrip keeps the connection busy for the body's life.
+	resp, err := conn.RoundTrip(httpReq)
+	if errors.Is(err, pool.ErrConnRetired) {
+		// Pre-send rejection only, so retrying once is method-safe.
+		conn, err = c.quicManager.GetConn(ctx, host, port)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to get QUIC connection: %w", err)
+		}
+		resp, err = conn.RoundTrip(httpReq)
+	}
 	if err != nil {
 		return nil, "", err
 	}
@@ -1292,7 +1302,22 @@ func (c *Client) doHTTP2(ctx context.Context, host, port string, httpReq *http.R
 	}
 
 	firstByteTime := time.Now()
-	resp, err := conn.HTTP2Conn.RoundTrip(httpReq)
+	// conn.RoundTrip (not conn.HTTP2Conn.RoundTrip) holds the pooled connection
+	// busy for the whole life of the response body, so the pool reaper cannot
+	// close the socket underneath a download (issue #83).
+	resp, err := conn.RoundTrip(httpReq)
+	if errors.Is(err, pool.ErrConnRetired) {
+		// The connection was retired between GetConn and RoundTrip. That
+		// sentinel is returned strictly BEFORE anything is written, so httpReq's
+		// body is untouched and one retry on a fresh connection is method-safe.
+		// A second retirement falls through to the generic error path; this
+		// never loops. (Retry borrowed from PR #84.)
+		conn, err = c.poolManager.GetConn(ctx, host, port)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to get connection: %w", err)
+		}
+		resp, err = conn.RoundTrip(httpReq)
+	}
 	if err != nil {
 		return nil, "", fmt.Errorf("request failed: %w", err)
 	}

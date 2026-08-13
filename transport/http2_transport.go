@@ -38,6 +38,14 @@ type HTTP2Transport struct {
 	conns   map[string]*persistentConn
 	connsMu sync.RWMutex
 
+	// retired holds connections evicted from conns while a response body was
+	// still streaming on them. Their close is deferred until the body finishes,
+	// and without this list nothing would ever revisit them: cleanup() only
+	// walks conns, so an evicted connection whose body is never closed would
+	// keep its socket for the process lifetime and Close() could not reclaim it.
+	retired   []*persistentConn
+	retiredMu sync.Mutex
+
 	// dialGroup collapses concurrent dials for the same pool key into a single
 	// connection attempt, so a burst of requests to one host (especially behind
 	// a proxy) opens one connection instead of a storm of N.
@@ -79,6 +87,7 @@ type persistentConn struct {
 	useCount       int64
 	inFlight       int32 // requests still using this conn, including their response bodies
 	closeRequested bool  // close as soon as the last in-flight request finishes
+	closed         bool  // close() has already run
 	sessionResumed bool  // True if TLS session was resumed (faster handshake)
 	tlsVersion     uint16
 	cipherSuite    uint16
@@ -118,6 +127,57 @@ func (c *persistentConn) requestClose() {
 	}
 	c.mu.Unlock()
 	c.close()
+}
+
+// retire evicts a connection that is no longer wanted in the pool.
+//
+// If nothing is using it the socket closes immediately. If a response body is
+// still streaming, the close is deferred until that body finishes AND the
+// connection is tracked in t.retired, so cleanup() can still apply the
+// abandoned-body bound to it and Close() can still reclaim it. Dropping an
+// evicted-but-draining connection on the floor - which is what a bare
+// requestClose() at an eviction site does - leaks the socket, its h2 ClientConn
+// and that connection's reader goroutine for the process lifetime whenever the
+// caller never closes the body.
+func (t *HTTP2Transport) retire(conn *persistentConn) {
+	conn.mu.Lock()
+	deferred := conn.inFlight > 0 && !conn.closed
+	if deferred {
+		conn.closeRequested = true
+	}
+	conn.mu.Unlock()
+
+	if !deferred {
+		conn.close()
+		return
+	}
+
+	t.retiredMu.Lock()
+	t.retired = append(t.retired, conn)
+	t.retiredMu.Unlock()
+}
+
+// sweepRetired closes evicted connections whose bodies have finished, and
+// applies the abandoned-body bound to those whose caller walked away.
+func (t *HTTP2Transport) sweepRetired() {
+	t.retiredMu.Lock()
+	defer t.retiredMu.Unlock()
+
+	kept := t.retired[:0]
+	for _, conn := range t.retired {
+		conn.mu.Lock()
+		done := conn.closed
+		conn.mu.Unlock()
+		if done {
+			continue // release() already fired the deferred close
+		}
+		if t.isConnDestroyable(conn) {
+			go conn.close()
+			continue
+		}
+		kept = append(kept, conn)
+	}
+	t.retired = kept
 }
 
 // connBodyGuard keeps a pooled connection marked in-use for as long as the
@@ -342,7 +402,7 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 
 	// Close old unusable connection and remove from map
 	if exists {
-		go conn.requestClose()
+		go t.retire(conn)
 		delete(t.conns, key)
 	}
 	t.connsMu.Unlock()
@@ -1217,7 +1277,7 @@ func (t *HTTP2Transport) removeConn(key string) {
 	if exists && conn != nil {
 		// Deferred: another request may still be streaming on this connection
 		// even though the caller that triggered the removal hit an error.
-		go conn.requestClose()
+		go t.retire(conn)
 	}
 }
 
@@ -1227,6 +1287,7 @@ func (c *persistentConn) close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.closed = true
 	if c.h2Conn != nil {
 		c.h2Conn.Close()
 	}
@@ -1263,6 +1324,10 @@ func (t *HTTP2Transport) cleanup() {
 			go conn.close()
 		}
 	}
+
+	// Evicted-but-draining connections live outside t.conns; they need the same
+	// bound applied or they would never be revisited.
+	t.sweepRetired()
 }
 
 // Close shuts down the transport
@@ -1281,6 +1346,16 @@ func (t *HTTP2Transport) Close() {
 		go conn.close()
 	}
 	t.conns = nil
+
+	// Connections evicted while still streaming are not in t.conns. Shutdown is
+	// unconditional, so close them here too rather than leaving their sockets
+	// behind after the transport is gone.
+	t.retiredMu.Lock()
+	for _, conn := range t.retired {
+		go conn.close()
+	}
+	t.retired = nil
+	t.retiredMu.Unlock()
 }
 
 // Refresh closes all connections but keeps the TLS session cache intact.
@@ -1487,7 +1562,7 @@ func (t *HTTP2Transport) Connect(ctx context.Context, host, port string) error {
 		// Close the old one if not usable. Deferred, because "not usable for a
 		// new request" does not mean nothing is streaming on it.
 		if !t.isConnUsable(oldConn) {
-			go oldConn.requestClose()
+			go t.retire(oldConn)
 		} else {
 			// Old one is still good, close the new one we just created
 			go conn.close()
