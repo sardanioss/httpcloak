@@ -2352,6 +2352,41 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 	return append(order, rest...)
 }
 
+// presetSendsSecFetch reports whether a preset describes a client that sends
+// Sec-Fetch-* metadata at all.
+//
+// The XHR coercion below rewrites Sec-Fetch-* and Accept to keep a *browser*
+// coherent on API-shaped calls. A preset for a non-browser client - okhttp,
+// curl, a native mobile SDK - has no navigation headers to correct, so running
+// the coercion on one does not fix an incoherence, it invents headers that
+// client never sends.
+//
+// The signal is the preset's EMIT SET, not its HPACK position table. The table
+// only says where a header goes if it is sent; the emit set says what is
+// actually sent, which is the thing being suppressed. Reading the table instead
+// leaves a hole: a custom preset that drops Sec-Fetch-* from its emit set while
+// inheriting a browser's position table would still have all of them injected,
+// so the opt-out would silently fail for exactly the preset that asked for it.
+//
+// Every built-in today lists the family in both places, so this changes nothing
+// for any shipped fingerprint. Matching is case-insensitive: HTTP/2 field names
+// are lowercase by definition (RFC 9113 8.2.1) and the built-in tables follow
+// that, but a hand-written custom preset need not.
+func presetSendsSecFetch(preset *fingerprint.Preset) bool {
+	for _, h := range preset.HeaderOrder {
+		if len(h.Key) >= 10 && strings.EqualFold(h.Key[:10], "sec-fetch-") {
+			return true
+		}
+	}
+	// Presets that carry only the backward-compatible map and no ordered list.
+	for name := range preset.Headers {
+		if len(name) >= 10 && strings.EqualFold(name[:10], "sec-fetch-") {
+			return true
+		}
+	}
+	return false
+}
+
 func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool) {
 	// In TLS-only mode, skip applying preset headers but still set header order
 	if !tlsOnly {
@@ -2380,7 +2415,11 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 		// request is from method, Content-Type, Accept, and any user-supplied
 		// Sec-Fetch-* headers. WAFs like Akamai flag navigation headers on
 		// API endpoints as bot behavior.
-		if sniffXHRMode(httpReq.Method, userHeaders) {
+		//
+		// Skipped for presets that describe a client sending no Sec-Fetch-* at
+		// all; see presetSendsSecFetch for why inferring that from the preset
+		// leaves every browser preset untouched.
+		if presetSendsSecFetch(preset) && sniffXHRMode(httpReq.Method, userHeaders) {
 			// Preserve any explicitly user-supplied Sec-Fetch-Mode/Dest/Site;
 			// the sniff coercion is for "user said nothing, infer XHR" — once
 			// they pin a value (e.g. mode=no-cors, dest=image, site=same-origin)
