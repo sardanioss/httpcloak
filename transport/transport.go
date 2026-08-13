@@ -10,6 +10,7 @@ import (
 	http "github.com/sardanioss/http"
 	"io"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -216,6 +217,28 @@ type Request struct {
 	// trio but tells the session layer to skip the high-entropy hints for this
 	// request. Session-layer concept; the transport does not consult this field.
 	DisableHighEntropyClientHints bool
+
+	// HeaderOrder, when non-empty, is the header order for THIS request only and
+	// fully replaces any order installed session-wide with SetHeaderOrder. It is
+	// read from the request, never from shared state, so concurrent requests can
+	// each carry their own order without locking the transport.
+	//
+	// Same semantics as SetHeaderOrder: the list is a prefix, not a whole-request
+	// replacement. Names you list are emitted first, in this order; every header
+	// you leave out still falls back to the preset's position table and then to a
+	// stable sorted tail — see CompleteHeaderOrder. Naming every header you send
+	// therefore gives you the exact wire order. Names are case-insensitive.
+	//
+	// An empty or nil slice means "no per-request order": the session-wide order
+	// applies. There is no per-request way to say "ignore the session order and
+	// use the bare preset"; pass the preset's own order (Session.GetHeaderOrder
+	// with no custom order set) if you need that.
+	//
+	// The transport applies this to exactly the request it is set on; it has no
+	// concept of a redirect. The session layer, which does, copies it onto the
+	// follow-up request it builds for each hop, matching how it replays the
+	// caller's headers.
+	HeaderOrder []string
 }
 
 // RedirectInfo contains information about a redirect response
@@ -918,6 +941,13 @@ func (t *Transport) SetECHConfigDomain(domain string) {
 // SetHeaderOrder sets a custom header order for all requests.
 // Pass nil or empty slice to reset to preset's default order.
 // Order should contain lowercase header names.
+//
+// The list is a prefix, not a replacement — see CompleteHeaderOrder, which does
+// the assembly.
+//
+// This is session-wide state. To vary the order per request without serializing
+// concurrent callers on it, set Request.HeaderOrder instead; a request that
+// carries one ignores whatever is installed here.
 func (t *Transport) SetHeaderOrder(order []string) {
 	t.customHeaderOrderMu.Lock()
 	defer t.customHeaderOrderMu.Unlock()
@@ -967,6 +997,22 @@ func (t *Transport) getHeaderOrder() []string {
 	t.customHeaderOrderMu.RLock()
 	defer t.customHeaderOrderMu.RUnlock()
 	return t.customHeaderOrder
+}
+
+// effectiveHeaderOrder returns the header order to use for a single request:
+// the request's own HeaderOrder when it sets one, otherwise the session-wide
+// order from SetHeaderOrder.
+//
+// The per-request list wins outright rather than merging with the session list —
+// two prefixes cannot be combined without one silently reordering the other, and
+// a caller who names an order for a request means that order. Normalizing to
+// lowercase is left to CompleteHeaderOrder, which lowercases every name it
+// places, so the request field needs no copy and no lock.
+func (t *Transport) effectiveHeaderOrder(req *Request) []string {
+	if req != nil && len(req.HeaderOrder) > 0 {
+		return req.HeaderOrder
+	}
+	return t.getHeaderOrder()
 }
 
 // getCustomPseudoOrder returns the custom pseudo-header order (from Akamai fingerprint).
@@ -1580,7 +1626,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 
 	// Set preset headers (with ordering for fingerprinting)
 	// Pass "h1" protocol so Chrome presets don't send Priority header on HTTP/1.1
-	applyPresetHeaders(httpReq, snap.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1692,7 +1738,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	}
 
 	// Set preset headers - pass "h1" protocol so Chrome presets don't send Priority header
-	applyPresetHeaders(httpReq, snap.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1811,7 +1857,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, snap.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1945,7 +1991,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, snap.preset, t.getHeaderOrder(), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -2245,6 +2291,67 @@ func isClientHintHeader(key string) bool {
 	return len(key) >= 7 && strings.EqualFold(key[:7], "sec-ch-")
 }
 
+// CompleteHeaderOrder builds a header-order list that names every header the
+// request carries, so none is left to an encoder's map-iteration fallback.
+//
+// The list is assembled in three passes: explicitOrder (the caller's order for
+// this request — Request.HeaderOrder if it names one, else SetHeaderOrder, and
+// empty when there is neither); then presetOrder, so a partial
+// custom list does not cost the caller the preset's ordering for the headers
+// they did not name; then everything still unplaced, sorted by name. An empty
+// explicitOrder needs no special case — pass one falls through and pass two
+// lays down the preset table on its own. Names are lowercased and
+// de-duplicated. userHeaders may be nil when the caller has already merged
+// them into header.
+//
+// Both remainders were previously emitted in Go map order, which is randomised
+// on every range. A header order that differs per request is itself a
+// fingerprint, and a strong one — no browser produces one. Sorted is not what a
+// browser sends either, but it is stable, which is the detectable part.
+func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header, userHeaders map[string][]string) []string {
+	seen := make(map[string]bool, len(explicitOrder)+len(presetOrder)+len(header)+len(userHeaders))
+	order := make([]string, 0, len(explicitOrder)+len(presetOrder)+len(header)+len(userHeaders))
+
+	place := func(name string) {
+		lower := strings.ToLower(name)
+		if lower == "" || seen[lower] {
+			return
+		}
+		seen[lower] = true
+		order = append(order, lower)
+	}
+	for _, name := range explicitOrder {
+		place(name)
+	}
+	for _, name := range presetOrder {
+		place(name)
+	}
+
+	rest := make([]string, 0, len(header)+len(userHeaders))
+	collect := func(name string) {
+		// The ordering keys are internal control entries, not headers, and must
+		// never reach the wire.
+		if strings.EqualFold(name, http.HeaderOrderKey) || strings.EqualFold(name, http.PHeaderOrderKey) {
+			return
+		}
+		lower := strings.ToLower(name)
+		if lower == "" || seen[lower] {
+			return
+		}
+		seen[lower] = true
+		rest = append(rest, lower)
+	}
+	for name := range header {
+		collect(name)
+	}
+	for name := range userHeaders {
+		collect(name)
+	}
+	sort.Strings(rest)
+
+	return append(order, rest...)
+}
+
 func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool) {
 	// In TLS-only mode, skip applying preset headers but still set header order
 	if !tlsOnly {
@@ -2372,11 +2479,7 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 	// fingerprinting bug — when callers added cache-control/content-type/
 	// cookie, the fork couldn't slot them and appended them after `priority`
 	// instead of placing them where real Chrome does.
-	if len(customHeaderOrder) > 0 {
-		httpReq.Header[http.HeaderOrderKey] = customHeaderOrder
-	} else {
-		httpReq.Header[http.HeaderOrderKey] = preset.H2HeaderOrder()
-	}
+	httpReq.Header[http.HeaderOrderKey] = CompleteHeaderOrder(customHeaderOrder, preset.H2HeaderOrder(), httpReq.Header, userHeaders)
 
 	// Set pseudo-header order: custom (Akamai) > preset H2Config > heuristic
 	if len(customPseudoOrder) > 0 {

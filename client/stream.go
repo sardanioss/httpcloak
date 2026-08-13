@@ -157,7 +157,7 @@ func (c *Client) DoStream(ctx context.Context, req *Request) (*StreamResponse, e
 	normalizeRequestWithBody(httpReq, bodyBytes)
 
 	// Apply headers based on FetchMode
-	applyModeHeaders(httpReq, c.preset, req, parsedURL, c.getHeaderOrder())
+	applyModeHeaders(httpReq, c.preset, req, parsedURL, c.effectiveHeaderOrder(req))
 
 	// Apply authentication
 	auth := req.Auth

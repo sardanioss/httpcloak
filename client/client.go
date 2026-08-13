@@ -460,6 +460,21 @@ type Request struct {
 	// details. Off by default: parsing cert fields on every request isn't
 	// free, so opt in per-request rather than paying for it unconditionally.
 	IncludeTLSInfo bool
+
+	// HeaderOrder, when non-empty, sets the header order for this single request
+	// and overrides whatever SetHeaderOrder installed on the client. Nothing is
+	// stored on the client and no lock is taken, so concurrent requests can each
+	// carry a different order.
+	//
+	// The list is a prefix, not a whole-request replacement: headers you name are
+	// emitted first, in this order, and everything you leave out keeps the
+	// preset's own position (then a stable alphabetical tail). Name every header
+	// you send and you get exactly that wire order. Names are case-insensitive.
+	// Empty or nil means the client-wide order applies.
+	//
+	// The order carries across followed redirects, alongside the headers it
+	// orders and the other per-request options the redirect path already carries.
+	HeaderOrder []string
 }
 
 // SetHeader sets a header value, replacing any existing values.
@@ -871,11 +886,11 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	if c.config.TLSOnly {
 		// TLSOnly mode: skip preset headers, only set required Host header
 		// User has full control over HTTP headers
-		applyTLSOnlyHeaders(httpReq, c.preset, req, parsedURL, c.getHeaderOrder())
+		applyTLSOnlyHeaders(httpReq, c.preset, req, parsedURL, c.effectiveHeaderOrder(req))
 	} else {
 		// Normal mode: apply preset headers based on FetchMode
 		// The library is smart: pick a mode, get coherent headers automatically
-		applyModeHeaders(httpReq, c.preset, req, parsedURL, c.getHeaderOrder())
+		applyModeHeaders(httpReq, c.preset, req, parsedURL, c.effectiveHeaderOrder(req))
 	}
 
 	// Apply authentication
@@ -1140,6 +1155,10 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 				FollowRedirects: req.FollowRedirects,
 				MaxRedirects:    req.MaxRedirects,
 				DisableRetry:    true, // Don't retry redirects
+				// Follows carriedHeaders above: a header the caller slotted
+				// explicitly would otherwise be re-placed by the preset table on
+				// the next hop, so the ordering rides along with the headers.
+				HeaderOrder: req.HeaderOrder,
 			}
 
 			// 307/308 preserve body (use cached bytes since original reader was consumed)
@@ -1550,6 +1569,10 @@ func (c *Client) GetUDPProxy() string {
 // SetHeaderOrder sets a custom header order for all requests.
 // Pass nil or empty slice to reset to preset's default order.
 // Order should contain lowercase header names.
+//
+// This is client-wide state. To vary the order per request without serializing
+// concurrent callers on it, set Request.HeaderOrder instead; a request that
+// carries one ignores whatever is installed here.
 func (c *Client) SetHeaderOrder(order []string) {
 	c.customHeaderOrderMu.Lock()
 	defer c.customHeaderOrderMu.Unlock()
@@ -1597,6 +1620,18 @@ func (c *Client) getHeaderOrder() []string {
 	return c.customHeaderOrder
 }
 
+// effectiveHeaderOrder returns the header order for a single request: the
+// request's own HeaderOrder when it sets one, otherwise the client-wide order
+// from SetHeaderOrder. The per-request list wins outright — merging two prefixes
+// would let one silently reorder the other. Lowercasing is left to
+// transport.CompleteHeaderOrder, which normalizes every name it places.
+func (c *Client) effectiveHeaderOrder(req *Request) []string {
+	if req != nil && len(req.HeaderOrder) > 0 {
+		return req.HeaderOrder
+	}
+	return c.getHeaderOrder()
+}
+
 // Stats returns connection pool statistics
 func (c *Client) Stats() map[string]struct {
 	Total    int
@@ -1633,11 +1668,10 @@ func applyTLSOnlyHeaders(httpReq *http.Request, preset *fingerprint.Preset, req 
 	// Use H2HeaderOrder (full HPACK position table) so user-supplied headers
 	// outside the default emit set (cache-control, content-type, cookie, …)
 	// land in their real-Chrome position instead of being appended at the end.
-	if len(customHeaderOrder) > 0 {
-		httpReq.Header[http.HeaderOrderKey] = customHeaderOrder
-	} else {
-		httpReq.Header[http.HeaderOrderKey] = preset.H2HeaderOrder()
-	}
+	// CompleteHeaderOrder names whatever is still left over so it can't fall
+	// through to the encoders' randomised map iteration. User headers are
+	// already merged into httpReq.Header above, hence the nil.
+	httpReq.Header[http.HeaderOrderKey] = transport.CompleteHeaderOrder(customHeaderOrder, preset.H2HeaderOrder(), httpReq.Header, nil)
 
 	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)
 	if order := preset.H2PseudoHeaderOrder(); order != nil {
@@ -1711,12 +1745,9 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 	// Set header order for HTTP/2 and HTTP/3 fingerprinting
 	// Use H2HeaderOrder (full HPACK position table) — see the matching
 	// comment in transport.applyPresetHeaders for the rationale. Caller
-	// override still wins.
-	if len(customHeaderOrder) > 0 {
-		httpReq.Header[http.HeaderOrderKey] = customHeaderOrder
-	} else {
-		httpReq.Header[http.HeaderOrderKey] = preset.H2HeaderOrder()
-	}
+	// override still wins, completed with the preset table and then whatever
+	// is left, so nothing reaches the encoders' randomised map iteration.
+	httpReq.Header[http.HeaderOrderKey] = transport.CompleteHeaderOrder(customHeaderOrder, preset.H2HeaderOrder(), httpReq.Header, nil)
 
 	// Set pseudo-header order from preset H2Config (explicit > heuristic > Chrome default)
 	if order := preset.H2PseudoHeaderOrder(); order != nil {

@@ -200,6 +200,36 @@ type Request struct {
 	// but suppresses the high-entropy hints (full-version-list, arch,
 	// platform-version, bitness, model, wow64) for this single request.
 	DisableHighEntropyClientHints bool
+
+	// HeaderOrder, when non-empty, sets the header order for this single request
+	// and overrides whatever SetHeaderOrder installed on the session. Nothing is
+	// stored on the session and no lock is taken, so concurrent requests can each
+	// carry a different order — which is the point: use this instead of calling
+	// SetHeaderOrder around a request when one endpoint needs a header a browser
+	// never sends slotted in a specific place.
+	//
+	// The list is a prefix, not a whole-request replacement. Headers you name are
+	// emitted first, in this order; everything you leave out keeps the preset's
+	// own position (then a stable alphabetical tail for anything the preset does
+	// not know). Name every header you send and you get exactly that wire order.
+	// Names are case-insensitive. Empty or nil means "no per-request order" — the
+	// session-wide order applies.
+	//
+	// The order carries across followed redirects, because the headers it orders
+	// do: the session replays your request headers onto each hop, so a header you
+	// slotted explicitly here keeps that slot for the whole chain instead of being
+	// re-placed by the preset table on hop two.
+	//
+	//	resp, err := s.Do(ctx, &httpcloak.Request{
+	//	    Method:  "POST",
+	//	    URL:     "https://api.example.com/v1/checkout",
+	//	    Headers: map[string][]string{"x-api-token": {tok}},
+	//	    HeaderOrder: []string{
+	//	        "content-length", "sec-ch-ua", "x-api-token",
+	//	        "content-type", "user-agent", "accept",
+	//	    },
+	//	})
+	HeaderOrder []string
 }
 
 // RedirectInfo contains information about a redirect response
@@ -974,6 +1004,7 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
+		HeaderOrder:                   req.HeaderOrder,
 		Timeout:                       req.Timeout,
 	}
 
@@ -1020,6 +1051,7 @@ func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Re
 		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
+		HeaderOrder:                   req.HeaderOrder,
 		Timeout:                       req.Timeout,
 	}
 
@@ -1125,6 +1157,16 @@ func (s *Session) GetUDPProxy() string {
 // SetHeaderOrder sets a custom header order for all requests.
 // Pass nil or empty slice to reset to preset's default order.
 // Order should contain lowercase header names.
+//
+// The list is a prefix, not a replacement: the headers named here lead in the
+// order given, the preset's own table then covers whatever they did not name,
+// and anything still unplaced follows sorted by name. A partial list therefore
+// costs nothing for the headers it leaves out.
+//
+// This mutates shared session state, so it is the wrong tool when only one
+// request needs a different order — callers would have to serialize around it.
+// Set Request.HeaderOrder instead: it applies to that request alone and ignores
+// whatever is installed here.
 func (s *Session) SetHeaderOrder(order []string) {
 	s.inner.SetHeaderOrder(order)
 }
@@ -1358,6 +1400,7 @@ func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, 
 		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
+		HeaderOrder:                   req.HeaderOrder,
 		Timeout:                       req.Timeout,
 	}
 
