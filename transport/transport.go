@@ -644,6 +644,18 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 		}
 	}
 
+	// Same for the caller's certificate verification hooks. Rebuilding the
+	// transports must not quietly drop them: a caller that installed pinning and
+	// then rotated proxy or preset would go back to default verification with no
+	// error and no way to notice.
+	if t.tlsVerify != nil {
+		newH1.SetTLSVerify(t.tlsVerify)
+		newH2.SetTLSVerify(t.tlsVerify)
+		if newH3 != nil {
+			newH3.SetTLSVerify(t.tlsVerify)
+		}
+	}
+
 	// Publish atomically; capture the old transports to close after unlocking.
 	t.fieldsMu.Lock()
 	oldH1, oldH2, oldH3 := t.h1Transport, t.h2Transport, t.h3Transport
@@ -724,6 +736,18 @@ func (t *Transport) SetPreset(presetName string) {
 		newH2.SetInsecureSkipVerify(true)
 		if newH3 != nil {
 			newH3.SetInsecureSkipVerify(true)
+		}
+	}
+
+	// Same for the caller's certificate verification hooks. Rebuilding the
+	// transports must not quietly drop them: a caller that installed pinning and
+	// then rotated proxy or preset would go back to default verification with no
+	// error and no way to notice.
+	if t.tlsVerify != nil {
+		newH1.SetTLSVerify(t.tlsVerify)
+		newH2.SetTLSVerify(t.tlsVerify)
+		if newH3 != nil {
+			newH3.SetTLSVerify(t.tlsVerify)
 		}
 	}
 

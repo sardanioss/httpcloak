@@ -262,9 +262,10 @@ func (t *HTTP2Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Make request
 	resp, err := conn.h2Conn.RoundTrip(req)
 	if err != nil {
-		conn.mu.Lock()
-		conn.inFlight--
-		conn.mu.Unlock()
+		// release(), not a bare decrement: if this conn was evicted while the
+		// request was in flight its close was deferred, and only release()
+		// fires it once the count reaches zero.
+		conn.release()
 
 		// Connection might be dead, remove it and retry once
 		t.removeConn(key)
@@ -285,9 +286,7 @@ func (t *HTTP2Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		resp, err = conn.h2Conn.RoundTrip(req)
 		if err != nil {
-			conn.mu.Lock()
-			conn.inFlight--
-			conn.mu.Unlock()
+			conn.release()
 			t.removeConn(key)
 			return nil, err
 		}
