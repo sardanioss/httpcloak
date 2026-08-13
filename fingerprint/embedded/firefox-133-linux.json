@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "preset": {
+    "name": "firefox-133-linux",
+    "based_on": "firefox-133",
+    "headers": {
+      "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "preset": {
+    "name": "firefox-148-macos",
+    "based_on": "firefox-148",
+    "headers": {
+      "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
+    }
+  }
+}

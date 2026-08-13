@@ -69,24 +69,24 @@ type HeaderPair struct {
 
 // Preset represents a browser fingerprint configuration
 type Preset struct {
-	Name              string
-	ClientHelloID     tls.ClientHelloID // For TCP/TLS (HTTP/1.1, HTTP/2)
-	PSKClientHelloID  tls.ClientHelloID // For TCP/TLS with PSK (session resumption)
-	QUICClientHelloID tls.ClientHelloID // For QUIC/HTTP/3 (different TLS extensions)
+	Name                 string
+	ClientHelloID        tls.ClientHelloID // For TCP/TLS (HTTP/1.1, HTTP/2)
+	PSKClientHelloID     tls.ClientHelloID // For TCP/TLS with PSK (session resumption)
+	QUICClientHelloID    tls.ClientHelloID // For QUIC/HTTP/3 (different TLS extensions)
 	QUICPSKClientHelloID tls.ClientHelloID // For QUIC/HTTP/3 with PSK (session resumption)
-	UserAgent         string
-	Headers           map[string]string // For backward compatibility
-	HeaderOrder       []HeaderPair      // Ordered headers for HTTP/2
-	ClientHints       ClientHintsProfile // High-entropy UA client hint overrides; empty fields are derived from sec-ch-ua (see Preset.ResolveClientHints)
-	HTTP2Settings     HTTP2Settings
-	TCPFingerprint    TCPFingerprint
-	SupportHTTP3      bool
-	DisableHTTP2      bool // When true, auto mode skips HTTP/2 and goes straight to HTTP/1.1 (zero value = H2 enabled)
-	H2Config          *H2FingerprintConfig // nil = Chrome defaults for all H2 fingerprinting
-	H3Config          *H3FingerprintConfig // nil = Chrome defaults for all H3/QUIC fingerprinting
-	JA3               string               // JA3 fingerprint string. When set, parsed fresh per connection instead of using ClientHelloID.
-	JA3Extras         *JA3Extras           // Supplements JA3 parsing. nil = Chrome defaults.
-	BasedOn           string               // For custom presets: name of the parent preset (used by inheritance-loop detection). Empty for built-ins.
+	UserAgent            string
+	Headers              map[string]string  // For backward compatibility
+	HeaderOrder          []HeaderPair       // Ordered headers for HTTP/2
+	ClientHints          ClientHintsProfile // High-entropy UA client hint overrides; empty fields are derived from sec-ch-ua (see Preset.ResolveClientHints)
+	HTTP2Settings        HTTP2Settings
+	TCPFingerprint       TCPFingerprint
+	SupportHTTP3         bool
+	DisableHTTP2         bool                 // When true, auto mode skips HTTP/2 and goes straight to HTTP/1.1 (zero value = H2 enabled)
+	H2Config             *H2FingerprintConfig // nil = Chrome defaults for all H2 fingerprinting
+	H3Config             *H3FingerprintConfig // nil = Chrome defaults for all H3/QUIC fingerprinting
+	JA3                  string               // JA3 fingerprint string. When set, parsed fresh per connection instead of using ClientHelloID.
+	JA3Extras            *JA3Extras           // Supplements JA3 parsing. nil = Chrome defaults.
+	BasedOn              string               // For custom presets: name of the parent preset (used by inheritance-loop detection). Empty for built-ins.
 
 	// SignatureAlgorithms, when non-empty, replaces the signature_algorithms
 	// extension emitted on TCP (HTTP/1.1 + HTTP/2), on top of whatever base spec
@@ -353,21 +353,21 @@ func uint8ToASCII(v uint8) string {
 // for presets that have NoRFC7540Priorities set). Individual nil fields fall back
 // to Chrome defaults independently.
 type H3FingerprintConfig struct {
-	QPACKMaxTableCapacity    *uint64 // nil = 65536 (Chrome). Safari heuristic fallback.
-	QPACKBlockedStreams      *uint64 // nil = 100
-	MaxFieldSectionSize      *uint64 // nil = 262144 (Chrome). 0 to omit (Safari).
-	EnableDatagrams          *bool   // nil = true (Chrome). Safari heuristic fallback.
-	QUICInitialPacketSize    *uint16 // nil = 1250 (Chrome). MASQUE overrides to 1350.
+	QPACKMaxTableCapacity     *uint64 // nil = 65536 (Chrome). Safari heuristic fallback.
+	QPACKBlockedStreams       *uint64 // nil = 100
+	MaxFieldSectionSize       *uint64 // nil = 262144 (Chrome). 0 to omit (Safari).
+	EnableDatagrams           *bool   // nil = true (Chrome). Safari heuristic fallback.
+	QUICInitialPacketSize     *uint16 // nil = 1250 (Chrome). MASQUE overrides to 1350.
 	QUICMaxIncomingStreams    *int64  // nil = 100
 	QUICMaxIncomingUniStreams *int64  // nil = 103
-	QUICAllow0RTT            *bool   // nil = true
-	QUICChromeStyleInitial   *bool   // nil = true
-	QUICDisableHelloScramble *bool   // nil = true
-	QUICTransportParamOrder  string  // "chrome"/"random". "" = "chrome".
-	QUICConnectionIDLength   *int    // nil = 0 (Chrome empty SCID). Firefox uses 8.
-	QUICMaxDatagramFrameSize *uint64 // nil = 65536 (Chrome). 0 to use quic-go default (16383).
-	MaxResponseHeaderBytes   *uint64 // nil = 262144
-	SendGreaseFrames         *bool   // nil = true
+	QUICAllow0RTT             *bool   // nil = true
+	QUICChromeStyleInitial    *bool   // nil = true
+	QUICDisableHelloScramble  *bool   // nil = true
+	QUICTransportParamOrder   string  // "chrome"/"random". "" = "chrome".
+	QUICConnectionIDLength    *int    // nil = 0 (Chrome empty SCID). Firefox uses 8.
+	QUICMaxDatagramFrameSize  *uint64 // nil = 65536 (Chrome). 0 to use quic-go default (16383).
+	MaxResponseHeaderBytes    *uint64 // nil = 262144
+	SendGreaseFrames          *bool   // nil = true
 
 	// QUIC flow-control windows. quic-go translates these to wire transport
 	// parameters initial_max_data (4) and initial_max_stream_data_* (5/6/7).
@@ -831,7 +831,7 @@ func Chrome133() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: false, // Legacy preset, no proper QUIC fingerprint
+		SupportHTTP3:   false, // Legacy preset, no proper QUIC fingerprint
 	}
 }
 
@@ -888,7 +888,7 @@ func Chrome141() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: false, // Legacy preset, no proper QUIC fingerprint
+		SupportHTTP3:   false, // Legacy preset, no proper QUIC fingerprint
 	}
 }
 
@@ -932,7 +932,7 @@ func Firefox133() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       firefoxH2Config(),
-		SupportHTTP3: false, // No Firefox QUIC fingerprint in utls
+		SupportHTTP3:   false, // No Firefox QUIC fingerprint in utls
 	}
 }
 
@@ -980,8 +980,8 @@ func Firefox148() *Preset {
 				tls.CertCompressionBrotli,
 				tls.CertCompressionZstd,
 			},
-			RecordSizeLimit:  0x4001,
-			KeyShareCurves:   3, // Firefox sends key shares for X25519MLKEM768, X25519, P-256
+			RecordSizeLimit: 0x4001,
+			KeyShareCurves:  3, // Firefox sends key shares for X25519MLKEM768, X25519, P-256
 		},
 		UserAgent: firefoxUA,
 		Headers: map[string]string{
@@ -1024,6 +1024,59 @@ func Firefox148() *Preset {
 		H2Config:       firefoxH2Config(),
 		SupportHTTP3:   false, // No Firefox QUIC fingerprint in utls
 	}
+}
+
+// Firefox133Windows returns Firefox 133 on Windows. Firefox has no UA Client
+// Hints and NSS emits the same ClientHello on every OS, so a platform variant
+// differs from the auto-detected base in exactly one place: the OS token of the
+// User-Agent. The variant presets live in embedded JSON (based_on the auto base,
+// user_agent override only); this falls back to the auto-detected base if the
+// JSON didn't load, mirroring the Chrome 150 accessors.
+func Firefox133Windows() *Preset {
+	if p := LookupCustom("firefox-133-windows"); p != nil {
+		return p
+	}
+	return Firefox133()
+}
+
+// Firefox133Linux returns Firefox 133 on Linux. See Firefox133Windows.
+func Firefox133Linux() *Preset {
+	if p := LookupCustom("firefox-133-linux"); p != nil {
+		return p
+	}
+	return Firefox133()
+}
+
+// Firefox133macOS returns Firefox 133 on macOS. See Firefox133Windows.
+func Firefox133macOS() *Preset {
+	if p := LookupCustom("firefox-133-macos"); p != nil {
+		return p
+	}
+	return Firefox133()
+}
+
+// Firefox148Windows returns Firefox 148 on Windows. See Firefox133Windows.
+func Firefox148Windows() *Preset {
+	if p := LookupCustom("firefox-148-windows"); p != nil {
+		return p
+	}
+	return Firefox148()
+}
+
+// Firefox148Linux returns Firefox 148 on Linux. See Firefox133Windows.
+func Firefox148Linux() *Preset {
+	if p := LookupCustom("firefox-148-linux"); p != nil {
+		return p
+	}
+	return Firefox148()
+}
+
+// Firefox148macOS returns Firefox 148 on macOS. See Firefox133Windows.
+func Firefox148macOS() *Preset {
+	if p := LookupCustom("firefox-148-macos"); p != nil {
+		return p
+	}
+	return Firefox148()
 }
 
 // Chrome143 returns the Chrome 143 fingerprint preset with platform-specific TLS fingerprint
@@ -1096,7 +1149,7 @@ func Chrome143() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1155,7 +1208,7 @@ func Chrome143Windows() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1214,7 +1267,7 @@ func Chrome143Linux() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1273,7 +1326,7 @@ func Chrome143macOS() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1342,7 +1395,7 @@ func Chrome144() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1397,7 +1450,7 @@ func Chrome144Windows() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1452,7 +1505,7 @@ func Chrome144Linux() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1507,7 +1560,7 @@ func Chrome144macOS() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1576,7 +1629,7 @@ func Chrome145() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1631,7 +1684,7 @@ func Chrome145Windows() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1686,7 +1739,7 @@ func Chrome145Linux() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1741,7 +1794,7 @@ func Chrome145macOS() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1810,7 +1863,7 @@ func Chrome146() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1865,7 +1918,7 @@ func Chrome146Windows() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1920,7 +1973,7 @@ func Chrome146Linux() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -1975,7 +2028,7 @@ func Chrome146macOS() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2024,7 +2077,7 @@ func Safari18() *Preset {
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
 		H3Config:       safariH3Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2254,6 +2307,7 @@ func Chrome149() *Preset {
 //     q13d0311h3_55b375c5d22e_653d80c3fe9d).
 //   - User-Agent bump and a sec-ch-ua brand rotation (GREASE brand became
 //     "Not;A=Brand" v="8", moved to first position).
+//
 // Embedded JSON overrides just those; everything else inherits. Falls back to
 // Chrome149Windows if the JSON didn't load.
 func Chrome150Windows() *Preset {
@@ -2424,7 +2478,7 @@ func IOSChrome143() *Preset {
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
 		H3Config:       safariH3Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2475,7 +2529,7 @@ func IOSChrome144() *Preset {
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
 		H3Config:       safariH3Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2525,7 +2579,7 @@ func IOSChrome145() *Preset {
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
 		H3Config:       safariH3Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2571,7 +2625,7 @@ func IOSSafari17() *Preset {
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
 		H3Config:       safariH3Config(),
-		SupportHTTP3: false, // iOS Safari 17 doesn't have proper H3 TLS spec
+		SupportHTTP3:   false, // iOS Safari 17 doesn't have proper H3 TLS spec
 	}
 }
 
@@ -2620,7 +2674,7 @@ func IOSSafari18() *Preset {
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
 		H3Config:       safariH3Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2633,7 +2687,7 @@ func AndroidChrome143() *Preset {
 		PSKClientHelloID:     tls.HelloChrome_143_Linux_PSK, // PSK for session resumption
 		QUICClientHelloID:    tls.HelloChrome_143_QUIC,      // QUIC for HTTP/3
 		QUICPSKClientHelloID: tls.HelloChrome_143_QUIC_PSK,  // QUIC PSK for session resumption
-		UserAgent:        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36",
+		UserAgent:            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36",
 		Headers: map[string]string{
 			// Low-entropy Client Hints for mobile
 			"sec-ch-ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
@@ -2681,7 +2735,7 @@ func AndroidChrome143() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2693,7 +2747,7 @@ func AndroidChrome144() *Preset {
 		PSKClientHelloID:     tls.HelloChrome_144_Linux_PSK,
 		QUICClientHelloID:    tls.HelloChrome_144_QUIC,
 		QUICPSKClientHelloID: tls.HelloChrome_144_QUIC_PSK,
-		UserAgent:        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36",
+		UserAgent:            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36",
 		Headers: map[string]string{
 			"sec-ch-ua":                 `"Not(A:Brand";v="8", "Chromium";v="144", "Google Chrome";v="144"`,
 			"sec-ch-ua-mobile":          "?1",
@@ -2736,7 +2790,7 @@ func AndroidChrome144() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2786,7 +2840,7 @@ func IOSChrome146() *Preset {
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       safariH2Config(),
 		H3Config:       safariH3Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2798,7 +2852,7 @@ func AndroidChrome146() *Preset {
 		PSKClientHelloID:     tls.HelloChrome_146_Linux_PSK,
 		QUICClientHelloID:    tls.HelloChrome_146_QUIC,
 		QUICPSKClientHelloID: tls.HelloChrome_146_QUIC_PSK,
-		UserAgent:        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Mobile Safari/537.36",
+		UserAgent:            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Mobile Safari/537.36",
 		Headers: map[string]string{
 			"sec-ch-ua":                 `"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"`,
 			"sec-ch-ua-mobile":          "?1",
@@ -2841,7 +2895,7 @@ func AndroidChrome146() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
@@ -2853,7 +2907,7 @@ func AndroidChrome145() *Preset {
 		PSKClientHelloID:     tls.HelloChrome_145_Linux_PSK,
 		QUICClientHelloID:    tls.HelloChrome_145_QUIC,
 		QUICPSKClientHelloID: tls.HelloChrome_145_QUIC_PSK,
-		UserAgent:        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36",
+		UserAgent:            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36",
 		Headers: map[string]string{
 			"sec-ch-ua":                 `"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"`,
 			"sec-ch-ua-mobile":          "?1",
@@ -2896,86 +2950,95 @@ func AndroidChrome145() *Preset {
 		},
 		TCPFingerprint: TCPFingerprint{},
 		H2Config:       chromeH2Config(),
-		SupportHTTP3: true,
+		SupportHTTP3:   true,
 	}
 }
 
 // presets is a map of all available presets
 var presets = map[string]func() *Preset{
-	"chrome-133":         Chrome133,
-	"chrome-141":         Chrome141,
-	"chrome-143":         Chrome143,
-	"chrome-143-windows": Chrome143Windows,
-	"chrome-143-linux":   Chrome143Linux,
-	"chrome-143-macos":   Chrome143macOS,
-	"chrome-144":         Chrome144,
-	"chrome-144-windows": Chrome144Windows,
-	"chrome-144-linux":   Chrome144Linux,
-	"chrome-144-macos":   Chrome144macOS,
-	"chrome-145":         Chrome145,
-	"chrome-145-windows": Chrome145Windows,
-	"chrome-145-linux":   Chrome145Linux,
-	"chrome-145-macos":   Chrome145macOS,
-	"chrome-146":         Chrome146,
-	"chrome-146-windows": Chrome146Windows,
-	"chrome-146-linux":   Chrome146Linux,
-	"chrome-146-macos":   Chrome146macOS,
-	"chrome-147":         Chrome147,
-	"chrome-147-windows": Chrome147Windows,
-	"chrome-147-linux":   Chrome147Linux,
-	"chrome-147-macos":   Chrome147macOS,
-	"firefox-133":        Firefox133,
-	"firefox-148":        Firefox148,
-	"safari-18":          Safari18,
-	"chrome-143-ios":     IOSChrome143,
-	"chrome-144-ios":     IOSChrome144,
-	"chrome-145-ios":     IOSChrome145,
-	"chrome-146-ios":     IOSChrome146,
-	"safari-17-ios":      IOSSafari17,
-	"safari-18-ios":      IOSSafari18,
-	"chrome-143-android": AndroidChrome143,
-	"chrome-144-android": AndroidChrome144,
-	"chrome-145-android": AndroidChrome145,
-	"chrome-146-android": AndroidChrome146,
-	"chrome-147-ios":     IOSChrome147,
-	"chrome-147-android": AndroidChrome147,
-	"chrome-148-ios":     IOSChrome148,
-	"chrome-148":         Chrome148,
-	"chrome-148-windows": Chrome148Windows,
-	"chrome-148-linux":   Chrome148Linux,
-	"chrome-148-macos":   Chrome148macOS,
-	"chrome-148-android": AndroidChrome148,
-	"chrome-149":         Chrome149,
-	"chrome-149-windows": Chrome149Windows,
-	"chrome-149-linux":   Chrome149Linux,
-	"chrome-149-macos":   Chrome149macOS,
-	"chrome-150":         Chrome150,
-	"chrome-150-windows": Chrome150Windows,
-	"chrome-150-linux":   Chrome150Linux,
-	"chrome-150-macos":   Chrome150macOS,
-	"chrome-150-ios":     IOSChrome150,
-	"chrome-150-android": AndroidChrome150,
-	"chrome-151":         Chrome151,
-	"chrome-151-windows": Chrome151Windows,
-	"chrome-151-linux":   Chrome151Linux,
-	"chrome-151-macos":   Chrome151macOS,
-	"chrome-151-ios":     IOSChrome151,
-	"chrome-151-android": AndroidChrome151,
+	"chrome-133":          Chrome133,
+	"chrome-141":          Chrome141,
+	"chrome-143":          Chrome143,
+	"chrome-143-windows":  Chrome143Windows,
+	"chrome-143-linux":    Chrome143Linux,
+	"chrome-143-macos":    Chrome143macOS,
+	"chrome-144":          Chrome144,
+	"chrome-144-windows":  Chrome144Windows,
+	"chrome-144-linux":    Chrome144Linux,
+	"chrome-144-macos":    Chrome144macOS,
+	"chrome-145":          Chrome145,
+	"chrome-145-windows":  Chrome145Windows,
+	"chrome-145-linux":    Chrome145Linux,
+	"chrome-145-macos":    Chrome145macOS,
+	"chrome-146":          Chrome146,
+	"chrome-146-windows":  Chrome146Windows,
+	"chrome-146-linux":    Chrome146Linux,
+	"chrome-146-macos":    Chrome146macOS,
+	"chrome-147":          Chrome147,
+	"chrome-147-windows":  Chrome147Windows,
+	"chrome-147-linux":    Chrome147Linux,
+	"chrome-147-macos":    Chrome147macOS,
+	"firefox-133":         Firefox133,
+	"firefox-133-windows": Firefox133Windows,
+	"firefox-133-linux":   Firefox133Linux,
+	"firefox-133-macos":   Firefox133macOS,
+	"firefox-148":         Firefox148,
+	"firefox-148-windows": Firefox148Windows,
+	"firefox-148-linux":   Firefox148Linux,
+	"firefox-148-macos":   Firefox148macOS,
+	"safari-18":           Safari18,
+	"chrome-143-ios":      IOSChrome143,
+	"chrome-144-ios":      IOSChrome144,
+	"chrome-145-ios":      IOSChrome145,
+	"chrome-146-ios":      IOSChrome146,
+	"safari-17-ios":       IOSSafari17,
+	"safari-18-ios":       IOSSafari18,
+	"chrome-143-android":  AndroidChrome143,
+	"chrome-144-android":  AndroidChrome144,
+	"chrome-145-android":  AndroidChrome145,
+	"chrome-146-android":  AndroidChrome146,
+	"chrome-147-ios":      IOSChrome147,
+	"chrome-147-android":  AndroidChrome147,
+	"chrome-148-ios":      IOSChrome148,
+	"chrome-148":          Chrome148,
+	"chrome-148-windows":  Chrome148Windows,
+	"chrome-148-linux":    Chrome148Linux,
+	"chrome-148-macos":    Chrome148macOS,
+	"chrome-148-android":  AndroidChrome148,
+	"chrome-149":          Chrome149,
+	"chrome-149-windows":  Chrome149Windows,
+	"chrome-149-linux":    Chrome149Linux,
+	"chrome-149-macos":    Chrome149macOS,
+	"chrome-150":          Chrome150,
+	"chrome-150-windows":  Chrome150Windows,
+	"chrome-150-linux":    Chrome150Linux,
+	"chrome-150-macos":    Chrome150macOS,
+	"chrome-150-ios":      IOSChrome150,
+	"chrome-150-android":  AndroidChrome150,
+	"chrome-151":          Chrome151,
+	"chrome-151-windows":  Chrome151Windows,
+	"chrome-151-linux":    Chrome151Linux,
+	"chrome-151-macos":    Chrome151macOS,
+	"chrome-151-ios":      IOSChrome151,
+	"chrome-151-android":  AndroidChrome151,
 
 	// -latest aliases (always point to the newest version). Desktop and Android
 	// track 151. iOS stays on 150 on purpose: the iOS User-Agent carries a full
 	// build number that cannot be derived from the major version, so
 	// chrome-151-ios is provisional until a real capture confirms it (see
 	// IOSChrome151).
-	"chrome-latest":         Chrome151,
-	"chrome-latest-windows": Chrome151Windows,
-	"chrome-latest-linux":   Chrome151Linux,
-	"chrome-latest-macos":   Chrome151macOS,
-	"firefox-latest":        Firefox148,
-	"safari-latest":         Safari18,
-	"chrome-latest-ios":     IOSChrome150,
-	"safari-latest-ios":     IOSSafari18,
-	"chrome-latest-android": AndroidChrome151,
+	"chrome-latest":          Chrome151,
+	"chrome-latest-windows":  Chrome151Windows,
+	"chrome-latest-linux":    Chrome151Linux,
+	"chrome-latest-macos":    Chrome151macOS,
+	"firefox-latest":         Firefox148,
+	"firefox-latest-windows": Firefox148Windows,
+	"firefox-latest-linux":   Firefox148Linux,
+	"firefox-latest-macos":   Firefox148macOS,
+	"safari-latest":          Safari18,
+	"chrome-latest-ios":      IOSChrome150,
+	"safari-latest-ios":      IOSSafari18,
+	"chrome-latest-android":  AndroidChrome151,
 
 	// Backwards compatibility aliases (old naming convention)
 	"ios-chrome-143":        IOSChrome143,

@@ -57,7 +57,9 @@ Chrome 149 has shipped, so the desktop -latest aliases now resolve to 149, while
 
 ### Firefox
 
-`firefox-133`, `firefox-148`, `firefox-latest`. No per-OS variants, since Firefox doesn't bake enough OS info into its fingerprint to matter. No h3 yet either; Firefox has its own h3 quirks we haven't built out.
+`firefox-133`, `firefox-148`, `firefox-latest`, plus per-OS variants for both versions: `firefox-133-windows` / `-linux` / `-macos`, `firefox-148-windows` / `-linux` / `-macos`, and `firefox-latest-windows` / `-linux` / `-macos`.
+
+The per-OS variants differ from their base in the User-Agent only. Firefox does not bake OS into the rest of its fingerprint the way Chrome does, so the TLS bytes, the HTTP/2 settings and the header order are identical across all three. They exist so you can pin Firefox-on-Windows from a Linux host without hand-overriding the User-Agent; the plain `firefox-148` still follows the host OS. No h3 yet; Firefox has its own h3 quirks we haven't built out.
 
 ### Safari
 

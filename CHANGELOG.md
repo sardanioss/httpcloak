@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-OS Firefox profiles**: `firefox-133` and `firefox-148` now ship `-windows`, `-linux` and `-macos` variants, with matching `firefox-latest-*` aliases, so you can pin Firefox-on-Windows from a Linux host without hand-overriding the User-Agent. The plain `firefox-133` / `firefox-148` names still follow the host OS, so nothing changes for existing code. Unlike Chrome, the variants differ in the User-Agent only: Firefox does not vary the rest of its fingerprint by operating system, so the TLS bytes, HTTP/2 settings and header order are identical across all three, and that is locked by a test.
+
 ### Changed
 
 - **The Go `client.Client` API now sends the same TLS handshake as the session API**: the client hello is assembled in two places internally, and only one of them applied a profile's signature-algorithm override. A caller using the `client` package with a Chrome 150 or 151 profile therefore sent that browser's headers and User-Agent alongside a handshake missing its post-quantum signature entries, which is an internally inconsistent fingerprint and exactly the kind of contradiction this library exists to remove. Both paths now agree. **This changes the handshake those callers send**: it moves to the correct value, confirmed against a real capture, but anyone recording or pinning the previous hash will see it change. Profiles that carry no signature-algorithm override are unaffected, byte for byte.
