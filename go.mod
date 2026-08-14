@@ -3,6 +3,7 @@ module github.com/sardanioss/httpcloak
 go 1.26.0
 
 retract (
+	v1.6.9 // Tagged from a pre-fix commit: TLS verification fails open. Use v1.6.10.
 	v1.4.0 // Published prematurely, use v1.1.x instead
 	v1.3.0 // Published prematurely, use v1.1.x instead
 	v1.2.0 // Published prematurely, use v1.1.x instead

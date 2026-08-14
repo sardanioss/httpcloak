@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.6.9] - 2026-08-14
+## [1.6.10] - 2026-08-14
 
 ### Added
 
@@ -403,6 +403,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Baseline release. This changelog begins tracking changes from this version forward.
 
+[1.6.10]: https://github.com/sardanioss/httpcloak/compare/v1.6.8...v1.6.10
+[1.6.8]: https://github.com/sardanioss/httpcloak/compare/v1.6.8-beta.1...v1.6.8
 [1.6.8-beta.1]: https://github.com/sardanioss/httpcloak/compare/v1.6.7...v1.6.8-beta.1
 [1.6.1-beta.3]: https://github.com/sardanioss/httpcloak/compare/v1.6.1-beta.2...v1.6.1-beta.3
 [1.6.1-beta.2]: https://github.com/sardanioss/httpcloak/compare/v1.6.1-beta.1...v1.6.1-beta.2
