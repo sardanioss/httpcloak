@@ -77,6 +77,11 @@ import (
 type Client struct {
 	poolManager       *pool.Manager
 	quicManager       *pool.QUICManager
+	// h3Mu guards quicManager, masqueTransport and socks5H3Transport. The proxy
+	// setters close and replace all three, and a request in flight re-reads them
+	// after its own nil check has already passed, so an unguarded swap is a nil
+	// dereference. In the cgo bindings a Go panic takes the host process with it.
+	h3Mu sync.RWMutex
 	masqueTransport   *transport.HTTP3Transport // MASQUE proxy transport (if using MASQUE)
 	socks5H3Transport *transport.HTTP3Transport // SOCKS5 UDP relay transport for HTTP/3
 	h1Transport       *transport.HTTP1Transport
@@ -211,6 +216,25 @@ func NewClient(presetName string, opts ...Option) *Client {
 	// Install caller-supplied TLS verification hooks (issue #85). Previously
 	// WithTLSConfig stored the config and nothing ever read it, so the callbacks
 	// silently never fired.
+	// ClientConfig.TLSConfig is exported, and Option is a plain func(*ClientConfig),
+	// so setting the field directly is a legal and documented-looking way to
+	// configure verification. Read it here as well as in WithTLSConfig, or that
+	// route silently applies nothing.
+	if config.TLSConfig != nil {
+		if config.VerifyPeerCertificate == nil {
+			config.VerifyPeerCertificate = config.TLSConfig.VerifyPeerCertificate
+		}
+		if config.VerifyConnection == nil {
+			config.VerifyConnection = config.TLSConfig.VerifyConnection
+		}
+		if config.RootCAs == nil {
+			config.RootCAs = config.TLSConfig.RootCAs
+		}
+		if config.TLSConfig.InsecureSkipVerify {
+			config.InsecureSkipVerify = true
+		}
+	}
+
 	if config.VerifyPeerCertificate != nil || config.VerifyConnection != nil || config.RootCAs != nil {
 		tlsVerify := &transport.TLSVerify{
 			VerifyPeerCertificate: config.VerifyPeerCertificate,
@@ -295,9 +319,38 @@ func NewSession(presetName string, opts ...Option) *Client {
 }
 
 // SetPreset changes the fingerprint preset
+// SetPreset changes the browser profile for subsequent requests.
+//
+// This has to reach EVERY protocol. It used to update only the HTTP/2 pool
+// manager, so the HTTP/1.1 transport and all three HTTP/3 transports kept the
+// profile they were constructed with: the same client then presented one
+// browser over HTTP/2 and a different one over HTTP/1.1 or HTTP/3, depending
+// purely on which protocol a request happened to negotiate. For a library whose
+// entire job is presenting one coherent identity, that is the worst kind of
+// bug, because nothing surfaces it.
 func (c *Client) SetPreset(presetName string) {
-	c.preset = fingerprint.Get(presetName)
-	c.poolManager.SetPreset(c.preset)
+	preset := fingerprint.Get(presetName)
+	if preset == nil {
+		return
+	}
+	c.preset = preset
+	c.poolManager.SetPreset(preset)
+
+	if c.h1Transport != nil {
+		c.h1Transport.SetPreset(preset)
+	}
+
+	c.h3Mu.Lock()
+	if c.quicManager != nil {
+		c.quicManager.SetPreset(preset)
+	}
+	if c.masqueTransport != nil {
+		c.masqueTransport.SetPreset(preset)
+	}
+	if c.socks5H3Transport != nil {
+		c.socks5H3Transport.SetPreset(preset)
+	}
+	c.h3Mu.Unlock()
 }
 
 // SetTimeout sets the request timeout
@@ -748,7 +801,8 @@ func (c *Client) doWithRetry(ctx context.Context, req *Request) (*Response, erro
 		}
 
 		// After cookie challenge, switch to H3 for retry (Akamai pattern)
-		if cookieChallengeRetried && req.ForceProtocol == ProtocolAuto && (c.quicManager != nil || c.masqueTransport != nil) {
+		q3, m3, _ := c.h3Transports()
+		if cookieChallengeRetried && req.ForceProtocol == ProtocolAuto && (q3 != nil || m3 != nil) {
 			reqCopy.ForceProtocol = ProtocolHTTP3
 		}
 
@@ -963,7 +1017,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		if c.config.Proxy != "" && !transport.SupportsQUIC(c.config.Proxy) {
 			return nil, fmt.Errorf("HTTP/3 requires SOCKS5 or MASQUE proxy: HTTP proxies cannot tunnel UDP")
 		}
-		if c.quicManager == nil && c.masqueTransport == nil && c.socks5H3Transport == nil {
+		if q, m, s5 := c.h3Transports(); q == nil && m == nil && s5 == nil {
 			if c.h3InitError != nil {
 				return nil, fmt.Errorf("HTTP/3 is disabled: %w", c.h3InitError)
 			}
@@ -986,7 +1040,8 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		useH1 := c.shouldUseH1(hostKey)
 
 		// When using SOCKS5/MASQUE proxy, prefer HTTP/3 for best fingerprinting
-		usesQUICProxy := c.config.Proxy != "" && transport.SupportsQUIC(c.config.Proxy)
+		cfgProxy, _, _ := c.proxyURLs()
+		usesQUICProxy := cfgProxy != "" && transport.SupportsQUIC(cfgProxy)
 
 		if useH1 && !usesQUICProxy {
 			// Known to need HTTP/1.1
@@ -1248,7 +1303,7 @@ func isRedirect(statusCode int) bool {
 // shouldTryHTTP3 checks if we should try HTTP/3 for this host
 func (c *Client) shouldTryHTTP3(hostKey string) bool {
 	// If no HTTP/3 transport is available, don't try HTTP/3
-	if c.quicManager == nil && c.masqueTransport == nil && c.socks5H3Transport == nil {
+	if q, m, s5 := c.h3Transports(); q == nil && m == nil && s5 == nil {
 		return false
 	}
 
@@ -1272,13 +1327,37 @@ func (c *Client) markH3Failed(hostKey string) {
 }
 
 // doHTTP3 executes the request over HTTP/3
+// proxyURLs returns a consistent snapshot of the configured proxy URLs.
+//
+// The proxy setters mutate these while requests are in flight, so the request
+// path must not read the config fields directly.
+func (c *Client) proxyURLs() (proxyURL, tcpProxy, udpProxy string) {
+	c.h3Mu.RLock()
+	defer c.h3Mu.RUnlock()
+	return c.config.Proxy, c.config.TCPProxy, c.config.UDPProxy
+}
+
+// h3Transports returns a consistent snapshot of the HTTP/3 transports.
+//
+// Callers must use the snapshot for the whole request rather than re-reading
+// the fields: a proxy rotation between the nil check and the use is exactly the
+// race that segfaulted the process.
+func (c *Client) h3Transports() (*pool.QUICManager, *transport.HTTP3Transport, *transport.HTTP3Transport) {
+	c.h3Mu.RLock()
+	defer c.h3Mu.RUnlock()
+	return c.quicManager, c.masqueTransport, c.socks5H3Transport
+}
+
 func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.Request, timing *protocol.Timing, startTime time.Time) (*http.Response, string, error) {
 	connStart := time.Now()
 
+	// One snapshot for the whole request; see h3Transports.
+	quicManager, masqueTransport, socks5H3Transport := c.h3Transports()
+
 	// Use MASQUE transport if available (for MASQUE proxies)
-	if c.masqueTransport != nil {
+	if masqueTransport != nil {
 		firstByteTime := time.Now()
-		resp, err := c.masqueTransport.RoundTrip(httpReq)
+		resp, err := masqueTransport.RoundTrip(httpReq)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1287,9 +1366,9 @@ func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.R
 	}
 
 	// Use SOCKS5 UDP relay transport if available (for SOCKS5 proxies)
-	if c.socks5H3Transport != nil {
+	if socks5H3Transport != nil {
 		firstByteTime := time.Now()
-		resp, err := c.socks5H3Transport.RoundTrip(httpReq)
+		resp, err := socks5H3Transport.RoundTrip(httpReq)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1298,7 +1377,10 @@ func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.R
 	}
 
 	// Use QUICManager for direct connections
-	conn, err := c.quicManager.GetConn(ctx, host, port)
+	if quicManager == nil {
+		return nil, "", fmt.Errorf("no HTTP/3 transport available")
+	}
+	conn, err := quicManager.GetConn(ctx, host, port)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get QUIC connection: %w", err)
 	}
@@ -1531,6 +1613,11 @@ func (c *Client) reapplyH3TLSVerify() {
 }
 
 func (c *Client) SetUDPProxy(proxyURL string) {
+	// Hold the write lock for the whole close-and-rebuild. Without it a request
+	// in flight observes the window where every transport is nil and panics.
+	c.h3Mu.Lock()
+	defer c.h3Mu.Unlock()
+
 	// Close and nil out all existing HTTP/3 transports
 	if c.quicManager != nil {
 		c.quicManager.Close()

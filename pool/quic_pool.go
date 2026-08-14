@@ -882,6 +882,35 @@ func (m *QUICManager) SetInsecureSkipVerify(skip bool) {
 	m.insecureSkipVerify = skip
 }
 
+// Preset returns the profile new connections are built from.
+func (m *QUICManager) Preset() *fingerprint.Preset {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.preset
+}
+
+// SetPreset swaps the browser profile future connections are built from, and
+// drops the pooled connections that were dialled with the old one.
+//
+// Without the drain, a client that switched profile kept serving HTTP/3 over
+// connections whose ClientHello was the previous browser's, so the same client
+// presented two different identities depending on which protocol a request
+// landed on.
+func (m *QUICManager) SetPreset(preset *fingerprint.Preset) {
+	if preset == nil {
+		return
+	}
+	m.mu.Lock()
+	m.preset = preset
+	pools := m.pools
+	m.pools = make(map[string]*QUICHostPool)
+	m.mu.Unlock()
+
+	for _, p := range pools {
+		go p.Close()
+	}
+}
+
 // SetTLSVerify installs caller-supplied certificate verification hooks.
 // Verification only; the ClientHello is untouched.
 func (m *QUICManager) SetTLSVerify(v *transport.TLSVerify) {

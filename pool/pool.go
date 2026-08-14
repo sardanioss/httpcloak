@@ -1493,11 +1493,55 @@ func (m *Manager) GetConn(ctx context.Context, host, port string) (*Conn, error)
 	return pool.GetConn(ctx)
 }
 
+// Preset returns the profile new connections are built from.
+func (m *Manager) Preset() *fingerprint.Preset {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.preset
+}
+
 // SetPreset changes the fingerprint preset for new connections
+// SetPreset swaps the browser profile for subsequent connections.
+//
+// Swapping the field alone is not enough, and used not to be: the ClientHello
+// specs are derived from the profile ONCE at construction and handed to every
+// host pool, and the existing pooled connections were dialled with the old one.
+// So a caller who switched profile kept sending the previous browser's
+// ClientHello over HTTP/2 - the switch appeared to work (the User-Agent and
+// headers changed) while the TLS layer still said the old browser, which is a
+// self-contradicting fingerprint and worse than not switching at all.
 func (m *Manager) SetPreset(preset *fingerprint.Preset) {
+	if preset == nil {
+		return
+	}
+
+	// Rebuild the cached specs from the new profile, mirroring construction.
+	var cachedSpec, cachedPSKSpec *utls.ClientHelloSpec
+	if preset.JA3 != "" {
+		if spec, err := fingerprint.ParseJA3(preset.JA3, preset.JA3Extras); err == nil {
+			cachedSpec = spec
+		}
+	} else if spec, err := tcpClientHelloSpec(preset, preset.ClientHelloID, m.shuffleSeed); err == nil {
+		cachedSpec = spec
+	}
+	if preset.JA3 == "" && preset.PSKClientHelloID.Client != "" {
+		if spec, err := tcpClientHelloSpec(preset, preset.PSKClientHelloID, m.shuffleSeed); err == nil {
+			cachedPSKSpec = spec
+		}
+	}
+
 	m.mu.Lock()
 	m.preset = preset
+	m.cachedSpec = cachedSpec
+	m.cachedPSKSpec = cachedPSKSpec
+	pools := m.pools
+	m.pools = make(map[string]*HostPool)
 	m.mu.Unlock()
+
+	// Drop connections dialled with the previous profile.
+	for _, p := range pools {
+		go p.Close()
+	}
 }
 
 // GetDNSCache returns the DNS cache

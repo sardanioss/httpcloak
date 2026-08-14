@@ -249,7 +249,21 @@ func (t *HTTP1Transport) getConnectHost(requestHost string) string {
 	return requestHost
 }
 
+// Preset returns the profile new connections are built from.
+func (t *HTTP1Transport) Preset() *fingerprint.Preset { return t.preset }
+
 // SetInsecureSkipVerify sets whether to skip TLS verification
+// SetPreset swaps the browser profile used for subsequent connections and
+// drops idle pooled connections built from the old one, so a profile switch
+// cannot keep serving the previous browser's fingerprint.
+func (t *HTTP1Transport) SetPreset(preset *fingerprint.Preset) {
+	if preset == nil {
+		return
+	}
+	t.preset = preset
+	t.Refresh()
+}
+
 // SetTLSVerify installs caller-supplied certificate verification hooks.
 // Only verification is configurable; nothing here affects the ClientHello.
 func (t *HTTP1Transport) SetTLSVerify(v *TLSVerify) {
