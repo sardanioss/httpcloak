@@ -1494,6 +1494,42 @@ func (c *Client) SetTCPProxy(proxyURL string) {
 // SetUDPProxy changes the proxy for HTTP/3 (QUIC) connections
 // Supports SOCKS5 (UDP relay) and MASQUE (CONNECT-UDP) proxies
 // Pass empty string to switch to direct connection (no proxy)
+// tlsVerifyFromConfig rebuilds the verification hooks from the stored config.
+//
+// Every path that closes and recreates a transport has to re-apply these. They
+// live on the transport objects, not on the Client, so a rebuild that only
+// re-applies InsecureSkipVerify silently drops the caller's certificate
+// verification and leaves that protocol accepting anything the system roots
+// accept. On a client whose whole point is proxy rotation, that is the ordinary
+// usage pattern, and it fails open with no error.
+func (c *Client) tlsVerifyFromConfig() *transport.TLSVerify {
+	if c.config.VerifyPeerCertificate == nil && c.config.VerifyConnection == nil && c.config.RootCAs == nil {
+		return nil
+	}
+	return &transport.TLSVerify{
+		VerifyPeerCertificate: c.config.VerifyPeerCertificate,
+		VerifyConnection:      c.config.VerifyConnection,
+		RootCAs:               c.config.RootCAs,
+	}
+}
+
+// reapplyH3TLSVerify re-installs the hooks on whichever HTTP/3 transports exist.
+func (c *Client) reapplyH3TLSVerify() {
+	v := c.tlsVerifyFromConfig()
+	if v == nil {
+		return
+	}
+	if c.quicManager != nil {
+		c.quicManager.SetTLSVerify(v)
+	}
+	if c.masqueTransport != nil {
+		c.masqueTransport.SetTLSVerify(v)
+	}
+	if c.socks5H3Transport != nil {
+		c.socks5H3Transport.SetTLSVerify(v)
+	}
+}
+
 func (c *Client) SetUDPProxy(proxyURL string) {
 	// Close and nil out all existing HTTP/3 transports
 	if c.quicManager != nil {
@@ -1545,6 +1581,12 @@ func (c *Client) SetUDPProxy(proxyURL string) {
 			c.quicManager.SetInsecureSkipVerify(true)
 		}
 	}
+
+	// The transports above are brand new, so the caller's certificate
+	// verification has to be put back on them. Without this a client that pinned
+	// a certificate and then rotated its proxy loses HTTP/3 verification from
+	// that point on, silently.
+	c.reapplyH3TLSVerify()
 
 	// Clear H3 failure cache - new proxy might have different behavior
 	c.h3FailuresMu.Lock()

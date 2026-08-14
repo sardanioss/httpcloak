@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+
+	"github.com/sardanioss/httpcloak/fingerprint"
 )
 
 // TestBuildChromeTransportParams_GoogleConnectionOptions locks the wire value
@@ -111,5 +113,54 @@ func TestBuildChromeTransportParams_VersionInformation(t *testing.T) {
 	}
 	if v1 := binary.BigEndian.Uint32(got[8:12]); v1 != 1 {
 		t.Errorf("second available version = %d, want 1 (QUICv1)", v1)
+	}
+}
+
+// Only Chromium-based presets may carry Chrome's browser-specific QUIC
+// transport parameters.
+//
+// The gate used to key off H3QUICTransportParamOrder(), which selects parameter
+// ORDERING and defaults to "chrome" for any preset that does not set it. Every
+// non-Chrome preset therefore advertised google_connection_options (0x3128) and
+// version_information (0x11) on HTTP/3. Measured on the wire: a forced-H3
+// firefox-148 connection sent a Firefox-shaped ClientHello - 12 Firefox
+// signature algorithms, not Chrome's 10 - alongside a Google-only transport
+// parameter. That combination is a flat contradiction for anyone inspecting the
+// handshake, and it is exactly the kind of tell this library exists to remove.
+func TestChromeQUICParamsOnlyForChromePresets(t *testing.T) {
+	shouldSend := map[string]bool{
+		"chrome-151":         true,
+		"chrome-151-windows": true,
+		"chrome-151-android": true,
+		"chrome-150":         true,
+		"chrome-146":         true,
+		// WebKit underneath, so no Google parameters.
+		"chrome-151-ios": false,
+		"safari-18":      false,
+		"firefox-148":    false,
+		"firefox-133":    false,
+	}
+
+	for name, want := range shouldSend {
+		p := fingerprint.Get(name)
+		if p == nil {
+			continue
+		}
+		params := AdditionalTransportParamsForPreset(p, nil, "", 0)
+		got := len(params) > 0
+		if got != want {
+			verb := "must not"
+			if want {
+				verb = "must"
+			}
+			t.Errorf("%s: %s carry Chrome QUIC transport parameters, got %d of them", name, verb, len(params))
+		}
+		if !want {
+			for _, id := range []uint64{0x11, 0x3128} {
+				if _, ok := params[id]; ok {
+					t.Errorf("%s advertises Chrome-only transport parameter 0x%x on a non-Chromium identity", name, id)
+				}
+			}
+		}
 	}
 }

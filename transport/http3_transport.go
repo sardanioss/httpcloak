@@ -121,10 +121,34 @@ func AdditionalTransportParamsForPreset(preset *fingerprint.Preset, _ context.Co
 	if preset == nil {
 		return nil
 	}
-	if preset.H3QUICTransportParamOrder() != "chrome" {
+	if !presetIsChromeQUIC(preset) {
 		return nil
 	}
 	return BuildChromeTransportParams()
+}
+
+// presetIsChromeQUIC reports whether a preset impersonates a Chromium-based
+// client on QUIC, and so should carry Chrome's browser-specific transport
+// parameters (version_information and google_connection_options).
+//
+// This deliberately does NOT key off H3QUICTransportParamOrder(). That field
+// selects how the parameters are ORDERED and defaults to "chrome" for any
+// preset that does not set it, so using it as an identity test made every
+// non-Chrome preset advertise Google-only parameters: a Firefox-shaped
+// ClientHello carrying google_connection_options is a flat contradiction to
+// anyone reading the handshake, which is precisely the tell this library exists
+// to avoid.
+//
+// The QUIC ClientHello identity is the honest signal. It is "Chrome" for the
+// desktop and Android Chrome presets, and something else (or empty) for
+// Firefox, Safari and the WebKit-based iOS Chrome presets, which really do not
+// send these.
+func presetIsChromeQUIC(preset *fingerprint.Preset) bool {
+	if preset.QUICClientHelloID.Client != "" {
+		return preset.QUICClientHelloID.Client == "Chrome"
+	}
+	// No QUIC-specific identity: fall back to the TCP one rather than assuming.
+	return preset.ClientHelloID.Client == "Chrome"
 }
 
 // generateGREASEVersion generates a GREASE version of form 0x?a?a?a?a
@@ -246,6 +270,11 @@ func (t *HTTP3Transport) SetTLSVerify(v *TLSVerify) {
 	if t.tlsConfig != nil {
 		v.Apply(t.tlsConfig)
 	}
+}
+
+// TLSVerify returns the installed verification hooks, or nil.
+func (t *HTTP3Transport) TLSVerify() *TLSVerify {
+	return t.tlsVerify
 }
 
 func (t *HTTP3Transport) SetInsecureSkipVerify(skip bool) {

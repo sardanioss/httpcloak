@@ -924,6 +924,7 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 		InsecureSkipVerify:            cfg.insecureSkipVerify,
 		TLSVerifyPeerCertificate:      cfg.tlsVerifyPeerCertificate,
 		TLSVerifyConnection:           cfg.tlsVerifyConnection,
+		TLSRootCAs:                    cfg.tlsRootCAs,
 		FollowRedirects:               !cfg.disableRedirects,
 		MaxRedirects:                  cfg.maxRedirects,
 		PreferIPv4:                    cfg.preferIPv4,

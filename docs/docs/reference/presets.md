@@ -21,15 +21,22 @@ The `-latest` aliases point to the newest tracked version. They're not separate 
 
 | Alias | Resolves to |
 |---|---|
-| `chrome-latest` | `chrome-149` (auto-detects host OS) |
-| `chrome-latest-windows` | `chrome-149-windows` |
-| `chrome-latest-linux` | `chrome-149-linux` |
-| `chrome-latest-macos` | `chrome-149-macos` |
-| `chrome-latest-ios` | `chrome-148-ios` |
-| `chrome-latest-android` | `chrome-148-android` |
+| `chrome-latest` | `chrome-151` (auto-detects host OS) |
+| `chrome-latest-windows` | `chrome-151-windows` |
+| `chrome-latest-linux` | `chrome-151-linux` |
+| `chrome-latest-macos` | `chrome-151-macos` |
+| `chrome-latest-ios` | `chrome-150-ios` (deliberately behind; see below) |
+| `chrome-latest-android` | `chrome-151-android` |
 | `firefox-latest` | `firefox-148` |
+| `firefox-latest-windows` | `firefox-148-windows` |
+| `firefox-latest-linux` | `firefox-148-linux` |
+| `firefox-latest-macos` | `firefox-148-macos` |
 | `safari-latest` | `safari-18` |
 | `safari-latest-ios` | `safari-18-ios` |
+
+`chrome-latest-ios` stays on 150 on purpose. iOS Chrome spells its version out in
+full, including a build number that cannot be derived from the major version, so
+`chrome-151-ios` ships but is provisional until a real capture confirms it.
 | `ios-chrome-latest` | `chrome-148-ios` (back-compat naming) |
 | `ios-safari-latest` | `safari-18-ios` (back-compat naming) |
 | `android-chrome-latest` | `chrome-148-android` (back-compat naming) |

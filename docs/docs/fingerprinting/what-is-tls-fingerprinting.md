@@ -148,8 +148,8 @@ Console.WriteLine(r.Text);
 What comes back (Chrome 148, captured 2026-05):
 
 ```text
-ja4:                     t13d1516h2_8daaf6152771_d8a2da3f94cd
-peetprint_hash:          1d4ffe9b0e34acac0bd883fa7f79d7b5
+ja4:                     t13d1516h2_8daaf6152771_806a8c22fdea
+peetprint_hash:          67c3e9111bed9e7f03d2f21d6d88994b
 akamai_fingerprint_hash: 52d84b11737d980aef856699f885ca86
 ```
 

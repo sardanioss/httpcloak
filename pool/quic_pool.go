@@ -890,6 +890,14 @@ func (m *QUICManager) SetTLSVerify(v *transport.TLSVerify) {
 	m.tlsVerify = v
 }
 
+// TLSVerify returns the installed verification hooks, or nil. Used to assert
+// that a rebuild did not silently drop them.
+func (m *QUICManager) TLSVerify() *transport.TLSVerify {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tlsVerify
+}
+
 // SetLocalAddr sets the local IP address for outgoing connections
 func (m *QUICManager) SetLocalAddr(addr string) {
 	m.mu.Lock()
