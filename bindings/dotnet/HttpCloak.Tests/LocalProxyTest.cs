@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 using HttpCloak;
 
@@ -39,11 +40,9 @@ public static class LocalProxyTest
             using var proxy = new LocalProxy(port: 0, preset: "chrome-143");
             Console.WriteLine($"Proxy running on: {proxy.ProxyUrl}");
 
-            var handler = proxy.CreateHandler();
-            using var client = new HttpClient(handler);
+            using var client = proxy.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(30);
 
-            // Use HTTP (not HTTPS) for full fingerprint application
             var response = await client.GetAsync("http://httpbin.org/get");
             Console.WriteLine($"HTTP Status: {response.StatusCode}");
 
@@ -63,30 +62,32 @@ public static class LocalProxyTest
             Console.WriteLine($"FAIL: {e.Message}");
         }
 
-        // Test 3: HTTPS CONNECT tunnel
-        Console.WriteLine("\n--- Test 3: HTTPS CONNECT Tunnel ---");
+        // Test 3: an https:// request must carry the preset, not .NET's own TLS
+        Console.WriteLine("\n--- Test 3: HTTPS Keeps The Fingerprint ---");
         try
         {
             using var proxy = new LocalProxy(port: 0, preset: "chrome-143");
             Console.WriteLine($"Proxy running on: {proxy.ProxyUrl}");
 
-            var handler = proxy.CreateHandler();
-            using var client = new HttpClient(handler);
+            using var client = proxy.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(30);
 
-            // HTTPS request goes through CONNECT tunnel
-            var response = await client.GetAsync("https://httpbin.org/get");
+            var response = await client.GetAsync("https://tls.peet.ws/api/clean");
             Console.WriteLine($"HTTPS Status: {response.StatusCode}");
 
-            if (response.IsSuccessStatusCode)
+            var body = await response.Content.ReadAsStringAsync();
+            var ja4 = JsonDocument.Parse(body).RootElement.GetProperty("ja4").GetString() ?? "";
+
+            // A .NET handshake reports TLS 1.3 with far fewer extensions and no
+            // h2 marker; the preset's reports h2 in the prefix.
+            if (response.IsSuccessStatusCode && ja4.Contains("h2"))
             {
-                var body = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"Response length: {body.Length} bytes");
-                Console.WriteLine("PASS: HTTPS CONNECT tunnel succeeded");
+                Console.WriteLine($"PASS: https:// carried the preset (ja4={ja4})");
             }
             else
             {
-                Console.WriteLine($"FAIL: HTTPS status {response.StatusCode}");
+                Console.WriteLine($"FAIL: https:// did NOT carry the preset (ja4={ja4}); " +
+                    "the request was probably CONNECT-tunnelled past the proxy");
             }
         }
         catch (Exception e)
@@ -100,8 +101,7 @@ public static class LocalProxyTest
         {
             using var proxy = new LocalProxy(port: 0, preset: "chrome-143", maxConnections: 100);
 
-            var handler = proxy.CreateHandler();
-            using var client = new HttpClient(handler);
+            using var client = proxy.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(60);
 
             var tasks = new Task<HttpResponseMessage>[5];

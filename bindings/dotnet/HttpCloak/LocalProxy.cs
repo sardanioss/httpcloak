@@ -144,11 +144,34 @@ public sealed class LocalProxy : IDisposable
     /// <remarks>
     /// Prefer this over <see cref="CreateHandler"/>. See that method for why a
     /// bare proxy handler silently bypasses fingerprinting on https://.
+    ///
+    /// Pass your own handler if you need cookies, credentials, automatic
+    /// decompression or any other HttpClientHandler setting; its proxy fields
+    /// are pointed at this proxy for you.
     /// </remarks>
-    public HttpClient CreateClient()
+    public HttpClient CreateClient(HttpClientHandler? inner = null)
+    {
+        return new HttpClient(CreateFingerprintHandler(inner));
+    }
+
+    /// <summary>
+    /// Wraps a handler so https:// requests through this proxy keep the browser
+    /// fingerprint. Use this when something else owns the HttpClient, such as
+    /// IHttpClientFactory or a library that takes a HttpMessageHandler.
+    /// </summary>
+    /// <param name="inner">
+    /// Your handler, or null for a fresh one. Either way its Proxy and UseProxy
+    /// are set to this proxy, so you do not have to wire those yourself.
+    /// </param>
+    public HttpMessageHandler CreateFingerprintHandler(HttpClientHandler? inner = null)
     {
         ThrowIfDisposed();
-        return new HttpClient(new FingerprintRoutingHandler(CreateHandler()));
+
+        var handler = inner ?? new HttpClientHandler();
+        handler.Proxy = CreateWebProxy();
+        handler.UseProxy = true;
+
+        return new FingerprintRoutingHandler(handler);
     }
 
     /// <summary>

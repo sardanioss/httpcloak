@@ -521,9 +521,9 @@ async function downloadLargeFile(): Promise<void> {
 
 Use `LocalProxy` to apply TLS fingerprinting to any HTTP client (axios, node-fetch, etc.).
 
-### HTTPS with True Streaming (Recommended)
+### Basic Usage
 
-For HTTPS requests with full fingerprinting AND true streaming (request/response bodies not materialized into memory), use the `X-HTTPCloak-Scheme` header:
+Request the target as `http://` and add `X-HTTPCloak-Scheme: https`. That one detail decides whether any fingerprinting happens at all:
 
 ```javascript
 const { LocalProxy } = require("httpcloak");
@@ -533,65 +533,46 @@ const axios = require("axios");
 const proxy = new LocalProxy({ preset: "chrome-latest" });
 console.log(`Proxy running on ${proxy.proxyUrl}`);
 
-// Use X-HTTPCloak-Scheme header for HTTPS with fingerprinting + streaming
 const response = await axios.get("http://example.com/api", {
-  // Note: http:// URL
-  proxy: {
-    host: "127.0.0.1",
-    port: proxy.port,
-  },
+  // note: http:// URL
+  proxy: { host: "127.0.0.1", port: proxy.port },
   headers: {
-    "X-HTTPCloak-Scheme": "https", // Upgrades to HTTPS with fingerprinting
-  },
-});
-
-// This provides:
-// - Full TLS fingerprinting (Chrome/Firefox JA3/JA4)
-// - HTTP/3 support
-// - True streaming (request body NOT materialized into memory)
-// - Header modification capabilities
-
-proxy.close();
-```
-
-**Why use `X-HTTPCloak-Scheme`?**
-
-Standard HTTP proxy clients use CONNECT tunneling for HTTPS, which means the proxy can't inspect or modify the request. The `X-HTTPCloak-Scheme: https` header tells LocalProxy to:
-1. Accept the request as plain HTTP
-2. Upgrade it to HTTPS internally
-3. Apply full TLS fingerprinting
-4. Stream request/response bodies without memory materialization
-
-### Basic Usage
-
-```javascript
-const { LocalProxy } = require("httpcloak");
-const axios = require("axios");
-
-// Start local proxy with Chrome fingerprint
-const proxy = new LocalProxy({ preset: "chrome-latest" });
-
-// Standard HTTPS (uses CONNECT tunnel - fingerprinting via upstream proxy only)
-const response = await axios.get("https://example.com", {
-  proxy: {
-    host: "127.0.0.1",
-    port: proxy.port,
+    "X-HTTPCloak-Scheme": "https", // upgraded to HTTPS by the proxy
   },
 });
 
 // Per-request upstream proxy rotation
-const rotatedResponse = await axios.get("https://example.com", {
-  proxy: {
-    host: "127.0.0.1",
-    port: proxy.port,
-  },
+const rotatedResponse = await axios.get("http://example.com", {
+  proxy: { host: "127.0.0.1", port: proxy.port },
   headers: {
+    "X-HTTPCloak-Scheme": "https",
     "X-Upstream-Proxy": "http://user:pass@rotating-proxy.com:8080",
   },
 });
 
 proxy.close();
 ```
+
+This gives you full TLS fingerprinting, HTTP/2 and HTTP/3 support, and true streaming: request and response bodies are never materialized into memory.
+
+### Requesting `https://` through the proxy applies no fingerprint
+
+```javascript
+// Runs fine, returns a real response, and carries Node's TLS fingerprint
+const dispatcher = new ProxyAgent(proxy.proxyUrl);
+const r = await fetch("https://example.com", { dispatcher });
+```
+
+Node, like every mainstream client, handles an `https://` URL through a proxy by sending `CONNECT` and then doing **its own** TLS handshake straight through to the target. The proxy relays encrypted bytes it cannot read, so the target sees Node's handshake rather than the preset's. Nothing errors, which is what makes it easy to ship by accident.
+
+Measured against `tls.peet.ws`, same proxy, same preset, using undici:
+
+| Pattern | JA4 |
+| --- | --- |
+| `ProxyAgent` with an `https://` URL | `t13d5212h1_b262b3658495_...` |
+| `ProxyAgent` + scheme header, `http://` URL | `t13d1516h2_8daaf6152771_...` |
+
+The first row is byte-identical to undici with no proxy at all. The same applies to `X-HTTPCloak-Session`: on a `CONNECT` request your headers travel inside the tunnel, so the proxy never reads them and session routing silently does nothing.
 
 ### TLS-Only Mode
 
@@ -604,9 +585,12 @@ const { LocalProxy } = require("httpcloak");
 const proxy = new LocalProxy({ preset: "chrome-latest", tlsOnly: true });
 
 // Your client's headers are preserved
-const response = await fetch("https://example.com", {
-  agent: new HttpsProxyAgent(proxy.proxyUrl),
-  headers: { "User-Agent": "My Custom UA" },
+const response = await fetch("http://example.com", {
+  dispatcher: new ProxyAgent(proxy.proxyUrl),
+  headers: {
+    "X-HTTPCloak-Scheme": "https",
+    "User-Agent": "My Custom UA",
+  },
 });
 
 proxy.close();
@@ -630,9 +614,12 @@ proxy.registerSession("chrome-user", chromeSession);
 proxy.registerSession("firefox-user", firefoxSession);
 
 // Route requests using X-HTTPCloak-Session header
-const response = await axios.get("https://example.com", {
+const response = await axios.get("http://example.com", {
   proxy: { host: "127.0.0.1", port: proxy.port },
-  headers: { "X-HTTPCloak-Session": "firefox-user" }, // Uses firefox fingerprint
+  headers: {
+    "X-HTTPCloak-Scheme": "https",
+    "X-HTTPCloak-Session": "firefox-user", // uses firefox fingerprint
+  },
 });
 
 // Unregister when done

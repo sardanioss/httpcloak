@@ -434,9 +434,7 @@ catch (HttpRequestException ex)
 
 Use `LocalProxy` to apply TLS fingerprinting to any HTTP client transparently.
 
-### HTTPS with True Streaming (Recommended)
-
-For HTTPS requests with full fingerprinting AND true streaming (request/response bodies not materialized into memory), use the `X-HTTPCloak-Scheme` header:
+### Basic Usage
 
 ```csharp
 using HttpCloak;
@@ -445,54 +443,66 @@ using HttpCloak;
 using var proxy = new LocalProxy(preset: "chrome-latest");
 Console.WriteLine($"Proxy running on {proxy.ProxyUrl}");
 
-// Configure HttpClient to use the proxy
-var handler = new HttpClientHandler
-{
-    Proxy = proxy.CreateWebProxy()
-};
-using var client = new HttpClient(handler);
+// Build the client FROM the proxy
+using var client = proxy.CreateClient();
 
-// Use X-HTTPCloak-Scheme header to get HTTPS with fingerprinting + streaming
-var request = new HttpRequestMessage(HttpMethod.Get, "http://example.com/api"); // Note: http://
-request.Headers.Add("X-HTTPCloak-Scheme", "https"); // Upgrades to HTTPS with fingerprinting
-var response = await client.SendAsync(request);
-
-// This provides:
-// - Full TLS fingerprinting (Chrome/Firefox JA3/JA4)
-// - HTTP/3 support
-// - True streaming (request body NOT materialized into memory)
-// - Header modification capabilities
-```
-
-**Why use `X-HTTPCloak-Scheme`?**
-
-Standard HTTP proxy clients (like .NET HttpClient) use CONNECT tunneling for HTTPS, which means the proxy can't inspect or modify the request. The `X-HTTPCloak-Scheme: https` header tells LocalProxy to:
-1. Accept the request as plain HTTP
-2. Upgrade it to HTTPS internally
-3. Apply full TLS fingerprinting
-4. Stream request/response bodies without memory materialization
-
-### Basic Usage
-
-```csharp
-using HttpCloak;
-
-// Start local proxy with Chrome fingerprint
-using var proxy = new LocalProxy(preset: "chrome-latest");
-
-var handler = new HttpClientHandler
-{
-    Proxy = proxy.CreateWebProxy()
-};
-using var client = new HttpClient(handler);
-
-// Standard HTTPS (uses CONNECT tunnel - fingerprinting via upstream proxy only)
 var response = await client.GetAsync("https://example.com");
 
 // Per-request upstream proxy rotation via header
 var request = new HttpRequestMessage(HttpMethod.Get, "https://example.com");
 request.Headers.Add("X-Upstream-Proxy", "http://user:pass@rotating-proxy.com:8080");
 var rotatedResponse = await client.SendAsync(request);
+```
+
+This gives you full TLS fingerprinting, HTTP/2 and HTTP/3 support, and true streaming: request and response bodies are never materialized into memory.
+
+### Do not just point a handler at the proxy URL
+
+```csharp
+// Compiles, runs, returns real responses, and applies NO fingerprint to https://
+using var client = new HttpClient(new HttpClientHandler {
+    Proxy = proxy.CreateWebProxy(), UseProxy = true });
+```
+
+For an `https://` URI through a proxy, `HttpClient` sends `CONNECT` and then does **its own** TLS handshake end to end. The proxy is relaying encrypted bytes it cannot read, so the target sees .NET's handshake instead of the browser preset. Nothing errors, so it is easy to ship this and believe you are fingerprinted.
+
+Measured against `tls.peet.ws`, same proxy, same preset:
+
+| Built with | JA4 | Negotiated |
+|---|---|---|
+| `proxy.CreateClient()` | `t13d1516h2_8daaf6152771_...` | h2 |
+| `new HttpClient(proxy.CreateHandler())` | `t13d1113_c5d436628c5c_...` | HTTP/1.1 |
+
+The second row is .NET's own handshake, cipher list and all.
+
+### What CreateClient does under the hood
+
+It rewrites `https://` to `http://` and adds `X-HTTPCloak-Scheme: https`, which tells LocalProxy to take the request as plain HTTP, upgrade it internally, and run the fingerprinted handshake itself. The hop to localhost is plaintext; the TLS that matters runs between the proxy and the target.
+
+You can do it by hand if you need to, for instance from a client you do not construct:
+
+```csharp
+var request = new HttpRequestMessage(HttpMethod.Get, "http://example.com/api"); // note: http://
+request.Headers.Add("X-HTTPCloak-Scheme", "https");
+var response = await client.SendAsync(request);
+```
+
+### Bringing your own handler
+
+Need cookies, credentials, decompression, or anything else off `HttpClientHandler`? Hand it over and the proxy wiring is done for you:
+
+```csharp
+using var client = proxy.CreateClient(new HttpClientHandler {
+    UseCookies = true,
+    AutomaticDecompression = DecompressionMethods.All,
+});
+```
+
+If something else owns the client, such as `IHttpClientFactory` or a library that takes a handler:
+
+```csharp
+services.AddHttpClient("api")
+    .ConfigurePrimaryHttpMessageHandler(() => proxy.CreateFingerprintHandler());
 ```
 
 ### TLS-Only Mode
@@ -505,11 +515,7 @@ using HttpCloak;
 // Only apply TLS fingerprint, pass headers through
 using var proxy = new LocalProxy(preset: "chrome-latest", tlsOnly: true);
 
-var handler = new HttpClientHandler
-{
-    Proxy = proxy.CreateWebProxy()
-};
-using var client = new HttpClient(handler);
+using var client = proxy.CreateClient();
 
 // Your client's headers are preserved
 client.DefaultRequestHeaders.Add("User-Agent", "My Custom UA");
@@ -534,8 +540,7 @@ proxy.RegisterSession("chrome-user", chromeSession);
 proxy.RegisterSession("firefox-user", firefoxSession);
 
 // Route requests using X-HTTPCloak-Session header
-var handler = new HttpClientHandler { Proxy = proxy.CreateWebProxy() };
-using var client = new HttpClient(handler);
+using var client = proxy.CreateClient();
 
 var request = new HttpRequestMessage(HttpMethod.Get, "https://example.com");
 request.Headers.Add("X-HTTPCloak-Session", "firefox-user"); // Uses firefox fingerprint
@@ -563,8 +568,11 @@ proxy.Port;           // Actual port number
 proxy.ProxyUrl;       // Full proxy URL (http://localhost:port)
 proxy.IsRunning;      // True if proxy is active
 proxy.GetStats();     // Returns LocalProxyStats with request/connection counts
+proxy.CreateClient();     // HttpClient that fingerprints https:// - use this one
+proxy.CreateClient(h);    // Same, built on your own HttpClientHandler
+proxy.CreateFingerprintHandler();  // For IHttpClientFactory / libraries that take a handler
 proxy.CreateWebProxy();   // Creates System.Net.WebProxy instance
-proxy.CreateHandler();    // Creates HttpClientHandler with proxy configured
+proxy.CreateHandler();    // HttpClientHandler with the proxy set; http:// only, see above
 proxy.Dispose();      // Stop the proxy
 ```
 

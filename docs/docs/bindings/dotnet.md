@@ -374,17 +374,54 @@ new HttpCloakHandler(LocalProxy existingProxy);
 
 The first form spins up its own `LocalProxy` and disposes it with the handler. The second form takes an existing `LocalProxy` and leaves disposal to the caller (so multiple handlers can share one proxy). `handler.Proxy`, `handler.ProxyUrl`, and `handler.GetStats()` reach the underlying proxy for diagnostics.
 
-For a `LocalProxy` you already own (configured with custom registered sessions, etc.), the same proxy hands out a `WebProxy` directly:
+For a `LocalProxy` you already own (configured with custom registered sessions, etc.), build the client from the proxy:
 
 ```csharp
 using var proxy = new LocalProxy(port: 0, preset: "chrome-latest");
+using var client = proxy.CreateClient();
+```
+
+### Why not just point a handler at the proxy URL
+
+This looks equivalent and is not:
+
+```csharp
+// Compiles, runs, returns real responses, applies NO fingerprint to https://
 using var client = new HttpClient(new HttpClientHandler {
     Proxy = proxy.CreateWebProxy(),
     UseProxy = true,
 });
 ```
 
-`LocalProxy.CreateWebProxy()` returns a `System.Net.WebProxy`, and `LocalProxy.CreateHandler()` returns a fully-wired `HttpClientHandler` (proxy plus `UseProxy = true`). Pick whichever fits the call site you're integrating with.
+For an `https://` URI through a proxy, `HttpClient` issues a `CONNECT` and then performs **its own** TLS handshake straight through to the target. The proxy is relaying encrypted bytes it cannot read, so the target sees .NET's handshake, not the preset's. Nothing errors; you just get .NET's fingerprint while believing you have Chrome's. Same trap as the request handler in 1.6.8.
+
+`CreateClient()` avoids it by rewriting `https://` to `http://` plus an `X-HTTPCloak-Scheme: https` header, which leaves the fingerprinted handshake on the proxy side. The hop to localhost is plaintext; the TLS that matters runs between the proxy and the target.
+
+Measured against `tls.peet.ws`, same proxy, same preset:
+
+| Built with | JA4 | Negotiated |
+|---|---|---|
+| `proxy.CreateClient()` | `t13d1516h2_8daaf6152771_...` | h2 |
+| `new HttpClient(proxy.CreateHandler())` | `t13d1113_c5d436628c5c_...` | HTTP/1.1 |
+
+The second row is .NET's own handshake, cipher list and all.
+
+### The rest of the surface
+
+```csharp
+proxy.CreateClient();                      // use this
+proxy.CreateClient(myHandlerWithCookies);  // your handler, proxy wired in for you
+proxy.CreateFingerprintHandler();          // for IHttpClientFactory and libraries that take a handler
+proxy.CreateWebProxy();                    // System.Net.WebProxy, if you need the raw thing
+proxy.CreateHandler();                     // HttpClientHandler, http:// only, see above
+```
+
+With `IHttpClientFactory`:
+
+```csharp
+services.AddHttpClient("api")
+    .ConfigurePrimaryHttpMessageHandler(() => proxy.CreateFingerprintHandler());
+```
 
 ## ECH DNS server overrides
 

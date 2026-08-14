@@ -9,13 +9,21 @@
  * - Using HttpClient with the proxy
  * - True streaming uploads/downloads
  * - Working with third-party libraries
- * - HTTPS tunneling via CONNECT
+ * - Why a plain proxy handler is NOT enough for https:// URLs
  *
  * Why use LocalProxy?
  * - Works with ANY HttpClient-based code (including third-party libs)
  * - True streaming - request/response bodies are never buffered in memory
  * - High performance (~3GB/s throughput on localhost)
- * - Simple integration - just set the proxy URL
+ * - Simple integration - one call to build the client
+ *
+ * READ THIS FIRST
+ * Build your client with proxy.CreateClient(). Pointing a plain
+ * HttpClientHandler at the proxy URL is not enough: for an https:// URI through
+ * a proxy, HttpClient sends CONNECT and then does its OWN TLS handshake end to
+ * end, so the target sees .NET's fingerprint and the proxy only forwards bytes
+ * it cannot read. CreateClient rewrites https:// to http:// plus a scheme
+ * header, which keeps the fingerprinted handshake on the proxy side.
  *
  * Requirements:
  *   dotnet add package HttpCloak
@@ -42,7 +50,7 @@ class LocalProxyExamples
         await Example2_WithExistingHttpClient();
         await Example3_PostWithLargeBody();
         await Example4_ConcurrentRequests();
-        await Example5_HttpsConnectTunnel();
+        await Example5_VerifyFingerprint();
         await Example6_ProxyWithConfiguration();
         await Example7_MonitoringStats();
         await Example8_ThirdPartyLibraryIntegration();
@@ -64,9 +72,9 @@ class LocalProxyExamples
         using var proxy = new LocalProxy(preset: "chrome-latest");
         Console.WriteLine($"Proxy started on port: {proxy.Port}");
 
-        // Create HttpClient that uses the proxy
-        var handler = proxy.CreateHandler();
-        using var client = new HttpClient(handler);
+        // Build the client. CreateClient, NOT new HttpClient(CreateHandler()):
+        // the latter tunnels https:// past the proxy and applies no fingerprint.
+        using var client = proxy.CreateClient();
 
         // Make requests - they go through httpcloak with fingerprinting
         var response = await client.GetAsync("https://httpbin.org/get");
@@ -77,24 +85,29 @@ class LocalProxyExamples
     }
 
     // ============================================================
-    // Example 2: With Existing HttpClient
+    // Example 2: Bringing Your Own Handler
     // ============================================================
     static async Task Example2_WithExistingHttpClient()
     {
-        Console.WriteLine("\n[Example 2] With Existing HttpClient");
+        Console.WriteLine("\n[Example 2] Bringing Your Own Handler");
         Console.WriteLine(new string('-', 50));
 
         using var proxy = new LocalProxy(preset: "chrome-latest");
 
-        // Use proxy URL directly with HttpClientHandler
-        var handler = new HttpClientHandler
+        // Need cookies, credentials, or any other handler setting? Hand your
+        // handler over and it gets wired to the proxy for you, with the https://
+        // rewrite still in place.
+        //
+        // What NOT to do:
+        //     new HttpClient(new HttpClientHandler {
+        //         Proxy = new WebProxy(proxy.ProxyUrl), UseProxy = true })
+        // That compiles, runs, and returns real responses, and every https://
+        // request in it carries .NET's fingerprint rather than the preset's.
+        using var client = proxy.CreateClient(new HttpClientHandler
         {
-            Proxy = new WebProxy(proxy.ProxyUrl),
-            UseProxy = true
-        };
-
-        using var client = new HttpClient(handler);
-        client.DefaultRequestHeaders.Add("User-Agent", "MyApp/1.0");
+            UseCookies = true,
+            AutomaticDecompression = DecompressionMethods.All
+        });
 
         var response = await client.GetAsync("https://httpbin.org/headers");
         Console.WriteLine($"Status: {response.StatusCode}");
@@ -109,8 +122,7 @@ class LocalProxyExamples
         Console.WriteLine(new string('-', 50));
 
         using var proxy = new LocalProxy(preset: "chrome-latest");
-        var handler = proxy.CreateHandler();
-        using var client = new HttpClient(handler);
+        using var client = proxy.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(5);
 
         // Create 1MB of data
@@ -136,8 +148,7 @@ class LocalProxyExamples
         Console.WriteLine(new string('-', 50));
 
         using var proxy = new LocalProxy(preset: "chrome-latest", maxConnections: 100);
-        var handler = proxy.CreateHandler();
-        using var client = new HttpClient(handler);
+        using var client = proxy.CreateClient();
 
         // Fire 10 concurrent requests
         var tasks = Enumerable.Range(1, 10)
@@ -155,23 +166,54 @@ class LocalProxyExamples
     }
 
     // ============================================================
-    // Example 5: HTTPS CONNECT Tunnel
+    // Example 5: Proving the Fingerprint Is Actually Applied
     // ============================================================
-    static async Task Example5_HttpsConnectTunnel()
+    static async Task Example5_VerifyFingerprint()
     {
-        Console.WriteLine("\n[Example 5] HTTPS CONNECT Tunnel");
+        Console.WriteLine("\n[Example 5] Proving the Fingerprint Is Actually Applied");
         Console.WriteLine(new string('-', 50));
 
         using var proxy = new LocalProxy(preset: "chrome-latest");
-        var handler = proxy.CreateHandler();
-        using var client = new HttpClient(handler);
 
-        // HTTPS requests use CONNECT tunneling
-        // The client does TLS directly with the target server
-        var response = await client.GetAsync("https://api.github.com/zen");
+        try
+        {
+            // The right way. The proxy performs the TLS handshake, so the target
+            // sees the preset.
+            using var good = proxy.CreateClient();
+            var applied = await good.GetStringAsync("https://tls.peet.ws/api/clean");
+            Console.WriteLine($"Through CreateClient : {Ja4Of(applied)}");
 
-        Console.WriteLine($"GitHub Zen: {await response.Content.ReadAsStringAsync()}");
-        Console.WriteLine("(HTTPS traffic tunneled via CONNECT method)");
+            // The trap. CONNECT means HttpClient does its own TLS end to end and
+            // the proxy never sees the handshake, so the target reads .NET.
+            using var bare = new HttpClient(proxy.CreateHandler());
+            var bypassed = await bare.GetStringAsync("https://tls.peet.ws/api/clean");
+            Console.WriteLine($"Through CreateHandler: {Ja4Of(bypassed)}");
+
+            // Compare the cipher-list segment rather than the whole JA4. The
+            // first hash is over the cipher suites, which do not move; the last
+            // is over the extensions, and that one legitimately changes once the
+            // connection starts resuming TLS sessions, as a real browser does.
+            Console.WriteLine(CipherPartOf(applied) == CipherPartOf(bypassed)
+                ? "Same cipher list - something is wrong, these should differ"
+                : "Different cipher lists, as expected: only the first one is fingerprinted");
+        }
+        catch (HttpRequestException e)
+        {
+            Console.WriteLine($"Could not reach the fingerprint reflector, skipping: {e.Message}");
+        }
+    }
+
+    static string Ja4Of(string json)
+    {
+        var doc = JsonDocument.Parse(json);
+        return doc.RootElement.TryGetProperty("ja4", out var v) ? v.GetString() ?? "?" : "?";
+    }
+
+    // JA4 is "<prefix>_<ciphers>_<extensions>"; take the middle field.
+    static string CipherPartOf(string json)
+    {
+        var parts = Ja4Of(json).Split('_');
+        return parts.Length > 1 ? parts[1] : "?";
     }
 
     // ============================================================
@@ -194,8 +236,7 @@ class LocalProxyExamples
         Console.WriteLine($"Proxy URL: {proxy.ProxyUrl}");
         Console.WriteLine($"Running: {proxy.IsRunning}");
 
-        var handler = proxy.CreateHandler();
-        using var client = new HttpClient(handler);
+        using var client = proxy.CreateClient();
 
         var response = await client.GetAsync("https://httpbin.org/ip");
         var ip = await response.Content.ReadAsStringAsync();
@@ -211,8 +252,7 @@ class LocalProxyExamples
         Console.WriteLine(new string('-', 50));
 
         using var proxy = new LocalProxy(preset: "chrome-latest");
-        var handler = proxy.CreateHandler();
-        using var client = new HttpClient(handler);
+        using var client = proxy.CreateClient();
 
         // Make some requests
         for (int i = 0; i < 5; i++)
@@ -243,19 +283,23 @@ class LocalProxyExamples
         // Many third-party libraries accept HttpClient or IHttpClientFactory
         // You can configure them to use your proxy-enabled client
 
-        var handler = proxy.CreateHandler();
-        using var client = new HttpClient(handler);
+        using var client = proxy.CreateClient();
+
+        // If the library wants a handler rather than a client, hand it the
+        // fingerprinting one:
+        //     services.AddHttpClient("api")
+        //         .ConfigurePrimaryHttpMessageHandler(() => proxy.CreateFingerprintHandler());
 
         // Example: Using with a REST API client
-        client.BaseAddress = new Uri("https://jsonplaceholder.typicode.com");
+        client.BaseAddress = new Uri("https://httpbin.org");
         client.DefaultRequestHeaders.Accept.Add(
             new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
-        var response = await client.GetAsync("/posts/1");
+        var response = await client.GetAsync("/json");
         var json = await response.Content.ReadAsStringAsync();
 
-        var post = JsonDocument.Parse(json);
-        Console.WriteLine($"Post title: {post.RootElement.GetProperty("title").GetString()}");
+        var doc = JsonDocument.Parse(json);
+        Console.WriteLine($"Slideshow title: {doc.RootElement.GetProperty("slideshow").GetProperty("title").GetString()}");
 
         // This works with:
         // - RestSharp (pass HttpClient)

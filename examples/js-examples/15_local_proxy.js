@@ -207,17 +207,21 @@ const proxy = new LocalProxy({
 // Create Undici ProxyAgent pointing to LocalProxy
 const agent = new ProxyAgent(proxy.proxyUrl);
 
-// Make request through LocalProxy
-// Headers from your application pass through unchanged
-// TLS fingerprint is applied by LocalProxy
-const { statusCode, headers, body } = await request('https://example.com', {
+// Make the request through LocalProxy.
+//
+// Note the http:// URL plus X-HTTPCloak-Scheme. Requesting https:// here would
+// make undici send CONNECT and do its own TLS end to end, so the target would
+// see Node's fingerprint and the proxy would just relay bytes it cannot read.
+const { statusCode, headers, body } = await request('http://example.com', {
   dispatcher: agent,
   headers: {
+    // Upgrades to HTTPS on the proxy side, where the fingerprint is applied
+    'X-HTTPCloak-Scheme': 'https',
     // Your custom headers pass through unchanged
     'User-Agent': 'Your-Custom-UA',
     'Accept': 'text/html',
-    // Use Proxy-Authorization for per-request proxy rotation (works for HTTPS!)
-    'Proxy-Authorization': 'HTTPCloak http://user:pass@rotating-proxy.brightdata.com:8080'
+    // Per-request upstream proxy rotation
+    'Proxy-Authorization': 'HTTPCloak http://user:pass@upstream.example.com:8080'
   }
 });
 

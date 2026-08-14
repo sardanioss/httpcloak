@@ -438,9 +438,9 @@ response = httpcloak.post("https://api.example.com", data={"key": "value"})
 
 Use `LocalProxy` to apply TLS fingerprinting to any HTTP client (requests, httpx, etc.).
 
-### HTTPS with True Streaming (Recommended)
+### Basic Usage
 
-For HTTPS requests with full fingerprinting AND true streaming (request/response bodies not materialized into memory), use the `X-HTTPCloak-Scheme` header:
+Request the target as `http://` and add `X-HTTPCloak-Scheme: https`. That one detail decides whether any fingerprinting happens at all:
 
 ```python
 from httpcloak import LocalProxy
@@ -450,51 +450,44 @@ import requests
 proxy = LocalProxy(preset="chrome-latest")
 print(f"Proxy running on {proxy.proxy_url}")
 
-# Use X-HTTPCloak-Scheme header for HTTPS with fingerprinting + streaming
 response = requests.get(
-    "http://example.com/api",  # Note: http://
-    proxies={"http": proxy.proxy_url},  # Use http proxy
-    headers={"X-HTTPCloak-Scheme": "https"}  # Upgrades to HTTPS with fingerprinting
+    "http://example.com/api",              # note: http://
+    proxies={"http": proxy.proxy_url},
+    headers={"X-HTTPCloak-Scheme": "https"},  # upgraded to HTTPS by the proxy
 )
-
-# This provides:
-# - Full TLS fingerprinting (Chrome/Firefox JA3/JA4)
-# - HTTP/3 support
-# - True streaming (request body NOT materialized into memory)
-# - Header modification capabilities
-
-proxy.close()
-```
-
-**Why use `X-HTTPCloak-Scheme`?**
-
-Standard HTTP proxy clients use CONNECT tunneling for HTTPS, which means the proxy can't inspect or modify the request. The `X-HTTPCloak-Scheme: https` header tells LocalProxy to:
-1. Accept the request as plain HTTP
-2. Upgrade it to HTTPS internally
-3. Apply full TLS fingerprinting
-4. Stream request/response bodies without memory materialization
-
-### Basic Usage
-
-```python
-from httpcloak import LocalProxy
-import requests
-
-# Start local proxy with Chrome fingerprint
-proxy = LocalProxy(preset="chrome-latest")
-
-# Standard HTTPS (uses CONNECT tunnel - fingerprinting via upstream proxy only)
-response = requests.get("https://example.com", proxies={"https": proxy.proxy_url})
 
 # Per-request upstream proxy rotation
 response = requests.get(
-    "https://example.com",
-    proxies={"https": proxy.proxy_url},
-    headers={"X-Upstream-Proxy": "http://user:pass@rotating-proxy.com:8080"}
+    "http://example.com",
+    proxies={"http": proxy.proxy_url},
+    headers={
+        "X-HTTPCloak-Scheme": "https",
+        "X-Upstream-Proxy": "http://user:pass@rotating-proxy.com:8080",
+    },
 )
 
 proxy.close()
 ```
+
+This gives you full TLS fingerprinting, HTTP/2 and HTTP/3 support, and true streaming: request and response bodies are never materialized into memory.
+
+### Requesting `https://` through the proxy applies no fingerprint
+
+```python
+# Runs fine, returns a real response, and carries Python's TLS fingerprint
+response = requests.get("https://example.com", proxies={"https": proxy.proxy_url})
+```
+
+`requests`, like every mainstream client, handles an `https://` URL through a proxy by sending `CONNECT` and then doing **its own** TLS handshake straight through to the target. The proxy relays encrypted bytes it cannot read, so the target sees Python's handshake rather than the preset's. Nothing errors, which is what makes it easy to ship by accident.
+
+Measured against `tls.peet.ws`, same proxy, same preset:
+
+| Pattern | JA4 |
+| --- | --- |
+| `proxies={"https": ...}` with an `https://` URL | `t13d1713h1_ab0a1bf427ad_...` |
+| `proxies={"http": ...}` + scheme header, `http://` URL | `t13d1516h2_8daaf6152771_...` |
+
+The first row is byte-identical to `requests` with no proxy at all. The same applies to `X-HTTPCloak-Session`: on a `CONNECT` request your headers travel inside the tunnel, so the proxy never reads them and session routing silently does nothing.
 
 ### TLS-Only Mode
 
@@ -508,9 +501,12 @@ proxy = LocalProxy(preset="chrome-latest", tls_only=True)
 
 # Your client's headers are preserved
 response = requests.get(
-    "https://example.com",
-    proxies={"https": proxy.proxy_url},
-    headers={"User-Agent": "My Custom UA"}
+    "http://example.com",
+    proxies={"http": proxy.proxy_url},
+    headers={
+        "X-HTTPCloak-Scheme": "https",
+        "User-Agent": "My Custom UA",
+    },
 )
 
 proxy.close()
@@ -535,9 +531,12 @@ proxy.register_session("firefox-user", firefox_session)
 
 # Route requests using X-HTTPCloak-Session header
 response = requests.get(
-    "https://example.com",
-    proxies={"https": proxy.proxy_url},
-    headers={"X-HTTPCloak-Session": "firefox-user"}  # Uses firefox fingerprint
+    "http://example.com",
+    proxies={"http": proxy.proxy_url},
+    headers={
+        "X-HTTPCloak-Scheme": "https",
+        "X-HTTPCloak-Session": "firefox-user",  # uses firefox fingerprint
+    },
 )
 
 # Unregister when done

@@ -89,13 +89,34 @@ Console.ReadLine();
 </TabItem>
 </Tabs>
 
-Then, from anywhere on the box, point any client at it:
+Then, from anywhere on the box, point any client at it. One detail decides whether this works at all: request the target as `http://` and add the scheme-upgrade header, rather than requesting `https://` directly.
 
 ```bash
-curl -x http://127.0.0.1:8080 https://tls.peet.ws/api/all
+curl -x http://127.0.0.1:8080 \
+     -H "X-HTTPCloak-Scheme: https" \
+     http://tls.peet.ws/api/all
 ```
 
-The response body holds the JA4, akamai hash, peetprint hash. They'll match real Chrome, not Go's default client. Job done.
+The response body holds the JA4, akamai hash and peetprint hash, and they match real Chrome rather than curl's own TLS stack.
+
+:::danger Requesting `https://` through the proxy applies no fingerprint at all
+Every mainstream HTTP client, curl included, handles an `https://` URL through a proxy by sending `CONNECT` and then performing **its own** TLS handshake straight through to the target. The proxy is relaying encrypted bytes it cannot read, so the target sees the client's handshake, not the preset's. Nothing errors and you get a real response, which is what makes it easy to miss.
+
+Measured against `tls.peet.ws`, same proxy, same `chrome-latest` preset:
+
+| Client | Pattern | JA4 |
+| --- | --- | --- |
+| curl | `-x proxy https://target` | `t13d3013h2_1d37bd780c83_...` |
+| curl | `-x proxy` + header, `http://target` | `t13d1516h2_8daaf6152771_...` |
+| Python `requests` | `proxies=` + `https://target` | `t13d1713h1_ab0a1bf427ad_...` |
+| Python `requests` | `proxies=` + header, `http://target` | `t13d1516h2_8daaf6152771_...` |
+| Node `undici` | `ProxyAgent` + `https://target` | `t13d5212h1_b262b3658495_...` |
+| Node `undici` | `ProxyAgent` + header, `http://target` | `t13d1516h2_8daaf6152771_...` |
+
+The first row of each pair is byte-identical to that client with no proxy configured at all. The same applies to `X-HTTPCloak-Session`: on a `CONNECT` request your headers travel inside the tunnel, so the proxy never reads them and session routing silently does nothing.
+
+The `.NET` binding wraps this for you, see `LocalProxy.CreateClient()` on the [.NET page](/bindings/dotnet). For every other language, use the header.
+:::
 
 :::tip
 The proxy binds to `127.0.0.1` only, never `0.0.0.0`. That's deliberate. You don't want a fingerprinting proxy reachable from your LAN by accident. If you need it on a different host, run it inside that host or front it with something like `socat` or an SSH tunnel you actually trust.
@@ -253,12 +274,13 @@ lp.RegisterSession("alice", alice)
 lp.RegisterSession("bob", bob)
 ```
 
-From the client side, just set the header:
+From the client side, set the header. Note the `http://` target and the scheme upgrade: on a `CONNECT` request the session header rides inside the tunnel where the proxy cannot read it, so the routing would silently fall back to the default session.
 
 ```bash
 curl -x http://127.0.0.1:8080 \
      -H "X-HTTPCloak-Session: alice" \
-     https://example.com/profile
+     -H "X-HTTPCloak-Scheme: https" \
+     http://example.com/profile
 ```
 
 | Method (Go) | What it does | Bindings |
@@ -392,14 +414,15 @@ Then route from the client by port:
 ```python
 import requests
 
-CHROME = "http://127.0.0.1:8080"
-FIREFOX = "http://127.0.0.1:8081"
+CHROME = {"http": "http://127.0.0.1:8080"}
+FIREFOX = {"http": "http://127.0.0.1:8081"}
+UPGRADE = {"X-HTTPCloak-Scheme": "https"}
 
 # Chrome for the API
-api = requests.get("https://api.example.com/...", proxies={"https": CHROME})
+api = requests.get("http://api.example.com/...", proxies=CHROME, headers=UPGRADE)
 
 # Firefox for the legacy site that hates Chrome
-legacy = requests.get("https://legacy.example.com/...", proxies={"https": FIREFOX})
+legacy = requests.get("http://legacy.example.com/...", proxies=FIREFOX, headers=UPGRADE)
 ```
 
 Each instance is fully isolated. Own connection pool, own cookies, own stats. Three proxies cost roughly 3x the memory of one and one extra goroutine per accept loop, which is negligible at proxy scale.
@@ -414,15 +437,15 @@ The whole point is that you don't need an httpcloak SDK in the calling language.
 ```python
 import requests
 
-proxies = {
-    "http":  "http://127.0.0.1:8080",
-    "https": "http://127.0.0.1:8080",
+proxies = {"http": "http://127.0.0.1:8080"}
+
+headers = {
+    "X-HTTPCloak-Scheme": "https",   # required, see the warning above
+    "X-HTTPCloak-Session": "alice",  # per-request session pick
 }
 
-# Per-request session pick
-headers = {"X-HTTPCloak-Session": "alice"}
-
-r = requests.get("https://tls.peet.ws/api/all", proxies=proxies, headers=headers)
+# http:// target, upgraded by the proxy. https:// here would bypass everything.
+r = requests.get("http://tls.peet.ws/api/all", proxies=proxies, headers=headers)
 print(r.json()["tls"]["ja4"])
 ```
 
@@ -434,9 +457,13 @@ import { fetch, ProxyAgent } from "undici";
 
 const dispatcher = new ProxyAgent("http://127.0.0.1:8080");
 
-const r = await fetch("https://tls.peet.ws/api/all", {
+// http:// target, upgraded by the proxy. https:// here would bypass everything.
+const r = await fetch("http://tls.peet.ws/api/all", {
     dispatcher,
-    headers: { "X-HTTPCloak-Session": "alice" },
+    headers: {
+        "X-HTTPCloak-Scheme": "https",
+        "X-HTTPCloak-Session": "alice",
+    },
 });
 
 console.log((await r.json()).tls.ja4);
@@ -450,7 +477,9 @@ proxyURL, _ := url.Parse("http://127.0.0.1:8080")
 client := &http.Client{
     Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
 }
-req, _ := http.NewRequest("GET", "https://tls.peet.ws/api/all", nil)
+// http:// target, upgraded by the proxy. https:// here would bypass everything.
+req, _ := http.NewRequest("GET", "http://tls.peet.ws/api/all", nil)
+req.Header.Set("X-HTTPCloak-Scheme", "https")
 req.Header.Set("X-HTTPCloak-Session", "alice")
 resp, _ := client.Do(req)
 ```
@@ -459,14 +488,12 @@ resp, _ := client.Do(req)
 <TabItem value="dotnet" label=".NET">
 
 ```csharp
-using System.Net;
-using System.Net.Http;
+using HttpCloak;
 
-var handler = new HttpClientHandler {
-    Proxy = new WebProxy("http://127.0.0.1:8080"),
-    UseProxy = true,
-};
-using var client = new HttpClient(handler);
+// CreateClient does the http:// rewrite and the scheme header for you, so an
+// https:// URL here is fine. A bare HttpClientHandler pointed at the proxy URL
+// is NOT, see the warning above.
+using var client = proxy.CreateClient();
 client.DefaultRequestHeaders.Add("X-HTTPCloak-Session", "alice");
 
 var r = await client.GetStringAsync("https://tls.peet.ws/api/all");
@@ -478,8 +505,9 @@ Console.WriteLine(r);
 
 ```bash
 curl -x http://127.0.0.1:8080 \
+     -H "X-HTTPCloak-Scheme: https" \
      -H "X-HTTPCloak-Session: alice" \
-     https://tls.peet.ws/api/all
+     http://tls.peet.ws/api/all
 ```
 
 </TabItem>
