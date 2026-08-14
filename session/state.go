@@ -30,6 +30,25 @@ type SessionState struct {
 	// This is essential for session resumption - the same ECH config must be used
 	// when resuming as was used when creating the session ticket
 	ECHConfigs map[string]string `json:"ech_configs,omitempty"`
+
+	// TLSVerify records which certificate verification hooks the session had
+	// configured when it was saved. The hooks themselves are Go functions and a
+	// *x509.CertPool, so JSON cannot carry them; this records that they existed
+	// so a later load can refuse rather than silently give back a session that
+	// verifies less than the one that was saved.
+	//
+	// Absent on files written before this existed, which is the honest answer
+	// for them: nothing was recorded either way.
+	TLSVerify *TLSVerifyState `json:"tls_verify,omitempty"`
+}
+
+// TLSVerifyState records which non-serialisable verification hooks a saved
+// session carried. Each field means "this one was configured", never what it
+// did.
+type TLSVerifyState struct {
+	PeerCertificate bool `json:"peer_certificate,omitempty"`
+	Connection      bool `json:"connection,omitempty"`
+	RootCAs         bool `json:"root_cas,omitempty"`
 }
 
 // SessionStateV4 represents the v4 format for migration

@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -1983,9 +1985,28 @@ func (s *Session) Marshal() ([]byte, error) {
 		Cookies:     cookies,
 		TLSSessions: tlsSessions,
 		ECHConfigs:  echConfigs,
+		TLSVerify:   tlsVerifyStateOf(config),
 	}
 
 	return json.MarshalIndent(state, "", "  ")
+}
+
+// tlsVerifyStateOf records which verification hooks a config carries. Returns
+// nil when it carries none, so the key stays out of the file entirely for the
+// common case.
+func tlsVerifyStateOf(config *protocol.SessionConfig) *TLSVerifyState {
+	if config == nil {
+		return nil
+	}
+	v := &TLSVerifyState{
+		PeerCertificate: config.TLSVerifyPeerCertificate != nil,
+		Connection:      config.TLSVerifyConnection != nil,
+		RootCAs:         config.TLSRootCAs != nil,
+	}
+	if !v.PeerCertificate && !v.Connection && !v.RootCAs {
+		return nil
+	}
+	return v
 }
 
 // Save exports session state to a file
@@ -2003,14 +2024,74 @@ func (s *Session) Save(path string) error {
 	return nil
 }
 
-// LoadSession loads a session from a file
+// SessionLoadOptions supplies the parts of a session's configuration that JSON
+// cannot carry.
+//
+// Certificate verification hooks are Go functions and a *x509.CertPool, so a
+// saved session can only record THAT they were configured, never what they did.
+// Pass the same ones here to restore the session with the posture it was saved
+// with. Anything left nil here that the file recorded is an error, not a
+// silent downgrade.
+type SessionLoadOptions struct {
+	TLSVerifyPeerCertificate func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	TLSVerifyConnection      func(cs tls.ConnectionState) error
+	TLSRootCAs               *x509.CertPool
+}
+
+// applyTo installs the supplied hooks on the config the session will be built
+// from, so they travel the same path as hooks passed to NewSession directly.
+func (o *SessionLoadOptions) applyTo(config *protocol.SessionConfig) {
+	if o == nil || config == nil {
+		return
+	}
+	if o.TLSVerifyPeerCertificate != nil {
+		config.TLSVerifyPeerCertificate = o.TLSVerifyPeerCertificate
+	}
+	if o.TLSVerifyConnection != nil {
+		config.TLSVerifyConnection = o.TLSVerifyConnection
+	}
+	if o.TLSRootCAs != nil {
+		config.TLSRootCAs = o.TLSRootCAs
+	}
+}
+
+// missingFrom names the recorded hooks the options do not supply.
+func (v *TLSVerifyState) missingFrom(o *SessionLoadOptions) []string {
+	if v == nil {
+		return nil
+	}
+	var missing []string
+	if v.PeerCertificate && (o == nil || o.TLSVerifyPeerCertificate == nil) {
+		missing = append(missing, "TLSVerifyPeerCertificate")
+	}
+	if v.Connection && (o == nil || o.TLSVerifyConnection == nil) {
+		missing = append(missing, "TLSVerifyConnection")
+	}
+	if v.RootCAs && (o == nil || o.TLSRootCAs == nil) {
+		missing = append(missing, "TLSRootCAs")
+	}
+	return missing
+}
+
+// LoadSession loads a session from a file.
+//
+// Fails if the saved session had certificate verification hooks configured,
+// because those cannot be serialised and restoring without them would hand back
+// a session that verifies less than the one that was saved. Use
+// LoadSessionWithOptions to supply them.
 func LoadSession(path string) (*Session, error) {
+	return LoadSessionWithOptions(path, nil)
+}
+
+// LoadSessionWithOptions loads a session from a file, re-supplying the parts of
+// its configuration that JSON cannot carry.
+func LoadSessionWithOptions(path string, opts *SessionLoadOptions) (*Session, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}
 
-	return UnmarshalSession(data)
+	return UnmarshalSessionWithOptions(data, opts)
 }
 
 // sessionStateV3 represents the old v3 session format for backwards compatibility
@@ -2029,11 +2110,21 @@ type sessionStateV3 struct {
 	UDPProxy        string                               `json:"udp_proxy,omitempty"`
 }
 
-// UnmarshalSession loads a session from JSON bytes
+// UnmarshalSession loads a session from JSON bytes.
+//
+// Fails if the saved session had certificate verification hooks configured. See
+// LoadSession.
 func UnmarshalSession(data []byte) (*Session, error) {
-	// First, check the version
+	return UnmarshalSessionWithOptions(data, nil)
+}
+
+// UnmarshalSessionWithOptions loads a session from JSON bytes, re-supplying the
+// parts of its configuration that JSON cannot carry.
+func UnmarshalSessionWithOptions(data []byte, opts *SessionLoadOptions) (*Session, error) {
+	// First, check the version and what the file says about verification
 	var versionCheck struct {
-		Version int `json:"version"`
+		Version   int             `json:"version"`
+		TLSVerify *TLSVerifyState `json:"tls_verify"`
 	}
 	if err := json.Unmarshal(data, &versionCheck); err != nil {
 		return nil, fmt.Errorf("failed to parse session data: %w", err)
@@ -2044,14 +2135,24 @@ func UnmarshalSession(data []byte) (*Session, error) {
 			versionCheck.Version, SessionStateVersion)
 	}
 
+	// Fail closed. Restoring a session whose verification hooks were dropped
+	// gives back something that accepts certificates the saved session would
+	// have rejected, with nothing at any layer to say so.
+	if missing := versionCheck.TLSVerify.missingFrom(opts); len(missing) > 0 {
+		return nil, fmt.Errorf("session was saved with certificate verification configured (%s) and "+
+			"those cannot be serialised; load it with LoadSessionWithOptions/UnmarshalSessionWithOptions "+
+			"and pass the same hooks, otherwise the restored session would verify less than the one you saved",
+			strings.Join(missing, ", "))
+	}
+
 	// Handle v3 format (backwards compatibility)
 	if versionCheck.Version <= 3 {
-		return unmarshalSessionV3(data)
+		return unmarshalSessionV3(data, opts)
 	}
 
 	// Handle v4 format (flat cookie list)
 	if versionCheck.Version == 4 {
-		return unmarshalSessionV4(data)
+		return unmarshalSessionV4(data, opts)
 	}
 
 	// Handle v5 format (domain-keyed cookies)
@@ -2067,6 +2168,7 @@ func UnmarshalSession(data []byte) (*Session, error) {
 			Preset: "chrome-146",
 		}
 	}
+	opts.applyTo(config)
 
 	session := NewSession("", config)
 	session.CreatedAt = state.CreatedAt
@@ -2089,7 +2191,7 @@ func UnmarshalSession(data []byte) (*Session, error) {
 }
 
 // unmarshalSessionV4 handles loading v4 format sessions (flat cookie list)
-func unmarshalSessionV4(data []byte) (*Session, error) {
+func unmarshalSessionV4(data []byte, opts *SessionLoadOptions) (*Session, error) {
 	var state SessionStateV4
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, fmt.Errorf("failed to parse v4 session data: %w", err)
@@ -2102,6 +2204,7 @@ func unmarshalSessionV4(data []byte) (*Session, error) {
 			Preset: "chrome-146",
 		}
 	}
+	opts.applyTo(config)
 
 	session := NewSession("", config)
 	session.CreatedAt = state.CreatedAt
@@ -2123,7 +2226,7 @@ func unmarshalSessionV4(data []byte) (*Session, error) {
 }
 
 // unmarshalSessionV3 handles loading old v3 format sessions
-func unmarshalSessionV3(data []byte) (*Session, error) {
+func unmarshalSessionV3(data []byte, opts *SessionLoadOptions) (*Session, error) {
 	var state sessionStateV3
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, fmt.Errorf("failed to parse v3 session data: %w", err)
@@ -2138,6 +2241,7 @@ func unmarshalSessionV3(data []byte) (*Session, error) {
 		TCPProxy:        state.TCPProxy,
 		UDPProxy:        state.UDPProxy,
 	}
+	opts.applyTo(config)
 
 	session := NewSession("", config)
 	session.CreatedAt = state.CreatedAt

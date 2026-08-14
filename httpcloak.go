@@ -1337,18 +1337,48 @@ func (s *Session) Marshal() ([]byte, error) {
 	return s.inner.Marshal()
 }
 
-// LoadSession loads a session from a file
+// SessionLoadOptions supplies the parts of a saved session's configuration that
+// JSON cannot carry: the certificate verification hooks installed with
+// WithVerifyPeerCertificate and WithVerifyConnection, and the trust store
+// installed with WithTLSConfig.
+//
+// Those are Go functions and a *x509.CertPool, so Save can only record THAT
+// they were configured, never what they did. The fields here take exactly what
+// those options take.
+type SessionLoadOptions = session.SessionLoadOptions
+
+// LoadSession loads a session from a file.
+//
+// Fails if the saved session had certificate verification hooks configured.
+// They cannot be serialised, and restoring without them would hand back a
+// session that accepts certificates the saved one would have rejected, with
+// nothing to say so. Use LoadSessionWithOptions to pass them back in.
 func LoadSession(path string) (*Session, error) {
-	inner, err := session.LoadSession(path)
+	return LoadSessionWithOptions(path, nil)
+}
+
+// LoadSessionWithOptions loads a session from a file, re-supplying the
+// verification hooks it was saved with.
+func LoadSessionWithOptions(path string, opts *SessionLoadOptions) (*Session, error) {
+	inner, err := session.LoadSessionWithOptions(path, opts)
 	if err != nil {
 		return nil, err
 	}
 	return &Session{inner: inner}, nil
 }
 
-// UnmarshalSession loads a session from JSON bytes
+// UnmarshalSession loads a session from JSON bytes.
+//
+// Fails if the saved session had certificate verification hooks configured. See
+// LoadSession.
 func UnmarshalSession(data []byte) (*Session, error) {
-	inner, err := session.UnmarshalSession(data)
+	return UnmarshalSessionWithOptions(data, nil)
+}
+
+// UnmarshalSessionWithOptions loads a session from JSON bytes, re-supplying the
+// verification hooks it was saved with.
+func UnmarshalSessionWithOptions(data []byte, opts *SessionLoadOptions) (*Session, error) {
+	inner, err := session.UnmarshalSessionWithOptions(data, opts)
 	if err != nil {
 		return nil, err
 	}

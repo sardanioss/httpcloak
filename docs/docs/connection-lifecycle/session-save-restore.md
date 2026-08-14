@@ -220,9 +220,29 @@ using var s = Session.Unmarshal(blob);
 | Live connections | No, the load creates a fresh transport |
 | In-flight requests | No, obvious |
 | Cache-validation headers (ETag, Last-Modified) | No, currently per-session memory only |
+| Certificate verification hooks and a custom trust store | No, and a plain load refuses rather than dropping them, see below |
 | The session ID | New one is generated on load |
 
 The cache validators are a known gap. If a workflow leans heavily on If-None-Match to look browser-like, it re-fetches full responses on the first hit after a load. Fine for most cases.
+
+## Certificate verification hooks
+
+`WithVerifyPeerCertificate`, `WithVerifyConnection` and the `RootCAs` you pass through `WithTLSConfig` are a Go function and a `*x509.CertPool`. JSON has no way to carry any of that, so they cannot ride along in the saved file.
+
+What the file does record is that they were configured. A plain `LoadSession` on such a file returns an error naming exactly which ones are missing, instead of handing back a session that verifies less than the one you saved. That matters most when you paired a pinning callback with `WithInsecureSkipVerify`: the skip is a plain bool and saves fine, the callback doing the actual pinning does not, so a silent restore would leave you with the permissive half and nothing checking anything.
+
+Pass them back in with `LoadSessionWithOptions` (or `UnmarshalSessionWithOptions` for the in-memory form):
+
+```go
+s, err := httpcloak.LoadSessionWithOptions("session.json", &httpcloak.SessionLoadOptions{
+    TLSVerifyPeerCertificate: pinToMyCert,
+    TLSRootCAs:               myPool,
+})
+```
+
+Every hook the file recorded has to be supplied. A partial restore is refused too, since leaving one out is the same downgrade in a smaller shape. Sessions saved without any of these load exactly as before, so nothing changes for the common case, and files written by older versions keep working.
+
+This is a Go-only surface. The bindings can't pass Go function pointers, so a session saved from Python, Node or .NET never records any hooks and always loads plainly.
 
 ## Ticket expiry caveat
 

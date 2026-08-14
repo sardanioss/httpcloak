@@ -177,6 +177,8 @@ Package-level loaders, not methods on `*Session`:
 |---|---|
 | `LoadSession(path string) (*Session, error)` | Restore a session saved with `Save`. |
 | `UnmarshalSession(data []byte) (*Session, error)` | Restore a session from bytes saved with `Marshal`. |
+| `LoadSessionWithOptions(path string, opts *SessionLoadOptions)` | Same as `LoadSession`, plus the certificate verification hooks the file could not carry. Required when the saved session had any, otherwise the load fails. |
+| `UnmarshalSessionWithOptions(data []byte, opts *SessionLoadOptions)` | The in-memory form of the same. |
 | `Presets() []string` | The built-in preset names. Custom presets registered via `fingerprint.Register(name, *Preset)` go into a separate map and are NOT returned by `Presets()`. To resolve a name (built-in or custom) at runtime, use `fingerprint.Get(name)`. |
 
 ---
