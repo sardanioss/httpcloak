@@ -119,7 +119,8 @@ The TLS layer. Two configuration modes that don't mix: a named uTLS ClientHello 
 | `quic_psk_client_hello` | string | QUIC PSK variant. |
 | `ja3` | string | Full JA3: `Version,Ciphers,Extensions,Curves,Formats`. Setting this clears any inherited `client_hello`. |
 | `ja3_extras` | object | JA3-mode extras: sig-algs, ALPN, cert compression, etc. Only valid when `ja3` is set. |
-| `signature_algorithms` | uint16[] | Top-level shortcut. Only applies in JA3 mode. |
+| `signature_algorithms` | uint16[] | Signature-algorithm override for TCP (HTTP/1.1 and HTTP/2). Replaces the extension on top of whatever base the ClientHello produces, so it works with `based_on` and no `ja3`, which is exactly how the shipped Chrome 150/151 profiles add their post-quantum entries. Inherited by presets that derive from this one. |
+| `quic_signature_algorithms` | uint16[] | The HTTP/3 counterpart. Separate because a browser's QUIC list can differ from its TCP one: Chrome 150 and 151 send post-quantum signature algorithms over TCP but not over QUIC. Leave unset to inherit the base. |
 | `delegated_credential_algorithms` | uint16[] | Top-level shortcut. JA3 mode only. |
 | `alpn` | string[] | ALPN protocol list. Default `["h2", "http/1.1"]`. JA3 mode only. |
 | `cert_compression` | string[] | One or more of `"brotli"`, `"zlib"`, `"zstd"`. JA3 mode only. |

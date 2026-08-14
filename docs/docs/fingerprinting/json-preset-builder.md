@@ -26,7 +26,7 @@ The practical upshot: describe, edit, load, describe, diff. The diff shows exact
 
 ## Use cases
 
-- **Spoof a Chrome version we haven't shipped yet.** Grab `chrome-latest`, override the User-Agent and sec-ch-ua brand list, register as `chrome-149-windows`. Five minutes of work.
+- **Spoof a Chrome version we haven't shipped yet.** Grab `chrome-latest`, override the User-Agent and sec-ch-ua brand list, register under your own name, such as `chrome-152-windows-preview`. Five minutes of work. Pick a name no built-in uses: registering over a shipped preset is rejected.
 - **Pin a UA OS that doesn't match your runtime.** A Linux box can ship the `chrome-148-windows` UA without touching the TLS handshake.
 - **Remove or add a single TLS extension.** Override `tls.signature_algorithms` or `tls.alpn` without rebuilding the whole ClientHello.
 - **Tweak one HTTP/2 SETTINGS value.** Bump `initial_window_size`, leave everything else alone.
@@ -166,8 +166,8 @@ What `tls.peet.ws/api/all` reflects back:
 
 ```text
 user_agent:              Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/200.0.0.0 Safari/537.36
-ja4:                     t13d1516h2_8daaf6152771_d8a2da3f94cd
-peetprint_hash:          1d4ffe9b0e34acac0bd883fa7f79d7b5
+ja4:                     t13d1516h2_8daaf6152771_806a8c22fdea
+peetprint_hash:          67c3e9111bed9e7f03d2f21d6d88994b
 akamai_fingerprint_hash: 52d84b11737d980aef856699f885ca86
 ```
 

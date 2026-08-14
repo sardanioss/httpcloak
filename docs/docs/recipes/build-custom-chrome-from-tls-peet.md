@@ -187,12 +187,29 @@ Two other places worth checking:
 
 In the example above both capture and shipped preset are Chrome 148 on Linux, so the deltas are minimal. For a capture from Chrome 150 on macOS, the edits would look like this:
 
+:::danger Do not derive `sec-ch-ua` from the version number
+
+Copy this value from a real capture. It cannot be worked out from the version.
+Chrome regenerates its brand list per major version, and between 150 and 151 the
+separator characters, the filler brand's version and the ORDER of the three
+brands all changed at once:
+
+```
+150: "Not;A=Brand";v="8",  "Chromium";v="150", "Google Chrome";v="150"
+151: "Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"
+```
+
+A guessed value is wrong in a way that is trivially checkable by anyone reading
+the header, which defeats the point of the profile.
+
+:::
+
 ```json
 "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
 
 "headers": {
   "values": {
-    "sec-ch-ua": "\"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\", \"Not/A)Brand\";v=\"99\"",
+    "sec-ch-ua": "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"",
     "sec-ch-ua-platform": "\"macOS\""
   }
 }
