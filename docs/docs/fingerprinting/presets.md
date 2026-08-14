@@ -213,4 +213,4 @@ The bare `ja3_hash` field won't be stable for Chrome presets across runs. Chrome
 
 ## Full preset catalog
 
-69 preset names total (counting -latest aliases and the old `<os>-<browser>` naming). For the exhaustive table with version numbers, supported protocols, and platform tags, see the [Presets reference](../reference/presets).
+94 preset names total (counting -latest aliases and the old `<os>-<browser>` naming). For the exhaustive table with version numbers, supported protocols, and platform tags, see the [Presets reference](../reference/presets).

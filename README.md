@@ -1043,104 +1043,42 @@ response.Protocol
 
 ## Browser Presets
 
-| Preset | Platform | PQ | H3 |
-|--------|----------|:--:|:--:|
-| `android-chrome-143` | Android | ✅ | ✅ |
-| `android-chrome-144` | Android | ✅ | ✅ |
-| `android-chrome-145` | Android | ✅ | ✅ |
-| `android-chrome-146` | Android | ✅ | ✅ |
-| `android-chrome-147` | Android | ✅ | ✅ |
-| `android-chrome-148` | Android | ✅ | ✅ |
-| `android-chrome-latest` | Android | ✅ | ✅ |
-| `chrome-133` | Auto | ✅ | ❌ |
-| `chrome-141` | Auto | ✅ | ❌ |
-| `chrome-143` | Auto | ✅ | ✅ |
-| `chrome-143-android` | Android | ✅ | ✅ |
-| `chrome-143-ios` | iOS | ✅ | ✅ |
-| `chrome-143-linux` | Linux | ✅ | ✅ |
-| `chrome-143-macos` | macOS | ✅ | ✅ |
-| `chrome-143-windows` | Windows | ✅ | ✅ |
-| `chrome-144` | Auto | ✅ | ✅ |
-| `chrome-144-android` | Android | ✅ | ✅ |
-| `chrome-144-ios` | iOS | ✅ | ✅ |
-| `chrome-144-linux` | Linux | ✅ | ✅ |
-| `chrome-144-macos` | macOS | ✅ | ✅ |
-| `chrome-144-windows` | Windows | ✅ | ✅ |
-| `chrome-145` | Auto | ✅ | ✅ |
-| `chrome-145-android` | Android | ✅ | ✅ |
-| `chrome-145-ios` | iOS | ✅ | ✅ |
-| `chrome-145-linux` | Linux | ✅ | ✅ |
-| `chrome-145-macos` | macOS | ✅ | ✅ |
-| `chrome-145-windows` | Windows | ✅ | ✅ |
-| `chrome-146` | Auto | ✅ | ✅ |
-| `chrome-146-android` | Android | ✅ | ✅ |
-| `chrome-146-ios` | iOS | ✅ | ✅ |
-| `chrome-146-linux` | Linux | ✅ | ✅ |
-| `chrome-146-macos` | macOS | ✅ | ✅ |
-| `chrome-146-windows` | Windows | ✅ | ✅ |
-| `chrome-147` | Auto | ✅ | ✅ |
-| `chrome-147-android` | Android | ✅ | ✅ |
-| `chrome-147-ios` | iOS | ✅ | ✅ |
-| `chrome-147-linux` | Linux | ✅ | ✅ |
-| `chrome-147-macos` | macOS | ✅ | ✅ |
-| `chrome-147-windows` | Windows | ✅ | ✅ |
-| `chrome-148` | Auto | ✅ | ✅ |
-| `chrome-148-android` | Android | ✅ | ✅ |
-| `chrome-148-ios` | iOS | ✅ | ✅ |
-| `chrome-148-linux` | Linux | ✅ | ✅ |
-| `chrome-148-macos` | macOS | ✅ | ✅ |
-| `chrome-148-windows` | Windows | ✅ | ✅ |
-| `chrome-149` | Auto | ✅ | ✅ |
-| `chrome-149-linux` | Linux | ✅ | ✅ |
-| `chrome-149-macos` | macOS | ✅ | ✅ |
-| `chrome-149-windows` | Windows | ✅ | ✅ |
-| `chrome-150` | Auto | ✅ | ✅ |
-| `chrome-150-android` | Android | ✅ | ✅ |
-| `chrome-150-ios` | iOS | ✅ | ✅ |
-| `chrome-150-linux` | Linux | ✅ | ✅ |
-| `chrome-150-macos` | macOS | ✅ | ✅ |
-| `chrome-150-windows` | Windows | ✅ | ✅ |
-| `chrome-151` | Auto | ✅ | ✅ |
-| `chrome-151-android` | Android | ✅ | ✅ |
-| `chrome-151-ios` | iOS | ✅ | ✅ |
-| `chrome-151-linux` | Linux | ✅ | ✅ |
-| `chrome-151-macos` | macOS | ✅ | ✅ |
-| `chrome-151-windows` | Windows | ✅ | ✅ |
-| `chrome-latest` | Auto | ✅ | ✅ |
-| `chrome-latest-android` | Android | ✅ | ✅ |
-| `chrome-latest-ios` | iOS | ✅ | ✅ |
-| `chrome-latest-linux` | Linux | ✅ | ✅ |
-| `chrome-latest-macos` | macOS | ✅ | ✅ |
-| `chrome-latest-windows` | Windows | ✅ | ✅ |
-| `firefox-133` | Auto | ❌ | ❌ |
-| `firefox-133-linux` | Linux | ❌ | ❌ |
-| `firefox-133-macos` | macOS | ❌ | ❌ |
-| `firefox-133-windows` | Windows | ❌ | ❌ |
-| `firefox-148` | Auto | ✅ | ❌ |
-| `firefox-148-linux` | Linux | ✅ | ❌ |
-| `firefox-148-macos` | macOS | ✅ | ❌ |
-| `firefox-148-windows` | Windows | ✅ | ❌ |
-| `firefox-latest` | Auto | ✅ | ❌ |
-| `firefox-latest-linux` | Linux | ✅ | ❌ |
-| `firefox-latest-macos` | macOS | ✅ | ❌ |
-| `firefox-latest-windows` | Windows | ✅ | ❌ |
-| `ios-chrome-143` | iOS | ✅ | ✅ |
-| `ios-chrome-144` | iOS | ✅ | ✅ |
-| `ios-chrome-145` | iOS | ✅ | ✅ |
-| `ios-chrome-146` | iOS | ✅ | ✅ |
-| `ios-chrome-147` | iOS | ✅ | ✅ |
-| `ios-chrome-148` | iOS | ✅ | ✅ |
-| `ios-chrome-latest` | iOS | ✅ | ✅ |
-| `ios-safari-17` | iOS | ❌ | ❌ |
-| `ios-safari-18` | iOS | ✅ | ✅ |
-| `ios-safari-latest` | iOS | ✅ | ✅ |
-| `safari-17-ios` | iOS | ❌ | ❌ |
-| `safari-18` | Auto | ✅ | ✅ |
-| `safari-18-ios` | iOS | ✅ | ✅ |
-| `safari-latest` | Auto | ✅ | ✅ |
-| `safari-latest-ios` | iOS | ✅ | ✅ |
+94 presets. Names are `<browser>-<version>` with an optional `-windows`, `-linux`, `-macos`, `-android` or `-ios` suffix; leave the suffix off and the User-Agent follows the host OS. `Presets()` returns the live list at runtime.
 
-**PQ** = Post-Quantum (X25519MLKEM768) · **H3** = HTTP/3
+| Browser | Versions | Platform suffixes | PQ | HTTP/3 |
+|---------|----------|-------------------|:--:|:------:|
+| Chrome | 143 to 151, `latest` | all five | yes | yes |
+| Chrome | 133, 141 | none, host OS only | yes | no |
+| Firefox | 148, `latest` | `-windows` `-linux` `-macos` | yes | no |
+| Firefox | 133 | `-windows` `-linux` `-macos` | no | no |
+| Safari | 18, `latest` | none (macOS), `-ios` | yes | yes |
+| Safari | 17 | `-ios` only | no | no |
+
+**PQ** = post-quantum key exchange (X25519MLKEM768).
+
+Two gaps in those ranges:
+
+- `chrome-149` is desktop only. There is no `chrome-149-android` or `chrome-149-ios`.
+- Safari 17 exists only as `safari-17-ios`. There is no desktop build.
+
+Chrome on Android and iOS also answers to a platform-first spelling, which reads better in some codebases:
+
+| Platform-first | Same as |
+|----------------|---------|
+| `android-chrome-143` … `android-chrome-148` | `chrome-<version>-android` |
+| `ios-chrome-143` … `ios-chrome-148` | `chrome-<version>-ios` |
+| `ios-safari-17`, `ios-safari-18`, `ios-safari-latest` | `safari-<version>-ios` |
+
+Those numbered pairs are byte-identical. The `-latest` spellings are **not** interchangeable: the platform-first naming is frozen at 148 for back-compat, so its `-latest` no longer tracks the newest Chrome.
+
+| Name | Resolves to |
+|------|-------------|
+| `chrome-latest-android` | Chrome 151 |
+| `android-chrome-latest` | Chrome 148 |
+| `chrome-latest-ios` | Chrome 150 |
+| `ios-chrome-latest` | Chrome 148 |
+
+Use the `chrome-latest-*` spelling if you want the newest profile. `chrome-latest-ios` sits on 150 deliberately: the iOS 151 build number cannot be derived from the major version, so `chrome-151-ios` ships but stays provisional until a real capture confirms it.
 
 ---
 
