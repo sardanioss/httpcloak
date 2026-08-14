@@ -3141,6 +3141,30 @@ public static class Presets
     public const string ChromeLatestAndroid = "chrome-latest-android";
 
     // Chrome 149 (desktop; wire fingerprint identical to 148)
+    public const string Chrome151 = "chrome-151";
+    public const string Chrome151Windows = "chrome-151-windows";
+    public const string Chrome151Linux = "chrome-151-linux";
+    public const string Chrome151MacOS = "chrome-151-macos";
+    public const string Chrome151Android = "chrome-151-android";
+    public const string Chrome151IOS = "chrome-151-ios";
+
+    public const string Chrome150 = "chrome-150";
+    public const string Chrome150Windows = "chrome-150-windows";
+    public const string Chrome150Linux = "chrome-150-linux";
+    public const string Chrome150MacOS = "chrome-150-macos";
+    public const string Chrome150Android = "chrome-150-android";
+    public const string Chrome150IOS = "chrome-150-ios";
+
+    public const string Firefox148Windows = "firefox-148-windows";
+    public const string Firefox148Linux = "firefox-148-linux";
+    public const string Firefox148MacOS = "firefox-148-macos";
+    public const string Firefox133Windows = "firefox-133-windows";
+    public const string Firefox133Linux = "firefox-133-linux";
+    public const string Firefox133MacOS = "firefox-133-macos";
+    public const string FirefoxLatestWindows = "firefox-latest-windows";
+    public const string FirefoxLatestLinux = "firefox-latest-linux";
+    public const string FirefoxLatestMacOS = "firefox-latest-macos";
+
     public const string Chrome149 = "chrome-149";
     public const string Chrome149Windows = "chrome-149-windows";
     public const string Chrome149Linux = "chrome-149-linux";

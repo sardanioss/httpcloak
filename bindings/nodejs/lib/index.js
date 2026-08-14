@@ -41,6 +41,30 @@ const Preset = {
   CHROME_LATEST_ANDROID: "chrome-latest-android",
 
   // Chrome 149 (desktop; wire fingerprint identical to 148)
+  CHROME_151: "chrome-151",
+  CHROME_151_WINDOWS: "chrome-151-windows",
+  CHROME_151_LINUX: "chrome-151-linux",
+  CHROME_151_MACOS: "chrome-151-macos",
+  CHROME_151_ANDROID: "chrome-151-android",
+  CHROME_151_IOS: "chrome-151-ios",
+
+  CHROME_150: "chrome-150",
+  CHROME_150_WINDOWS: "chrome-150-windows",
+  CHROME_150_LINUX: "chrome-150-linux",
+  CHROME_150_MACOS: "chrome-150-macos",
+  CHROME_150_ANDROID: "chrome-150-android",
+  CHROME_150_IOS: "chrome-150-ios",
+
+  FIREFOX_148_WINDOWS: "firefox-148-windows",
+  FIREFOX_148_LINUX: "firefox-148-linux",
+  FIREFOX_148_MACOS: "firefox-148-macos",
+  FIREFOX_133_WINDOWS: "firefox-133-windows",
+  FIREFOX_133_LINUX: "firefox-133-linux",
+  FIREFOX_133_MACOS: "firefox-133-macos",
+  FIREFOX_LATEST_WINDOWS: "firefox-latest-windows",
+  FIREFOX_LATEST_LINUX: "firefox-latest-linux",
+  FIREFOX_LATEST_MACOS: "firefox-latest-macos",
+
   CHROME_149: "chrome-149",
   CHROME_149_WINDOWS: "chrome-149-windows",
   CHROME_149_LINUX: "chrome-149-linux",
