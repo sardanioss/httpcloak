@@ -1043,42 +1043,16 @@ response.Protocol
 
 ## Browser Presets
 
-94 presets. Names are `<browser>-<version>` with an optional `-windows`, `-linux`, `-macos`, `-android` or `-ios` suffix; leave the suffix off and the User-Agent follows the host OS. `Presets()` returns the live list at runtime.
-
 | Browser | Versions | Platform suffixes | PQ | HTTP/3 |
 |---------|----------|-------------------|:--:|:------:|
-| Chrome | 143 to 151, `latest` | all five | yes | yes |
-| Chrome | 133, 141 | none, host OS only | yes | no |
+| Chrome | 143 to 151, `latest` | `-windows` `-linux` `-macos` `-android` `-ios` | yes | yes |
+| Chrome | 133, 141 | none | yes | no |
 | Firefox | 148, `latest` | `-windows` `-linux` `-macos` | yes | no |
 | Firefox | 133 | `-windows` `-linux` `-macos` | no | no |
-| Safari | 18, `latest` | none (macOS), `-ios` | yes | yes |
-| Safari | 17 | `-ios` only | no | no |
+| Safari | 18, `latest` | none, `-ios` | yes | yes |
+| Safari | 17 | `-ios` | no | no |
 
-**PQ** = post-quantum key exchange (X25519MLKEM768).
-
-Two gaps in those ranges:
-
-- `chrome-149` is desktop only. There is no `chrome-149-android` or `chrome-149-ios`.
-- Safari 17 exists only as `safari-17-ios`. There is no desktop build.
-
-Chrome on Android and iOS also answers to a platform-first spelling, which reads better in some codebases:
-
-| Platform-first | Same as |
-|----------------|---------|
-| `android-chrome-143` … `android-chrome-148` | `chrome-<version>-android` |
-| `ios-chrome-143` … `ios-chrome-148` | `chrome-<version>-ios` |
-| `ios-safari-17`, `ios-safari-18`, `ios-safari-latest` | `safari-<version>-ios` |
-
-Those numbered pairs are byte-identical. The `-latest` spellings are **not** interchangeable: the platform-first naming is frozen at 148 for back-compat, so its `-latest` no longer tracks the newest Chrome.
-
-| Name | Resolves to |
-|------|-------------|
-| `chrome-latest-android` | Chrome 151 |
-| `android-chrome-latest` | Chrome 148 |
-| `chrome-latest-ios` | Chrome 150 |
-| `ios-chrome-latest` | Chrome 148 |
-
-Use the `chrome-latest-*` spelling if you want the newest profile. `chrome-latest-ios` sits on 150 deliberately: the iOS 151 build number cannot be derived from the major version, so `chrome-151-ios` ships but stays provisional until a real capture confirms it.
+**PQ** = post-quantum key exchange (X25519MLKEM768). `Presets()` returns the full list.
 
 ---
 
