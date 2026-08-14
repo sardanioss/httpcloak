@@ -46,6 +46,9 @@ tests/
 internal_tests/
 # Root-level _test.go files stay local (subdir tests still ship)
 /*_test.go
+# ...except real regression locks, which must ship. The blanket rule above
+# exists to keep throwaway root-level scratch tests out of the tree.
+!/local_proxy_gzip_test.go
 
 # Local workspace config (points at machine-local fork paths)
 go.work
