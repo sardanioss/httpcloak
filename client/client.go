@@ -211,10 +211,11 @@ func NewClient(presetName string, opts ...Option) *Client {
 	// Install caller-supplied TLS verification hooks (issue #85). Previously
 	// WithTLSConfig stored the config and nothing ever read it, so the callbacks
 	// silently never fired.
-	if config.VerifyPeerCertificate != nil || config.VerifyConnection != nil {
+	if config.VerifyPeerCertificate != nil || config.VerifyConnection != nil || config.RootCAs != nil {
 		tlsVerify := &transport.TLSVerify{
 			VerifyPeerCertificate: config.VerifyPeerCertificate,
 			VerifyConnection:      config.VerifyConnection,
+			RootCAs:               config.RootCAs,
 		}
 		h2Manager.SetTLSVerify(tlsVerify)
 		h1Transport.SetTLSVerify(tlsVerify)

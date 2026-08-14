@@ -235,6 +235,17 @@ type HTTP3Transport struct {
 // Only verification is configurable; nothing here affects the ClientHello.
 func (t *HTTP3Transport) SetTLSVerify(v *TLSVerify) {
 	t.tlsVerify = v
+	// Unlike HTTP/1.1 and HTTP/2, which build a fresh utls.Config per
+	// connection and therefore pick this up at dial time, HTTP/3 builds
+	// t.tlsConfig ONCE in the constructor - before this setter can ever run.
+	// Recording the field without re-applying it would leave the cached config
+	// without the hooks, so certificate verification would silently never run
+	// on QUIC. That fails open: a callback that is never consulted never
+	// rejects, and on a client that prefers HTTP/3 that is the connection the
+	// request actually uses.
+	if t.tlsConfig != nil {
+		v.Apply(t.tlsConfig)
+	}
 }
 
 func (t *HTTP3Transport) SetInsecureSkipVerify(skip bool) {

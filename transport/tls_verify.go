@@ -30,11 +30,21 @@ type TLSVerify struct {
 	// VerifyConnection mirrors crypto/tls.Config.VerifyConnection. It is called
 	// after VerifyPeerCertificate, for every handshake including resumptions.
 	VerifyConnection func(cs stdtls.ConnectionState) error
+
+	// RootCAs replaces the trust anchors used to verify the server, mirroring
+	// crypto/tls.Config.RootCAs. nil keeps the system pool.
+	//
+	// This belongs here rather than being ignored like the ClientHello-shaping
+	// fields, because dropping it fails OPEN: a caller who narrows trust to
+	// their own CA and is silently given the full system store believes they
+	// are pinned when they are not. It also changes nothing on the wire - the
+	// trust anchors are a local decision, invisible to the server.
+	RootCAs *x509.CertPool
 }
 
 // IsEmpty reports whether there is nothing to install.
 func (v *TLSVerify) IsEmpty() bool {
-	return v == nil || (v.VerifyPeerCertificate == nil && v.VerifyConnection == nil)
+	return v == nil || (v.VerifyPeerCertificate == nil && v.VerifyConnection == nil && v.RootCAs == nil)
 }
 
 // Apply installs the hooks onto a uTLS config. Safe to call with a nil or empty
@@ -51,6 +61,9 @@ func (v *TLSVerify) Apply(cfg *utls.Config) {
 		cfg.VerifyConnection = func(ucs utls.ConnectionState) error {
 			return fn(ToStdConnectionState(ucs))
 		}
+	}
+	if v.RootCAs != nil {
+		cfg.RootCAs = v.RootCAs
 	}
 }
 

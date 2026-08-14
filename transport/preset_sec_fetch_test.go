@@ -84,6 +84,16 @@ func TestPresetSendsSecFetchNonBrowser(t *testing.T) {
 			want: true,
 		},
 		{
+			// The based_on case: a custom preset drops Sec-Fetch-* from its own
+			// emit set but inherits the base preset's Headers map. The emit set
+			// must win, or the opt-out silently fails for exactly the preset
+			// that asked for it.
+			name:   "based_on preset opts out while inheriting a base Headers map",
+			emit:   plainPair,
+			hdrMap: map[string]string{"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none"},
+			want:   false,
+		},
+		{
 			name:   "map-only preset with sec-fetch",
 			hdrMap: map[string]string{"Sec-Fetch-Mode": "navigate"},
 			want:   true,

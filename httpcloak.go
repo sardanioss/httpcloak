@@ -446,6 +446,7 @@ type sessionConfig struct {
 	insecureSkipVerify            bool
 	tlsVerifyPeerCertificate      func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 	tlsVerifyConnection           func(cs stdtls.ConnectionState) error
+	tlsRootCAs                    *x509.CertPool
 	disableRedirects              bool
 	maxRedirects                  int
 	retryCount                    int
@@ -599,6 +600,9 @@ func WithTLSConfig(cfg *stdtls.Config) SessionOption {
 		}
 		if cfg.VerifyConnection != nil {
 			c.tlsVerifyConnection = cfg.VerifyConnection
+		}
+		if cfg.RootCAs != nil {
+			c.tlsRootCAs = cfg.RootCAs
 		}
 		if cfg.InsecureSkipVerify {
 			c.insecureSkipVerify = true

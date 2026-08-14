@@ -2373,12 +2373,22 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 // are lowercase by definition (RFC 9113 8.2.1) and the built-in tables follow
 // that, but a hand-written custom preset need not.
 func presetSendsSecFetch(preset *fingerprint.Preset) bool {
-	for _, h := range preset.HeaderOrder {
-		if len(h.Key) >= 10 && strings.EqualFold(h.Key[:10], "sec-fetch-") {
-			return true
+	if len(preset.HeaderOrder) > 0 {
+		// The ordered list IS the emit set when it is populated, so it alone
+		// decides. Falling through to the Headers map here would reopen the hole
+		// this gate exists to close: a custom preset built with based_on drops
+		// Sec-Fetch-* from its own HeaderOrder but still inherits the base's
+		// Headers map, so the map would answer true and the headers would be
+		// injected anyway - the opt-out failing for exactly the preset that
+		// asked for it, one field over from where it failed before.
+		for _, h := range preset.HeaderOrder {
+			if len(h.Key) >= 10 && strings.EqualFold(h.Key[:10], "sec-fetch-") {
+				return true
+			}
 		}
+		return false
 	}
-	// Presets that carry only the backward-compatible map and no ordered list.
+	// Only for presets that carry the backward-compatible map and no ordered list.
 	for name := range preset.Headers {
 		if len(name) >= 10 && strings.EqualFold(name[:10], "sec-fetch-") {
 			return true

@@ -63,8 +63,8 @@ func (s *Session) forkOne() *Session {
 			cfgCopy.EnableSpeculativeTLS
 		if needsConfig {
 			transportConfig = &transport.TransportConfig{
-				ConnectTo:             cfgCopy.ConnectTo,
-				ECHConfigDomain:       cfgCopy.ECHConfigDomain,
+				ConnectTo:            cfgCopy.ConnectTo,
+				ECHConfigDomain:      cfgCopy.ECHConfigDomain,
 				TLSOnly:              cfgCopy.TLSOnly,
 				QuicIdleTimeout:      time.Duration(cfgCopy.QuicIdleTimeout) * time.Second,
 				LocalAddr:            cfgCopy.LocalAddress,
@@ -80,10 +80,11 @@ func (s *Session) forkOne() *Session {
 	if cfgCopy.InsecureSkipVerify {
 		t.SetInsecureSkipVerify(true)
 	}
-	if cfgCopy.TLSVerifyPeerCertificate != nil || cfgCopy.TLSVerifyConnection != nil {
+	if cfgCopy.TLSVerifyPeerCertificate != nil || cfgCopy.TLSVerifyConnection != nil || cfgCopy.TLSRootCAs != nil {
 		t.SetTLSVerify(&transport.TLSVerify{
 			VerifyPeerCertificate: cfgCopy.TLSVerifyPeerCertificate,
 			VerifyConnection:      cfgCopy.TLSVerifyConnection,
+			RootCAs:               cfgCopy.TLSRootCAs,
 		})
 	}
 	if cfgCopy.ForceHTTP1 {
@@ -150,21 +151,21 @@ func (s *Session) forkOne() *Session {
 	}
 
 	return &Session{
-		ID:             generateID(),
-		CreatedAt:      time.Now(),
-		LastUsed:       time.Now(),
-		RequestCount:   0,
-		Config:         &cfgCopy,
-		transport:      t,
-		cookies:        s.cookies, // shared pointer — thread-safe CookieJar
-		cacheEntries:   cacheEntries,
-		clientHints:    clientHints,
+		ID:           generateID(),
+		CreatedAt:    time.Now(),
+		LastUsed:     time.Now(),
+		RequestCount: 0,
+		Config:       &cfgCopy,
+		transport:    t,
+		cookies:      s.cookies, // shared pointer — thread-safe CookieJar
+		cacheEntries: cacheEntries,
+		clientHints:  clientHints,
 		// Inherit the parent's runtime client-hint gates (read under the RLock
 		// Fork holds), so forks behave like the parent rather than defaulting off.
 		clientHintsEnabled:            s.clientHintsEnabled,
 		highEntropyClientHintsEnabled: s.highEntropyClientHintsEnabled,
-		keyLogWriter:   nil, // no key log on fork to avoid double-close
-		switchProtocol: switchProto,
-		active:         true,
+		keyLogWriter:                  nil, // no key log on fork to avoid double-close
+		switchProtocol:                switchProto,
+		active:                        true,
 	}
 }

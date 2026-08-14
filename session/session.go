@@ -201,10 +201,11 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 	}
 
 	// Install caller-supplied TLS verification hooks (issue #85)
-	if config.TLSVerifyPeerCertificate != nil || config.TLSVerifyConnection != nil {
+	if config.TLSVerifyPeerCertificate != nil || config.TLSVerifyConnection != nil || config.TLSRootCAs != nil {
 		t.SetTLSVerify(&transport.TLSVerify{
 			VerifyPeerCertificate: config.TLSVerifyPeerCertificate,
 			VerifyConnection:      config.TLSVerifyConnection,
+			RootCAs:               config.TLSRootCAs,
 		})
 	}
 

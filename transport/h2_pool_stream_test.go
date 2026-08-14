@@ -219,3 +219,13 @@ func TestH2RequestCloseDefersWhileStreaming(t *testing.T) {
 		t.Fatalf("inFlight = %d after release, want 0", got)
 	}
 }
+
+// testPreset returns a preset for tests, skipping if unavailable.
+func testPreset(t *testing.T) *fingerprint.Preset {
+	t.Helper()
+	p := fingerprint.Get("chrome-146")
+	if p == nil {
+		t.Skip("chrome-146 preset unavailable")
+	}
+	return p
+}

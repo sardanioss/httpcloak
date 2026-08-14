@@ -96,6 +96,7 @@ type ClientConfig struct {
 	// indirectly via WithTLSConfig.
 	VerifyPeerCertificate func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 	VerifyConnection      func(cs tls.ConnectionState) error
+	RootCAs               *x509.CertPool
 
 	// DisableKeepAlives disables HTTP keep-alives.
 	// When true, each request opens a new connection.
@@ -317,6 +318,9 @@ func WithTLSConfig(tlsConfig *tls.Config) Option {
 		}
 		if tlsConfig.VerifyConnection != nil {
 			c.VerifyConnection = tlsConfig.VerifyConnection
+		}
+		if tlsConfig.RootCAs != nil {
+			c.RootCAs = tlsConfig.RootCAs
 		}
 		if tlsConfig.InsecureSkipVerify {
 			c.InsecureSkipVerify = true

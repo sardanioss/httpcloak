@@ -39,6 +39,8 @@ temp/
 /test_session_resumption
 /custom-fingerprint
 /streaming
+/bandwidth
+/httpcloak-clib
 tests/
 # Internal tests (not published)
 internal_tests/
