@@ -648,18 +648,42 @@ func (p *LocalProxy) handleHTTPWithSession(ctx context.Context, clientConn net.C
 	// Write status line
 	fmt.Fprintf(bufWriter, "HTTP/1.1 %d %s\r\n", resp.StatusCode, http.StatusText(resp.StatusCode))
 
-	// Write headers (skip hop-by-hop and Content-Encoding since body is already decompressed)
+	// The body reaching us here has already been decompressed, so the origin's
+	// Content-Encoding no longer describes what we are about to write. Its
+	// Content-Length does not either: that counts the COMPRESSED bytes, and
+	// forwarding it makes the client stop reading that many bytes into a larger
+	// decompressed body. The result is a silently truncated response with no
+	// error at any layer - a 68 KB page arriving as the first 226 bytes.
+	//
+	// Both headers are therefore dropped together whenever the origin compressed
+	// the body, and the response is delimited by connection close instead, which
+	// this proxy already does (one request per connection). When the origin sent
+	// no Content-Encoding, nothing was decompressed and Content-Length is still
+	// accurate, so it is preserved.
+	decompressed := false
+	for key := range resp.Headers {
+		if strings.EqualFold(key, "Content-Encoding") {
+			decompressed = true
+			break
+		}
+	}
 	for key, values := range resp.Headers {
 		if isHopByHopHeader(key) {
 			continue
 		}
-		// Skip Content-Encoding since we already decompressed the body
 		if strings.EqualFold(key, "Content-Encoding") {
+			continue
+		}
+		if decompressed && strings.EqualFold(key, "Content-Length") {
 			continue
 		}
 		for _, value := range values {
 			fmt.Fprintf(bufWriter, "%s: %s\r\n", key, value)
 		}
+	}
+	if decompressed {
+		// Be explicit that the body runs to end-of-connection.
+		bufWriter.WriteString("Connection: close\r\n")
 	}
 	bufWriter.WriteString("\r\n")
 	bufWriter.Flush()

@@ -13,15 +13,13 @@ namespace HttpCloak;
 /// // Start local proxy
 /// using var proxy = new LocalProxy(preset: "chrome-latest");
 ///
-/// // Configure HttpClient to use the proxy
-/// var handler = new HttpClientHandler
-/// {
-///     Proxy = new WebProxy($"http://localhost:{proxy.Port}")
-/// };
-/// var client = new HttpClient(handler);
+/// // Build a client that routes through the proxy WITH fingerprinting.
+/// var client = proxy.CreateClient();
 ///
-/// // All requests now go through httpcloak with fingerprinting
 /// var response = await client.GetAsync("https://example.com");
+///
+/// // Note: pointing a plain HttpClientHandler at the proxy is NOT enough for
+/// // https:// URLs. See CreateHandler.
 /// </code>
 /// </example>
 public sealed class LocalProxy : IDisposable
@@ -115,8 +113,20 @@ public sealed class LocalProxy : IDisposable
     }
 
     /// <summary>
-    /// Creates an HttpClientHandler configured to use this local proxy.
+    /// Creates an HttpClientHandler pointed at this local proxy.
     /// </summary>
+    /// <remarks>
+    /// This alone does NOT fingerprint https:// requests. For an https:// URI
+    /// through a proxy, HttpClient issues CONNECT and then performs its own TLS
+    /// handshake end to end, so the target sees .NET's TLS and header
+    /// fingerprint rather than the browser preset - the proxy only forwards
+    /// bytes it cannot see. That is the same trap as issue #79.
+    ///
+    /// Use <see cref="CreateClient"/> instead, which rewrites https:// to
+    /// http:// plus a scheme header so the proxy performs the fingerprinted TLS
+    /// itself. This method remains for callers who only send http:// URLs or who
+    /// are wiring the rewrite themselves.
+    /// </remarks>
     public HttpClientHandler CreateHandler()
     {
         ThrowIfDisposed();
@@ -125,6 +135,54 @@ public sealed class LocalProxy : IDisposable
             Proxy = CreateWebProxy(),
             UseProxy = true
         };
+    }
+
+    /// <summary>
+    /// Creates an HttpClient that routes through this proxy AND actually applies
+    /// the browser fingerprint to https:// requests.
+    /// </summary>
+    /// <remarks>
+    /// Prefer this over <see cref="CreateHandler"/>. See that method for why a
+    /// bare proxy handler silently bypasses fingerprinting on https://.
+    /// </remarks>
+    public HttpClient CreateClient()
+    {
+        ThrowIfDisposed();
+        return new HttpClient(new FingerprintRoutingHandler(CreateHandler()));
+    }
+
+    /// <summary>
+    /// Rewrites https:// to http:// plus a scheme header so the local proxy
+    /// performs the TLS handshake with the browser fingerprint, instead of
+    /// HttpClient CONNECT-tunnelling past it and doing its own.
+    ///
+    /// The localhost hop is plaintext; the fingerprinted TLS runs between the
+    /// proxy and the target.
+    /// </summary>
+    private sealed class FingerprintRoutingHandler : DelegatingHandler
+    {
+        private const string SchemeHeader = "X-HTTPCloak-Scheme";
+
+        public FingerprintRoutingHandler(HttpMessageHandler inner) : base(inner) { }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri;
+            if (uri != null && uri.Scheme == Uri.UriSchemeHttps)
+            {
+                var builder = new UriBuilder(uri) { Scheme = Uri.UriSchemeHttp };
+                // Drop the port when it was the https default so the proxy's
+                // upgrade yields a clean https://host; keep an explicit one.
+                if (uri.IsDefaultPort)
+                    builder.Port = -1;
+                request.RequestUri = builder.Uri;
+
+                if (!request.Headers.Contains(SchemeHeader))
+                    request.Headers.Add(SchemeHeader, "https");
+            }
+            return base.SendAsync(request, cancellationToken);
+        }
     }
 
     /// <summary>
