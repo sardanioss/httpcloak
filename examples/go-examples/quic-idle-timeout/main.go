@@ -36,10 +36,10 @@ func main() {
 	fmt.Println("\n[1] Default QUIC Idle Timeout")
 	fmt.Println(strings.Repeat("-", 50))
 
-	session := httpcloak.NewSession("chrome-latest", httpcloak.WithHTTPVersion("h3"))
+	session := httpcloak.NewSession("chrome-latest", httpcloak.WithForceHTTP3())
 	defer session.Close()
 
-	resp, err := session.Get(ctx, "https://cloudflare.com", nil)
+	resp, err := session.Get(ctx, "https://cloudflare.com")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -48,7 +48,7 @@ func main() {
 	resp.Body.Close()
 
 	fmt.Printf("Status: %d\n", resp.StatusCode)
-	fmt.Printf("Protocol: %s\n", resp.Proto)
+	fmt.Printf("Protocol: %s\n", resp.Protocol)
 	fmt.Println("Default idle timeout: 30 seconds")
 	fmt.Println("Default keepalive: 15 seconds (half of idle timeout)")
 
@@ -61,12 +61,12 @@ func main() {
 
 	extendedSession := httpcloak.NewSession(
 		"chrome-latest",
-		httpcloak.WithHTTPVersion("h3"),
+		httpcloak.WithForceHTTP3(),
 		httpcloak.WithQuicIdleTimeout(120*time.Second), // 2 minutes
 	)
 	defer extendedSession.Close()
 
-	resp, err = extendedSession.Get(ctx, "https://cloudflare.com", nil)
+	resp, err = extendedSession.Get(ctx, "https://cloudflare.com")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -75,7 +75,7 @@ func main() {
 	resp.Body.Close()
 
 	fmt.Printf("Status: %d\n", resp.StatusCode)
-	fmt.Printf("Protocol: %s\n", resp.Proto)
+	fmt.Printf("Protocol: %s\n", resp.Protocol)
 	fmt.Println("Custom idle timeout: 120 seconds")
 	fmt.Println("Custom keepalive: 60 seconds (half of idle timeout)")
 
@@ -84,7 +84,7 @@ func main() {
 	time.Sleep(5 * time.Second)
 
 	// Connection should still be alive
-	resp, err = extendedSession.Get(ctx, "https://cloudflare.com", nil)
+	resp, err = extendedSession.Get(ctx, "https://cloudflare.com")
 	if err != nil {
 		fmt.Printf("Error after idle: %v\n", err)
 		return
@@ -92,7 +92,7 @@ func main() {
 	io.ReadAll(resp.Body)
 	resp.Body.Close()
 
-	fmt.Printf("After idle - Status: %d, Protocol: %s\n", resp.StatusCode, resp.Proto)
+	fmt.Printf("After idle - Status: %d, Protocol: %s\n", resp.StatusCode, resp.Protocol)
 
 	// =========================================================================
 	// Example 3: Very long idle timeout for persistent connections
@@ -103,12 +103,12 @@ func main() {
 
 	longSession := httpcloak.NewSession(
 		"chrome-latest",
-		httpcloak.WithHTTPVersion("h3"),
+		httpcloak.WithForceHTTP3(),
 		httpcloak.WithQuicIdleTimeout(300*time.Second), // 5 minutes
 	)
 	defer longSession.Close()
 
-	resp, err = longSession.Get(ctx, "https://cloudflare.com", nil)
+	resp, err = longSession.Get(ctx, "https://cloudflare.com")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -117,7 +117,7 @@ func main() {
 	resp.Body.Close()
 
 	fmt.Printf("Status: %d\n", resp.StatusCode)
-	fmt.Printf("Protocol: %s\n", resp.Proto)
+	fmt.Printf("Protocol: %s\n", resp.Protocol)
 	fmt.Println("Custom idle timeout: 300 seconds (5 minutes)")
 	fmt.Println("Custom keepalive: 150 seconds (2.5 minutes)")
 
@@ -130,14 +130,14 @@ func main() {
 
 	combinedSession := httpcloak.NewSession(
 		"chrome-latest",
-		httpcloak.WithHTTPVersion("h3"),
+		httpcloak.WithForceHTTP3(),
 		httpcloak.WithQuicIdleTimeout(180*time.Second), // 3 minutes
-		httpcloak.WithTimeout(60*time.Second),          // Request timeout
+		httpcloak.WithSessionTimeout(60*time.Second),   // Request timeout
 		httpcloak.WithRetry(3),                         // Retry count
 	)
 	defer combinedSession.Close()
 
-	resp, err = combinedSession.Get(ctx, "https://cloudflare.com", nil)
+	resp, err = combinedSession.Get(ctx, "https://cloudflare.com")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -146,7 +146,7 @@ func main() {
 	resp.Body.Close()
 
 	fmt.Printf("Status: %d\n", resp.StatusCode)
-	fmt.Printf("Protocol: %s\n", resp.Proto)
+	fmt.Printf("Protocol: %s\n", resp.Protocol)
 	fmt.Println("QUIC idle timeout: 180s, Request timeout: 60s, Retries: 3")
 
 	// =========================================================================
