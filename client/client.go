@@ -1386,7 +1386,7 @@ func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.R
 	}
 
 	// Calculate timing
-	if conn.UseCount == 1 {
+	if conn.Uses() == 1 {
 		connTime := float64(time.Since(connStart).Milliseconds())
 		timing.DNSLookup = connTime / 3
 		timing.TCPConnect = 0
@@ -1421,8 +1421,10 @@ func (c *Client) doHTTP2(ctx context.Context, host, port string, httpReq *http.R
 		return nil, "", fmt.Errorf("failed to get connection: %w", err)
 	}
 
-	// Calculate timing
-	if conn.UseCount == 1 {
+	// Calculate timing. Uses(), not conn.UseCount: the pool bumps that counter
+	// under the connection's mutex in MarkUsed, so a bare read here races with
+	// any other request acquiring the same multiplexed H2 connection.
+	if conn.Uses() == 1 {
 		connTime := float64(time.Since(connStart).Milliseconds())
 		timing.DNSLookup = connTime / 3
 		timing.TCPConnect = connTime / 3

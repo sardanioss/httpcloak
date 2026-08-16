@@ -46,6 +46,7 @@ type QUICConn struct {
 	QUICConn   *quic.Conn
 	HTTP3RT    *http3.Transport
 	CreatedAt  time.Time
+	// Written under mu, same as on Conn: read via IdleTime()/Uses().
 	LastUsedAt time.Time
 	UseCount   int64
 	mu         sync.Mutex
@@ -191,6 +192,15 @@ func (c *QUICConn) IdleTime() time.Duration {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return time.Since(c.LastUsedAt)
+}
+
+// Uses returns how many times the pool has handed this connection out. Guarded
+// for the same reason as (*Conn).Uses: MarkUsed() writes the field under c.mu at
+// acquisition, so a bare read from another goroutine is a data race.
+func (c *QUICConn) Uses() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.UseCount
 }
 
 // MarkUsed updates the last used timestamp
@@ -763,7 +773,7 @@ func (p *QUICHostPool) Stats() (total int, healthy int, totalRequests int64) {
 		if conn.IsHealthy() {
 			healthy++
 		}
-		totalRequests += conn.UseCount
+		totalRequests += conn.Uses()
 	}
 	return
 }

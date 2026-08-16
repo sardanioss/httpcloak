@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A data race between concurrent requests sharing a pooled connection**: the pool records a use count on every connection it hands out, writing it under the connection's mutex. Three callers then read that counter straight off the struct with no lock at all, to decide whether the connection was newly established and therefore whether the connect time should be attributed to DNS, TCP and TLS in the reported timings. On HTTP/2 and HTTP/3 a single connection is shared by many requests at once, so two overlapping requests on the same connection would collide: one inside the guarded write, the other reading the field bare. The counter is now read through an accessor that takes the same mutex, on both the TCP and QUIC connection types, and the pool's own statistics call goes through it too. What was actually at stake is small — the value only decides how a few milliseconds are split across the timing fields, never whether a request is sent or what it contains — but it is a genuine race, and it made builds run with the race detector fail intermittently, at roughly one run in four to eight.
+
 ## [1.6.10] - 2026-08-14
 
 ### Added
