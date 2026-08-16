@@ -413,12 +413,26 @@ func (p *Preset) H2HPACKIndexingPolicy() string {
 	return "chrome"
 }
 
-// H2HPACKNeverIndex returns headers that should never be HPACK-indexed.
+// H2HPACKNeverIndex returns headers that should never be HPACK-indexed, i.e.
+// emitted as a literal with the never-indexed bit set (0x10) so intermediaries
+// cannot add them to their own tables.
+//
+// Empty by default, because Chrome never uses that representation. RFC 7541
+// 7.1.3 recommends it for sensitive headers and Chromium declines: quiche's
+// HpackEncoder indexes every regular header, cookie and authorization
+// included. Listing them here looks like hardening and is actually a
+// fingerprint, twice over. The instruction changes (0x1f11 rather than Chrome's
+// 0x60 for a cookie crumb), and because a never-indexed field is never
+// inserted, the whole jar is re-sent in full on every request where Chrome
+// sends one byte per crumb. On a session carrying a large jar that is an
+// ~880-byte header block against Chrome's ~35.
+//
+// Set H2Config.HPACKNeverIndex explicitly to opt in for a non-browser profile.
 func (p *Preset) H2HPACKNeverIndex() []string {
 	if p.H2Config != nil && p.H2Config.HPACKNeverIndex != nil {
 		return p.H2Config.HPACKNeverIndex
 	}
-	return []string{"cookie", "authorization", "proxy-authorization"}
+	return nil
 }
 
 // H2StreamPriorityMode returns the stream priority mode name.

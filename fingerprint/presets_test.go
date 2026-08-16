@@ -134,12 +134,18 @@ func TestH2HPACKIndexingPolicyCustom(t *testing.T) {
 	}
 }
 
+// Chrome never emits the never-indexed representation. This used to default to
+// {cookie, authorization, proxy-authorization}, which reads as hardening and is
+// really a fingerprint: quiche's HpackEncoder indexes every regular header,
+// those three included, so a cookie crumb went out as 0x1f11 where Chrome sends
+// 0x60. Because a never-indexed field is never inserted, the whole jar was also
+// re-sent in full on every request, ~880 bytes against Chrome's ~35.
 func TestH2HPACKNeverIndexDefault(t *testing.T) {
 	p := Chrome146()
-	ni := p.H2HPACKNeverIndex()
-	expected := []string{"cookie", "authorization", "proxy-authorization"}
-	if !reflect.DeepEqual(ni, expected) {
-		t.Fatalf("expected %v, got %v", expected, ni)
+	if ni := p.H2HPACKNeverIndex(); len(ni) != 0 {
+		t.Fatalf("Chrome sends no never-indexed headers; got %v. Listing cookie or "+
+			"authorization here changes the HPACK instruction on the wire and stops "+
+			"the dynamic table from ever being used for them", ni)
 	}
 }
 
@@ -611,9 +617,8 @@ func TestChromeH2ConfigNoRegression(t *testing.T) {
 	if p.H2HPACKIndexingPolicy() != "chrome" {
 		t.Fatalf("Chrome indexing policy regression: got %q", p.H2HPACKIndexingPolicy())
 	}
-	ni := p.H2HPACKNeverIndex()
-	if len(ni) != 3 {
-		t.Fatalf("Chrome never-index regression: expected 3, got %d", len(ni))
+	if ni := p.H2HPACKNeverIndex(); len(ni) != 0 {
+		t.Fatalf("Chrome never-index regression: expected none, got %v", ni)
 	}
 	if p.H2StreamPriorityMode() != "chrome" {
 		t.Fatalf("Chrome priority mode regression: got %q", p.H2StreamPriorityMode())
@@ -652,8 +657,8 @@ func TestH2GettersWithNilConfig(t *testing.T) {
 	if p.H2HPACKIndexingPolicy() != "chrome" {
 		t.Fatal("expected 'chrome'")
 	}
-	if len(p.H2HPACKNeverIndex()) != 3 {
-		t.Fatal("expected 3 never-index headers")
+	if len(p.H2HPACKNeverIndex()) != 0 {
+		t.Fatal("expected no never-index headers: Chrome does not use that representation")
 	}
 	if p.H2StreamPriorityMode() != "chrome" {
 		t.Fatal("expected 'chrome'")

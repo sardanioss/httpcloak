@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.11] - 2026-08-17
 
 ### Added
 
@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Request.GetBody` re-opens a body that has to go out twice**: needed only when the body is a genuine stream. For `*bytes.Reader`, `*bytes.Buffer` and `*strings.Reader` one is derived automatically at no cost, since the bytes are already in memory. It returns `io.Reader` rather than `net/http`'s `io.ReadCloser` on purpose: the value is handed to `http.NewRequestWithContext`, and it is that function's type switch on the concrete reader type that sets `Content-Length`. An `io.NopCloser` wrapper hides the type, the length comes out unknown, and the request goes out chunked — so matching the standard library's signature exactly would have made a replayed hop use a different framing from the hop before it, which is a wire difference no browser produces.
 
 ### Fixed
+
+- **HTTP/2 header compression did not match Chrome, and the gap widened with every request on a connection**: the header list going out was correct, so nothing that inspects headers could see any of this. The HPACK *instructions* carrying that list were not Chrome's, in four separate ways, and three of them fired on the very first request.
+
+  The largest concerned cookies. They were crumbled correctly, one field per cookie-pair as a browser does, and then emitted in the never-indexed representation, which tells every intermediary the value is sensitive and must never be added to a compression table. No browser emits that. Chrome indexes cookie crumbs like any other header, which is why a browser sends a large cookie jar in full exactly once per connection and then refers back to it with a single byte per crumb for the rest of the connection's life. Because a never-indexed field is never stored, the entire jar was instead re-transmitted in full on every single request. Measured against a session carrying a bot-management-shaped jar, the request header block stayed near 880 bytes on every request where a browser settles at about 35, so roughly a 25x difference that grew with the size of the jar and persisted for as long as the connection did. Over a couple of thousand requests that is well over a megabyte of header traffic no browser would ever produce.
+
+  The authority pseudo-header had the same problem for the same reason: never stored, so re-sent as a full literal on every request instead of being referenced in one byte from the second request onward. The path and method pseudo-headers referenced the wrong entry of the static table when their value was not one of the two the table happens to contain, which put a different byte on the wire for any path other than `/` and for any method other than GET or POST.
+
+  All four now match a real browser byte for byte, verified against captures of the browser itself rather than against a specification. A session that reuses a connection now settles into the same small, fully-referenced header block a browser produces, and stays there: measured over sixty consecutive requests it holds flat with no growth or churn.
+
+  Two consequences worth knowing. Anyone who was recording the exact bytes of an outgoing header block will see them change. And header compression state is now shared across requests on a connection the way a browser shares it, which is what makes the small blocks possible; if a profile genuinely needs the old behaviour for a non-browser client, the never-indexed list is still configurable per profile, it simply no longer defaults to being populated.
+
 
 - **A 307 or 308 through the root session silently sent no body at all**: `transport.Request` carries a body in two fields, `Body []byte` and `BodyReader io.Reader`, and `Session.Do` populates only the second, because the public `Request.Body` is an `io.Reader`. The redirect path copied only the first. So the code said "307/308 preserve body" and did the opposite: the next hop went out empty, with the caller's `Content-Type` still on it, because the method is unchanged on those two codes and nothing strips it. There was no error, no short write and no truncation warning — the hop simply arrived with nothing in it and usually came back 200, which is why this survived so long. A POST that a payment or checkout endpoint answers with a 307 was the common way to meet it. The redirect path now re-opens the body from `GetBody`, carries `GetBody` onto the hop so a second 307 in the same chain also works, and refuses the hop with `ErrBodyNotReplayable` when the body is a one-shot stream with no way to re-open it, handing back the 3xx alongside the error so the caller can read its `Location` and drive the rest themselves. Sending a request the caller believes carries a body, without the body, is not a thing to do quietly. `client.Client` never had this bug — it buffers the body up front.
 
@@ -427,6 +438,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Baseline release. This changelog begins tracking changes from this version forward.
 
+[1.6.11]: https://github.com/sardanioss/httpcloak/compare/v1.6.10...v1.6.11
 [1.6.10]: https://github.com/sardanioss/httpcloak/compare/v1.6.8...v1.6.10
 [1.6.8]: https://github.com/sardanioss/httpcloak/compare/v1.6.8-beta.1...v1.6.8
 [1.6.8-beta.1]: https://github.com/sardanioss/httpcloak/compare/v1.6.7...v1.6.8-beta.1
