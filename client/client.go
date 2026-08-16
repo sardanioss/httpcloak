@@ -529,6 +529,27 @@ type Request struct {
 	// The order carries across followed redirects, alongside the headers it
 	// orders and the other per-request options the redirect path already carries.
 	HeaderOrder []string
+
+	// OnRedirect, when non-nil, is called once per redirect hop before the
+	// follow-up request is built. Returning nil follows the hop; returning
+	// ErrUseLastResponse stops the chain and returns the 3xx itself with a nil
+	// error; any other error fails the request with that error unwrapped, so
+	// errors.Is against your own sentinel matches.
+	//
+	// This exists because both alternatives lose something. Turning redirects
+	// off hands you the entire chain to re-implement, cookie jar and header
+	// scrubbing included. Reading Response.RedirectHistory afterwards is too
+	// late: the request to the host you meant to block has already gone out.
+	//
+	// The hop is deliberately read-only. A callback able to rewrite the target
+	// would sit upstream of the scheme and origin scrubbing, which is the part
+	// that keeps Authorization from following a hop off-origin.
+	//
+	// Not called for a 3xx with no Location, nor for the hop that would exceed
+	// the redirect cap. An error from it is not retried, even with retries
+	// enabled: a request the caller already vetoed should not be replayed, and
+	// replaying it would re-invoke the callback once per attempt.
+	OnRedirect func(*Redirect) error
 }
 
 // SetHeader sets a header value, replacing any existing values.
@@ -717,6 +738,38 @@ func (r *Response) GetHeaders(key string) []string {
 // the response.
 var ErrNoLocation = transport.ErrNoLocation
 
+// Redirect describes one hop a redirect chain is about to take. See
+// Request.OnRedirect.
+//
+// An alias rather than a copy of transport.Redirect: OnRedirect is a func value
+// travelling inward through the layers, so an alias makes
+// func(*client.Redirect) error and func(*transport.Redirect) error the identical
+// type and the field assigns straight through with no per-hop conversion.
+type Redirect = transport.Redirect
+
+// ErrUseLastResponse, returned from a Request.OnRedirect callback, stops the
+// redirect chain and returns the 3xx itself with a nil error.
+//
+// Deliberately the same error value as transport.ErrUseLastResponse, for the
+// same reason as ErrNoLocation above.
+var ErrUseLastResponse = transport.ErrUseLastResponse
+
+// ErrTooManyRedirects is returned when a chain exceeds the configured cap.
+//
+// Note the asymmetry with the session layer, which returns the last response
+// alongside this error: by the time doOnce knows the cap is blown it has not
+// built its Response yet, and restructuring it to do so is a larger change than
+// the sentinel is worth. Here the error arrives alone.
+var ErrTooManyRedirects = transport.ErrTooManyRedirects
+
+// redirectHookError marks an error as originating in Request.OnRedirect rather
+// than in the network, so doWithRetry stops instead of replaying a request the
+// caller already vetoed — and re-invoking their callback once per attempt.
+type redirectHookError struct{ err error }
+
+func (e *redirectHookError) Error() string { return e.err.Error() }
+func (e *redirectHookError) Unwrap() error { return e.err }
+
 // Location returns the URL of the response's "Location" header, if present.
 // A relative Location is resolved against the URL of the request that produced
 // the response (FinalURL), mirroring net/http's Response.Location.
@@ -761,7 +814,15 @@ func (c *Client) Do(ctx context.Context, req *Request) (*Response, error) {
 	if c.config.RetryEnabled && !req.DisableRetry {
 		return c.doWithRetry(ctx, req)
 	}
-	return c.doOnce(ctx, req, nil)
+	resp, err := c.doOnce(ctx, req, nil)
+	// doWithRetry unwraps this on its own path, because it has to recognise the
+	// marker to stop retrying. Here it is only a wrapper to shed, so the caller
+	// gets back exactly the error their callback returned.
+	var hookErr *redirectHookError
+	if errors.As(err, &hookErr) {
+		return resp, hookErr.err
+	}
+	return resp, err
 }
 
 // doWithRetry executes request with retry logic
@@ -808,6 +869,14 @@ func (c *Client) doWithRetry(ctx context.Context, req *Request) (*Response, erro
 
 		resp, err := c.doOnce(ctx, &reqCopy, nil)
 		if err != nil {
+			// A callback that refused a hop is a decision, not a fault. Replaying
+			// the request would re-invoke it once per attempt and send the caller
+			// a request they already vetoed. Unwrap so the error reaches them
+			// exactly as they returned it.
+			var hookErr *redirectHookError
+			if errors.As(err, &hookErr) {
+				return nil, hookErr.err
+			}
 			lastErr = err
 			continue
 		}
@@ -1135,12 +1204,12 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 				maxRedirects = req.MaxRedirects
 			}
 
-			if redirectHistory == nil {
-				redirectHistory = make([]*RedirectInfo, 0)
-			}
-
+			// len() works on a nil slice, so the cap check needs no
+			// initialisation. Leaving it nil until the append below means a
+			// halted chain reports RedirectHistory the same way the
+			// don't-follow path does, instead of a non-nil empty slice.
 			if len(redirectHistory) >= maxRedirects {
-				return nil, fmt.Errorf("too many redirects (max %d)", maxRedirects)
+				return nil, fmt.Errorf("%w (max %d)", ErrTooManyRedirects, maxRedirects)
 			}
 
 			// Get redirect location
@@ -1151,13 +1220,6 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 
 			// Resolve relative URL
 			redirectURL := JoinURL(reqURL, location)
-
-			// Add to redirect history
-			redirectHistory = append(redirectHistory, &RedirectInfo{
-				StatusCode: resp.StatusCode,
-				URL:        reqURL,
-				Headers:    headers,
-			})
 
 			// Determine new method based on redirect code
 			newMethod := method
@@ -1172,60 +1234,103 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 			schemeDowngrade := isSchemeDowngradeClient(reqURL, redirectURL)
 			crossOrigin := !sameOriginClient(reqURL, redirectURL)
 
-			var carriedHeaders map[string][]string
-			if len(req.Headers) > 0 {
-				carriedHeaders = make(map[string][]string, len(req.Headers))
-				for k, v := range req.Headers {
-					lk := strings.ToLower(k)
-					if schemeDowngrade && lk == "referer" {
-						continue
-					}
-					if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
-						continue
-					}
-					carriedHeaders[k] = v
+			// Ask the caller before taking the hop. After the cap check on
+			// purpose: the cap is a resource bound, not a policy question, and
+			// letting a veto answer it first would turn a "too many redirects"
+			// error into a silent success.
+			halt := false
+			if req.OnRedirect != nil {
+				hopErr := req.OnRedirect(&Redirect{
+					Hop:             len(redirectHistory) + 1,
+					StatusCode:      resp.StatusCode,
+					Headers:         headers,
+					From:            reqURL,
+					To:              redirectURL,
+					Method:          newMethod,
+					CrossOrigin:     crossOrigin,
+					SchemeDowngrade: schemeDowngrade,
+				})
+				if hopErr != nil && !errors.Is(hopErr, ErrUseLastResponse) {
+					// Marked so doWithRetry does not replay a vetoed request.
+					// Unwrapped again before it reaches the caller.
+					return nil, &redirectHookError{err: hopErr}
 				}
+				halt = hopErr != nil
 			}
 
-			carriedReferer := reqURL
-			carriedAuth := req.Auth
-			if schemeDowngrade {
-				carriedReferer = ""
-				carriedAuth = nil
-			} else if crossOrigin {
-				carriedAuth = nil
-			}
+			// A halt must NOT return from here. resp.Body is closed by the defer
+			// above, and it is the ReadAll further down that detaches the body
+			// into the Response the caller receives — returning early would hand
+			// back a body about to be closed. Fall through to it instead, which
+			// also gives the halted 3xx the same decompression, timing and hook
+			// treatment as any other final response.
+			if !halt {
+				// Add to redirect history only now that the hop is certain to
+				// be taken, so a halted 3xx does not appear in its own history.
+				redirectHistory = append(redirectHistory, &RedirectInfo{
+					StatusCode: resp.StatusCode,
+					URL:        reqURL,
+					Headers:    headers,
+				})
 
-			// Create new request for redirect
-			newReq := &Request{
-				Method:          newMethod,
-				URL:             redirectURL,
-				Headers:         carriedHeaders,
-				Timeout:         req.Timeout,
-				UserAgent:       req.UserAgent,
-				ForceProtocol:   req.ForceProtocol,
-				FetchMode:       req.FetchMode,
-				FetchSite:       FetchSiteCrossSite, // Redirects are usually cross-site
-				Referer:         carriedReferer,
-				Auth:            carriedAuth,
-				FollowRedirects: req.FollowRedirects,
-				MaxRedirects:    req.MaxRedirects,
-				DisableRetry:    true, // Don't retry redirects
-				// Follows carriedHeaders above: a header the caller slotted
-				// explicitly would otherwise be re-placed by the preset table on
-				// the next hop, so the ordering rides along with the headers.
-				HeaderOrder: req.HeaderOrder,
-			}
-
-			// 307/308 preserve body (use cached bytes since original reader was consumed)
-			if resp.StatusCode == 307 || resp.StatusCode == 308 {
-				if len(bodyBytes) > 0 {
-					newReq.Body = bytes.NewReader(bodyBytes)
+				var carriedHeaders map[string][]string
+				if len(req.Headers) > 0 {
+					carriedHeaders = make(map[string][]string, len(req.Headers))
+					for k, v := range req.Headers {
+						lk := strings.ToLower(k)
+						if schemeDowngrade && lk == "referer" {
+							continue
+						}
+						if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
+							continue
+						}
+						carriedHeaders[k] = v
+					}
 				}
-			}
 
-			// Follow redirect
-			return c.doOnce(ctx, newReq, redirectHistory)
+				carriedReferer := reqURL
+				carriedAuth := req.Auth
+				if schemeDowngrade {
+					carriedReferer = ""
+					carriedAuth = nil
+				} else if crossOrigin {
+					carriedAuth = nil
+				}
+
+				// Create new request for redirect
+				newReq := &Request{
+					Method:          newMethod,
+					URL:             redirectURL,
+					Headers:         carriedHeaders,
+					Timeout:         req.Timeout,
+					UserAgent:       req.UserAgent,
+					ForceProtocol:   req.ForceProtocol,
+					FetchMode:       req.FetchMode,
+					FetchSite:       FetchSiteCrossSite, // Redirects are usually cross-site
+					Referer:         carriedReferer,
+					Auth:            carriedAuth,
+					FollowRedirects: req.FollowRedirects,
+					MaxRedirects:    req.MaxRedirects,
+					DisableRetry:    true, // Don't retry redirects
+					// Follows carriedHeaders above: a header the caller slotted
+					// explicitly would otherwise be re-placed by the preset table on
+					// the next hop, so the ordering rides along with the headers.
+					HeaderOrder: req.HeaderOrder,
+					// Without this the callback fires on hop one and vanishes,
+					// which is the failure HeaderOrder was fixed for.
+					OnRedirect: req.OnRedirect,
+				}
+
+				// 307/308 preserve body (use cached bytes since original reader was consumed)
+				if resp.StatusCode == 307 || resp.StatusCode == 308 {
+					if len(bodyBytes) > 0 {
+						newReq.Body = bytes.NewReader(bodyBytes)
+					}
+				}
+
+				// Follow redirect
+				return c.doOnce(ctx, newReq, redirectHistory)
+			}
 		}
 	}
 

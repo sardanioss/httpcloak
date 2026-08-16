@@ -108,6 +108,61 @@ Pin or disable specific HTTP versions.
 
 Runtime toggles (no ctor option required) live on `*Session`: `SetFollowRedirects(bool)` / `FollowRedirects()`, `SetMaxRedirects(int)` / `MaxRedirects()`. Per-request override: set `Request.FollowRedirects *bool` before `Do`. See [Conditional Cache](/connection-lifecycle/conditional-cache) for the parallel surface on ETag handling.
 
+#### Stopping a chain on one specific hop
+
+`Request.OnRedirect` is called once per hop, before the follow-up request is
+built. It is the alternative to turning redirects off and re-implementing the
+chain yourself — you keep the method rewrite, the `Referer` policy, the cookie
+jar and the credential scrubbing, and still get to say no.
+
+```go
+resp, err := s.Do(ctx, &httpcloak.Request{
+    Method: "POST", URL: checkout, Body: strings.NewReader(payload),
+    OnRedirect: func(r *httpcloak.Redirect) error {
+        if r.CrossOrigin {
+            return httpcloak.ErrUseLastResponse // stop, hand me the 3xx
+        }
+        return nil // follow it
+    },
+})
+```
+
+| Return | Result |
+|---|---|
+| `nil` | The hop is followed. |
+| `ErrUseLastResponse` | The chain stops. The 3xx becomes the response, with a nil error, exactly as if redirects had been off for that hop. |
+| any other error | The request fails with that error, unwrapped, so `errors.Is` against your own sentinel matches. |
+
+The `*Redirect` carries `Hop` (1-based), `StatusCode`, `Headers` (the 3xx's own —
+the only place to read a `Set-Cookie` or routing header the final response will
+not carry), `From`, `To`, `ToURL()`, `Method` (what the next hop will use, after
+the 301/302/303 rewrite to GET), `CrossOrigin` and `SchemeDowngrade`. Prefer the
+origin flags and `ToURL()` over substring-matching `To`:
+`strings.Contains(To, "example.com")` also passes for
+`https://example.com.attacker.test`.
+
+It is read-only. Writing to a field does not retarget the hop — a callback able
+to rewrite the target would run before the origin scrubbing, which is what stops
+`Authorization` following a redirect off-origin. It is not called for a 3xx with
+no `Location` (no hop to veto), nor for the hop that would exceed the cap (that
+fails with `ErrTooManyRedirects`), and never from `DoStream`, which does not
+follow redirects at all.
+
+#### Bodies on 307 and 308
+
+Those two codes keep the method and the body, so the body has to be sent twice.
+For `*bytes.Reader`, `*bytes.Buffer` and `*strings.Reader` this is automatic. For
+a genuine stream — an `*os.File`, a pipe — set `Request.GetBody` to re-open it:
+
+```go
+Body:    f,
+GetBody: func() (io.Reader, error) { return os.Open(path) },
+```
+
+Without it the hop fails with `ErrBodyNotReplayable` rather than being sent with
+an empty body, and the 3xx comes back alongside the error so you can read its
+`Location` and drive the rest of the chain yourself.
+
 ### Custom fingerprint struct (`CustomFingerprint`)
 
 The value passed to `WithCustomFingerprint`. Defined in the root package.

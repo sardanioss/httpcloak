@@ -171,6 +171,25 @@ type Request struct {
 	Body    io.Reader           // Streaming body for uploads
 	Timeout time.Duration
 
+	// GetBody returns a fresh reader over the same body for a request that has
+	// to go on the wire more than once: a 307 or 308 redirect hop, or a retried
+	// attempt.
+	//
+	// You rarely need to set this. When Body is one of the in-memory reader
+	// types — *bytes.Reader, *bytes.Buffer, *strings.Reader — a GetBody is
+	// derived automatically, which costs nothing because the bytes are already
+	// resident. Set it yourself when Body is a genuine stream (an *os.File, a
+	// pipe, a live multipart writer) and the request might be replayed;
+	// otherwise a 307 fails with ErrBodyNotReplayable rather than sending the
+	// hop with an empty body, and a retry is skipped rather than corrupted.
+	//
+	// It returns io.Reader rather than net/http's io.ReadCloser deliberately: an
+	// io.NopCloser wrapper would hide the concrete type from the type switch
+	// that sets Content-Length, and the replayed hop would go out chunked while
+	// the first one did not — a wire difference mid-chain that no browser
+	// produces.
+	GetBody func() (io.Reader, error)
+
 	// TLSOnly is a per-request override for TLS-only mode.
 	// When set to true, preset HTTP headers are NOT applied - only TLS fingerprinting is used.
 	// When nil, the session's TLSOnly setting is used.
@@ -230,6 +249,42 @@ type Request struct {
 	//	    },
 	//	})
 	HeaderOrder []string
+
+	// OnRedirect, when non-nil, is called once per redirect hop before the
+	// follow-up request is built. Return nil to follow the hop,
+	// ErrUseLastResponse to stop the chain and get the 3xx back as the response
+	// with a nil error, or any other error to fail the request — that error
+	// reaches you unwrapped, so errors.Is against your own sentinel matches.
+	//
+	// This is the seam for a decision that has to be made per hop. Turning
+	// redirects off instead hands you the whole chain to re-implement, cookie
+	// jar and browser-parity header scrubbing included, and reading
+	// Response.History afterwards is too late: the request to the host you
+	// meant to block has already gone out. The callback also sees each hop's
+	// own headers, which is the only place to read a Set-Cookie or a routing
+	// header that the final response will not carry.
+	//
+	// The hop is read-only. Writing to it does not retarget the redirect: a
+	// callback able to rewrite the target would sit upstream of the scheme and
+	// origin scrubbing, which is what keeps Authorization from following a hop
+	// off-origin.
+	//
+	//	resp, err := s.Do(ctx, &httpcloak.Request{
+	//	    Method: "POST", URL: checkout, Body: body,
+	//	    OnRedirect: func(r *httpcloak.Redirect) error {
+	//	        if r.CrossOrigin {
+	//	            return httpcloak.ErrUseLastResponse // hand me the 3xx
+	//	        }
+	//	        return nil
+	//	    },
+	//	})
+	//
+	// It is not called for a 3xx with no Location, because there is no hop to
+	// veto, nor for the hop that would exceed the redirect cap, which fails with
+	// ErrTooManyRedirects instead. DoStream does not follow redirects at all, so
+	// it never fires there. It runs on the calling goroutine between hops, so it
+	// must not block and must not re-enter the same session.
+	OnRedirect func(*Redirect) error
 }
 
 // RedirectInfo contains information about a redirect response
@@ -321,6 +376,36 @@ func (r *Response) GetHeaders(key string) []string {
 // the response.
 var ErrNoLocation = transport.ErrNoLocation
 
+// Redirect describes one hop a redirect chain is about to take. See
+// Request.OnRedirect.
+//
+// An alias rather than a copy of transport.Redirect: OnRedirect is a func value
+// travelling inward through the layers, so an alias makes
+// func(*httpcloak.Redirect) error and func(*transport.Redirect) error the
+// identical type and the field assigns straight through with no per-hop
+// conversion.
+type Redirect = transport.Redirect
+
+// ErrUseLastResponse, returned from a Request.OnRedirect callback, stops the
+// redirect chain and returns the 3xx itself with a nil error. Shaped after
+// net/http.ErrUseLastResponse.
+//
+// Deliberately the same error value as transport.ErrUseLastResponse, for the
+// same reason as ErrNoLocation above.
+var ErrUseLastResponse = transport.ErrUseLastResponse
+
+// ErrBodyNotReplayable is returned when a 307 or 308 needs the request body a
+// second time but Body was a one-shot stream and no GetBody was set to re-open
+// it. The 3xx is returned alongside the error, so you can read its Location and
+// drive the rest of the chain yourself. Set Request.GetBody to follow it
+// automatically.
+var ErrBodyNotReplayable = transport.ErrBodyNotReplayable
+
+// ErrTooManyRedirects is returned when a chain exceeds the configured cap. The
+// response carrying the last Location is returned alongside it, so you can see
+// where the chain ended up rather than only that it was too long.
+var ErrTooManyRedirects = transport.ErrTooManyRedirects
+
 // Location returns the URL of the response's "Location" header, if present.
 // A relative Location is resolved against the URL of the request that produced
 // the response (FinalURL), mirroring net/http's Response.Location. Useful for
@@ -353,6 +438,10 @@ func (c *Client) Do(ctx context.Context, req *Request) (*Response, error) {
 		Headers: req.Headers,
 		Body:    req.Body,
 		Timeout: timeout,
+		// A veto that silently did not apply would be worse than no veto at
+		// all, so this one field is carried even though this literal drops most
+		// of Request (see the type's docs for what the Client path supports).
+		OnRedirect: req.OnRedirect,
 	}
 
 	resp, err := c.inner.Do(ctx, cReq)
@@ -994,7 +1083,43 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 	return &Session{inner: s, configErr: cfg.configErr}
 }
 
-// Do executes a request within the session, maintaining cookies
+// toResponse converts a transport response, including its redirect history.
+// A nil input gives a nil output, because the session may return a response
+// alongside an error (ErrTooManyRedirects, ErrBodyNotReplayable) and may return
+// neither.
+func toResponse(resp *transport.Response) *Response {
+	if resp == nil {
+		return nil
+	}
+
+	var history []*RedirectInfo
+	if len(resp.History) > 0 {
+		history = make([]*RedirectInfo, len(resp.History))
+		for i, h := range resp.History {
+			history[i] = &RedirectInfo{
+				StatusCode: h.StatusCode,
+				URL:        h.URL,
+				Headers:    h.Headers,
+			}
+		}
+	}
+
+	return &Response{
+		StatusCode: resp.StatusCode,
+		Headers:    resp.Headers,
+		Body:       resp.Body,
+		FinalURL:   resp.FinalURL,
+		Protocol:   resp.Protocol,
+		History:    history,
+	}
+}
+
+// Do executes a request within the session, maintaining cookies.
+//
+// A non-nil response can accompany a non-nil error: ErrTooManyRedirects and
+// ErrBodyNotReplayable both hand back the 3xx that ended the chain, so a caller
+// can read its Location and decide what to do. The body is buffered, so
+// ignoring that response leaks nothing.
 func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 	if s.configErr != nil {
 		return nil, s.configErr
@@ -1004,44 +1129,29 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 		URL:                           req.URL,
 		Headers:                       req.Headers,
 		BodyReader:                    req.Body,
+		GetBody:                       req.GetBody,
 		TLSOnly:                       req.TLSOnly,
 		FollowRedirects:               req.FollowRedirects,
 		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		HeaderOrder:                   req.HeaderOrder,
+		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
 	}
 
 	resp, err := s.inner.Request(ctx, sReq)
 	if err != nil {
-		return nil, err
+		return toResponse(resp), err
 	}
-
-	// Convert redirect history
-	var history []*RedirectInfo
-	if len(resp.History) > 0 {
-		history = make([]*RedirectInfo, len(resp.History))
-		for i, h := range resp.History {
-			history[i] = &RedirectInfo{
-				StatusCode: h.StatusCode,
-				URL:        h.URL,
-				Headers:    h.Headers,
-			}
-		}
-	}
-
-	return &Response{
-		StatusCode: resp.StatusCode,
-		Headers:    resp.Headers,
-		Body:       resp.Body,
-		FinalURL:   resp.FinalURL,
-		Protocol:   resp.Protocol,
-		History:    history,
-	}, nil
+	return toResponse(resp), nil
 }
 
-// DoWithBody executes a request with an io.Reader as the body for streaming uploads
+// DoWithBody executes a request with an io.Reader as the body for streaming
+// uploads. The reader replaces Request.Body; Request.GetBody, if set, still
+// applies and must re-open the same content.
+//
+// As with Do, a non-nil response can accompany a non-nil error.
 func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Reader) (*Response, error) {
 	if s.configErr != nil {
 		return nil, s.configErr
@@ -1051,41 +1161,22 @@ func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Re
 		URL:                           req.URL,
 		Headers:                       req.Headers,
 		BodyReader:                    bodyReader,
+		GetBody:                       req.GetBody,
 		TLSOnly:                       req.TLSOnly,
 		FollowRedirects:               req.FollowRedirects,
 		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		HeaderOrder:                   req.HeaderOrder,
+		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
 	}
 
 	resp, err := s.inner.Request(ctx, sReq)
 	if err != nil {
-		return nil, err
+		return toResponse(resp), err
 	}
-
-	// Convert redirect history
-	var history []*RedirectInfo
-	if len(resp.History) > 0 {
-		history = make([]*RedirectInfo, len(resp.History))
-		for i, h := range resp.History {
-			history[i] = &RedirectInfo{
-				StatusCode: h.StatusCode,
-				URL:        h.URL,
-				Headers:    h.Headers,
-			}
-		}
-	}
-
-	return &Response{
-		StatusCode: resp.StatusCode,
-		Headers:    resp.Headers,
-		Body:       resp.Body,
-		FinalURL:   resp.FinalURL,
-		Protocol:   resp.Protocol,
-		History:    history,
-	}, nil
+	return toResponse(resp), nil
 }
 
 // Get performs a GET request within the session
@@ -1420,7 +1511,9 @@ func (r *StreamResponse) ReadChunk(size int) ([]byte, error) {
 
 // DoStream executes an HTTP request and returns a streaming response
 // The caller is responsible for closing the response when done
-// Note: Streaming does NOT support redirects - use Do() for redirect handling
+// Note: Streaming does NOT support redirects - use Do() for redirect handling.
+// Request.OnRedirect is therefore not carried here: it would never fire, and
+// wiring it would suggest otherwise.
 func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, error) {
 	if s.configErr != nil {
 		return nil, s.configErr
@@ -1430,6 +1523,7 @@ func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, 
 		URL:                           req.URL,
 		Headers:                       req.Headers,
 		BodyReader:                    req.Body,
+		GetBody:                       req.GetBody,
 		TLSOnly:                       req.TLSOnly,
 		FollowRedirects:               req.FollowRedirects,
 		DisableConditionalCache:       req.DisableConditionalCache,

@@ -184,7 +184,28 @@ type Request struct {
 	Headers    map[string][]string // Multi-value headers (matches http.Header)
 	Body       []byte
 	BodyReader io.Reader // For streaming uploads - used instead of Body if set
-	Timeout    time.Duration
+
+	// GetBody returns a fresh reader over the same body for a request that has
+	// to go on the wire more than once: a 307/308 redirect hop, or a retried
+	// attempt. Nil means the body cannot be re-opened.
+	//
+	// Mirrors net/http.Request.GetBody with one deliberate difference: it
+	// returns io.Reader, not io.ReadCloser. The value is handed straight to
+	// http.NewRequestWithContext, and it is that function's in-memory type
+	// switch (*bytes.Reader, *bytes.Buffer, *strings.Reader) that sets
+	// ContentLength. An io.NopCloser wrapper hides the concrete type, so
+	// ContentLength stays 0, outgoingLength maps that to -1, and the request
+	// goes out chunked — a wire shape no browser produces for a form POST, and
+	// one the first hop of the same chain did not use.
+	//
+	// Body []byte needs no GetBody: the transport builds a fresh bytes.Reader
+	// over it on every Do. For BodyReader, the session derives one at the first
+	// hop via DeriveGetBody for the in-memory reader types; set it yourself for
+	// anything else (an *os.File, a multipart pipe) if the request may be
+	// replayed.
+	GetBody func() (io.Reader, error)
+
+	Timeout time.Duration
 
 	// TLSOnly is a per-request override for TLS-only mode.
 	// When set to true, preset HTTP headers are NOT applied - only TLS fingerprinting is used.
@@ -239,6 +260,88 @@ type Request struct {
 	// follow-up request it builds for each hop, matching how it replays the
 	// caller's headers.
 	HeaderOrder []string
+
+	// OnRedirect, when non-nil, is called once per redirect hop before the
+	// follow-up request is built. Returning nil follows the hop; returning
+	// ErrUseLastResponse stops the chain and returns the 3xx itself with a nil
+	// error; any other error fails the request with that error unwrapped, so
+	// errors.Is against your own sentinel matches.
+	//
+	// This exists because both alternatives lose something. Turning redirects
+	// off hands you the entire chain to re-implement, cookie jar and header
+	// scrubbing included. Reading Response.History afterwards is too late: the
+	// request to the host you meant to block has already gone out.
+	//
+	// The hop is deliberately read-only. A callback able to rewrite the target
+	// would sit upstream of the scheme and origin scrubbing, which is the part
+	// that keeps Authorization from following a hop off-origin.
+	//
+	// Not called for a 3xx with no Location (there is no hop to veto), nor for
+	// the hop that would exceed the redirect cap, nor from the streaming path,
+	// which does not follow redirects at all. It runs on the calling goroutine
+	// between hops, so it must not block and must not re-enter the same session.
+	//
+	// Session-layer concept; the transport itself does not consult this field.
+	OnRedirect func(*Redirect) error
+}
+
+// ErrUseLastResponse, returned from a Request.OnRedirect callback, stops the
+// redirect chain and hands the 3xx back to the caller with a nil error, exactly
+// as if redirects had been off for that hop. Any other non-nil error from the
+// callback fails the request instead.
+//
+// Shaped after net/http.ErrUseLastResponse so the semantics transfer. The
+// response body is buffered and still yours to read.
+var ErrUseLastResponse = errors.New("httpcloak/transport: use last response")
+
+// Redirect describes one hop the chain is about to take. It is passed to
+// Request.OnRedirect before the follow-up request is built.
+//
+// Read-only in both directions: mutating a field does not retarget the hop, and
+// Headers aliases the 3xx response's own header map, so writing to it corrupts
+// the redirect history the caller gets back. The value is valid only for the
+// duration of the callback; copy anything you keep.
+type Redirect struct {
+	// Hop counts this redirect in the chain, starting at 1. It never exceeds the
+	// redirect cap: the cap is checked before the callback runs, so a chain about
+	// to be rejected for length fails with ErrTooManyRedirects rather than asking
+	// first — otherwise a veto could quietly turn that error into a success.
+	Hop int
+
+	// StatusCode is the 3xx that triggered this hop.
+	StatusCode int
+
+	// Headers are the 3xx response's headers. This is the only place to read a
+	// Set-Cookie or a routing header that the final response will not carry.
+	Headers map[string][]string
+
+	// From is the absolute URL of the request that produced the 3xx.
+	From string
+
+	// To is the Location header resolved against From. Use ToURL rather than
+	// substring-matching this: strings.Contains(To, "example.com") also passes
+	// for https://example.com.attacker.test, which is the exact hop a veto is
+	// usually written to stop.
+	To string
+
+	// Method is the method the next hop will use, after the 301/302/303
+	// POST-to-GET rewrite. Compare it against your own to catch a hop that
+	// silently drops the body.
+	Method string
+
+	// CrossOrigin reports a change of scheme, host or port, using the same
+	// comparison the library itself uses to decide whether to strip
+	// Authorization on this hop.
+	CrossOrigin bool
+
+	// SchemeDowngrade reports an https -> http hop. It always implies CrossOrigin.
+	SchemeDowngrade bool
+}
+
+// ToURL parses To. A method rather than a *url.URL field because parsing costs
+// an allocation on every hop and almost no request installs a callback at all.
+func (r *Redirect) ToURL() (*url.URL, error) {
+	return url.Parse(r.To)
 }
 
 // RedirectInfo contains information about a redirect response
@@ -289,6 +392,44 @@ func (r *Response) GetHeaders(key string) []string {
 // ErrNoLocation is returned by Response.Location when the response has no
 // Location header.
 var ErrNoLocation = errors.New("httpcloak/transport: no Location header in response")
+
+// ErrBodyNotReplayable is returned when a request has to be sent again — a
+// 307/308 hop — but its body is a one-shot stream with no Request.GetBody to
+// re-open it. Sending the hop anyway would put an empty body on the wire under
+// the caller's Content-Type, which is silent data loss, so the hop is refused
+// instead. The 3xx is returned alongside the error, so a caller can read its
+// Location and drive the rest of the chain itself.
+var ErrBodyNotReplayable = errors.New("httpcloak/transport: request body is not replayable (set Request.GetBody)")
+
+// ErrTooManyRedirects is returned when a chain exceeds the configured cap. The
+// response carrying the last Location is returned alongside it, so a caller can
+// see where the chain ended up rather than only that it was too long.
+var ErrTooManyRedirects = errors.New("httpcloak/transport: too many redirects")
+
+// DeriveGetBody returns a GetBody for the in-memory reader types, and nil for
+// anything else. The three cases are exactly net/http.NewRequestWithContext's:
+// a value copy of *bytes.Reader / *strings.Reader snapshots the current read
+// offset without copying the data, and *bytes.Buffer snapshots the remaining
+// bytes. Call it before anything reads r.
+//
+// There is deliberately no io.Seeker case, matching net/http: seeking a reader
+// you do not own is not safe, and the concrete type would still fall outside
+// NewRequestWithContext's ContentLength switch, so the replayed hop would go out
+// chunked while the first one did not.
+func DeriveGetBody(r io.Reader) func() (io.Reader, error) {
+	switch v := r.(type) {
+	case *bytes.Buffer:
+		buf := v.Bytes()
+		return func() (io.Reader, error) { return bytes.NewReader(buf), nil }
+	case *bytes.Reader:
+		snapshot := *v
+		return func() (io.Reader, error) { r := snapshot; return &r, nil }
+	case *strings.Reader:
+		snapshot := *v
+		return func() (io.Reader, error) { r := snapshot; return &r, nil }
+	}
+	return nil
+}
 
 // Location returns the URL of the response's "Location" header, if present.
 // A relative Location is resolved against the URL of the request that produced

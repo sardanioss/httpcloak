@@ -337,6 +337,24 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if ctxErr := contextError(req.Context()); ctxErr != nil {
 			return nil, ctxErr
 		}
+		// doRequest streams the body out as it writes, so an attempt that died
+		// on a stale pooled connection may have consumed it. Re-open it before
+		// retrying below. Without this the retry goes out carrying the
+		// Content-Length it already computed with nothing behind it: the server
+		// blocks waiting for a body that never arrives, and neither end reports
+		// anything wrong. GetBody is set by http.NewRequestWithContext for every
+		// in-memory body; one that cannot be re-opened cannot be retried at all,
+		// so the connection error stands rather than a corrupt request going out.
+		if req.Body != nil && req.Body != http.NoBody {
+			if req.GetBody == nil {
+				return nil, WrapError("request", host, port, "h1", err)
+			}
+			rc, gerr := req.GetBody()
+			if gerr != nil {
+				return nil, WrapError("request", host, port, "h1", gerr)
+			}
+			req.Body = rc
+		}
 	}
 
 	// Create new connection (pass request host for SNI, connectHost used internally for DNS)

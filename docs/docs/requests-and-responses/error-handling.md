@@ -165,10 +165,32 @@ These come back as a populated `Response` with a status code, not as an error:
 
 - `4xx`: Bad Request, Unauthorized, Forbidden, Not Found, Method Not Allowed, the usual suspects.
 - `5xx`: Server errors, Bad Gateway, Service Unavailable, Gateway Timeout.
-- `3xx` redirects (when the lib stops following them, e.g. with `WithoutRedirects()`).
+- `3xx` redirects (when the lib stops following them, e.g. with `WithoutRedirects()`, `Request.FollowRedirects`, or an `OnRedirect` callback returning `ErrUseLastResponse`).
 - Empty bodies, unexpected Content-Types, malformed JSON in the body.
 
 The HTTP exchange completed and the server replied. Whether the caller treats it as a failure is business logic, not a transport concern.
+
+## Redirect errors that still carry a response
+
+Two redirect failures hand back a non-nil `Response` *and* a non-nil error. The
+response is the 3xx that ended the chain, so you can read its `Location` and
+decide what to do rather than only learning that something went wrong. Ignoring
+it leaks nothing — the body is already buffered, and closing it is a no-op.
+
+```go
+resp, err := s.Do(ctx, req)
+if errors.Is(err, httpcloak.ErrTooManyRedirects) {
+    loc, _ := resp.Location() // where the chain had got to
+}
+```
+
+| Sentinel | When |
+|---|---|
+| `ErrTooManyRedirects` | The chain exceeded the cap. `client.Client` returns the same sentinel but no response: at the point it detects the cap it has not built one. |
+| `ErrBodyNotReplayable` | A 307 or 308 needed the request body a second time, but it was a one-shot stream with no `Request.GetBody` to re-open it. The hop is refused rather than sent with an empty body. See [Redirects](/reference/options#bodies-on-307-and-308). |
+
+An error returned from your own `OnRedirect` callback comes back unwrapped, so
+`errors.Is` against your own sentinel matches what you returned.
 
 ## Typed errors (Go)
 
