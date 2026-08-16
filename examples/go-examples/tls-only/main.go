@@ -38,7 +38,7 @@ func main() {
 	session := httpcloak.NewSession("chrome-latest")
 	defer session.Close()
 
-	resp, err := session.Get(ctx, "https://httpbin.org/headers", nil)
+	resp, err := session.Get(ctx, "https://httpbin.org/headers")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -82,10 +82,15 @@ func main() {
 	tlsOnlySession := httpcloak.NewSession("chrome-latest", httpcloak.WithTLSOnly())
 	defer tlsOnlySession.Close()
 
-	// Only our custom headers will be sent
-	resp, err = tlsOnlySession.Get(ctx, "https://httpbin.org/headers", map[string][]string{
-		"User-Agent":      {"MyBot/1.0"},
-		"X-Custom-Header": {"my-value"},
+	// Only our custom headers will be sent. Get() takes no headers, so per-request
+	// headers go through Do() with a Request.
+	resp, err = tlsOnlySession.Do(ctx, &httpcloak.Request{
+		Method: "GET",
+		URL:    "https://httpbin.org/headers",
+		Headers: map[string][]string{
+			"User-Agent":      {"MyBot/1.0"},
+			"X-Custom-Header": {"my-value"},
+		},
 	})
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -121,11 +126,15 @@ func main() {
 	defer apiSession.Close()
 
 	// API-style request with custom headers
-	resp, err = apiSession.Get(ctx, "https://httpbin.org/headers", map[string][]string{
-		"Authorization": {"Bearer my-api-token"},
-		"X-API-Key":     {"secret-key-123"},
-		"Content-Type":  {"application/json"},
-		"Accept":        {"application/json"},
+	resp, err = apiSession.Do(ctx, &httpcloak.Request{
+		Method: "GET",
+		URL:    "https://httpbin.org/headers",
+		Headers: map[string][]string{
+			"Authorization": {"Bearer my-api-token"},
+			"X-API-Key":     {"secret-key-123"},
+			"Content-Type":  {"application/json"},
+			"Accept":        {"application/json"},
+		},
 	})
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -162,7 +171,7 @@ func main() {
 	normalSession := httpcloak.NewSession("chrome-latest")
 	defer normalSession.Close()
 
-	resp, err = normalSession.Get(ctx, "https://tls.peet.ws/api/all", nil)
+	resp, err = normalSession.Get(ctx, "https://tls.peet.ws/api/all")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -183,7 +192,7 @@ func main() {
 	tlsOnlySession2 := httpcloak.NewSession("chrome-latest", httpcloak.WithTLSOnly())
 	defer tlsOnlySession2.Close()
 
-	resp, err = tlsOnlySession2.Get(ctx, "https://tls.peet.ws/api/all", nil)
+	resp, err = tlsOnlySession2.Get(ctx, "https://tls.peet.ws/api/all")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
