@@ -41,6 +41,9 @@ type Conn struct {
 	TLSConn    *utls.UConn
 	HTTP2Conn  *http2.ClientConn
 	CreatedAt  time.Time
+	// LastUsedAt and UseCount are written under mu for the whole life of the
+	// connection, so once the pool owns it read them through IdleTime() and
+	// Uses() rather than off the struct.
 	LastUsedAt time.Time
 	UseCount   int64
 	mu         sync.Mutex
@@ -204,6 +207,19 @@ func (c *Conn) IdleTime() time.Duration {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return time.Since(c.LastUsedAt)
+}
+
+// Uses returns how many times the pool has handed this connection out.
+//
+// MarkUsed() writes UseCount under c.mu on every acquisition, so anything on
+// another goroutine has to read it through here. Two requests multiplexing on
+// the same HTTP/2 connection otherwise race outright: GetConn calls MarkUsed on
+// the connection it returns, so one caller is inside that write while the other
+// reads the field bare.
+func (c *Conn) Uses() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.UseCount
 }
 
 // MarkUsed updates the last used timestamp
@@ -1276,7 +1292,7 @@ func (p *HostPool) Stats() (total int, healthy int, totalRequests int64) {
 		if conn.IsHealthy() {
 			healthy++
 		}
-		totalRequests += conn.UseCount
+		totalRequests += conn.Uses()
 	}
 	return
 }

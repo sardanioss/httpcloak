@@ -110,7 +110,7 @@ func (c *HTTP3Client) Do(ctx context.Context, req *Request) (*Response, error) {
 	}
 
 	// Calculate timing based on whether this is a new connection
-	if conn.UseCount == 1 {
+	if conn.Uses() == 1 {
 		// New connection - estimate timing breakdown
 		connTime := float64(time.Since(connStart).Milliseconds())
 		timing.DNSLookup = connTime / 3
