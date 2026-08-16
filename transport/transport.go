@@ -313,6 +313,10 @@ type Redirect struct {
 
 	// Headers are the 3xx response's headers. This is the only place to read a
 	// Set-Cookie or a routing header that the final response will not carry.
+	//
+	// Keys are lowercase, matching Response.Headers, so index it as
+	// Headers["set-cookie"] or use GetHeader / GetHeaders, which lowercase for
+	// you. Headers["Set-Cookie"] returns nothing.
 	Headers map[string][]string
 
 	// From is the absolute URL of the request that produced the 3xx.
@@ -342,6 +346,22 @@ type Redirect struct {
 // an allocation on every hop and almost no request installs a callback at all.
 func (r *Redirect) ToURL() (*url.URL, error) {
 	return url.Parse(r.To)
+}
+
+// GetHeader returns the first value of the named 3xx response header, or "".
+// Case-insensitive, so GetHeader("Set-Cookie") works where the raw map needs
+// the lowercase key. Same shape as Response.GetHeader.
+func (r *Redirect) GetHeader(key string) string {
+	if values := r.Headers[strings.ToLower(key)]; len(values) > 0 {
+		return values[0]
+	}
+	return ""
+}
+
+// GetHeaders returns every value of the named 3xx response header.
+// Case-insensitive. Use this one for Set-Cookie, which legitimately repeats.
+func (r *Redirect) GetHeaders(key string) []string {
+	return r.Headers[strings.ToLower(key)]
 }
 
 // RedirectInfo contains information about a redirect response

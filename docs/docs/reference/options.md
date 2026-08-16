@@ -141,6 +141,18 @@ origin flags and `ToURL()` over substring-matching `To`:
 `strings.Contains(To, "example.com")` also passes for
 `https://example.com.attacker.test`.
 
+Read those headers with `GetHeader(name)` / `GetHeaders(name)`, which are
+case-insensitive. The raw `Headers` map is lowercase-keyed like every header map
+in the library, so `Headers["Set-Cookie"]` finds nothing while
+`Headers["set-cookie"]` works. Use the plural form for `Set-Cookie`, which can
+appear more than once:
+
+```go
+for _, c := range r.GetHeaders("Set-Cookie") {
+    // ...
+}
+```
+
 It is read-only. Writing to a field does not retarget the hop — a callback able
 to rewrite the target would run before the origin scrubbing, which is what stops
 `Authorization` following a redirect off-origin. It is not called for a 3xx with
