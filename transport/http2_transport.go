@@ -73,8 +73,11 @@ type HTTP2Transport struct {
 	localAddr            string // Local IP to bind outgoing connections
 
 	// Cleanup
-	stopCleanup chan struct{}
-	closed      bool
+	stopCleanup     chan struct{}
+	stopCleanupOnce sync.Once
+	// closed means the transport takes no new requests. Set by both Close and
+	// CloseGraceful; the latter leaves connections draining in t.retired.
+	closed bool
 }
 
 // persistentConn represents a persistent HTTP/2 connection
@@ -148,7 +151,9 @@ func (t *HTTP2Transport) retire(conn *persistentConn) {
 	conn.mu.Unlock()
 
 	if !deferred {
-		conn.close()
+		// Off the caller's goroutine, like every other shutdown path here: a
+		// TLS close can stall for up to 250ms on an unresponsive peer.
+		go conn.close()
 		return
 	}
 
@@ -1296,7 +1301,11 @@ func (c *persistentConn) close() {
 	}
 }
 
-// cleanupLoop periodically cleans up stale connections
+// cleanupLoop periodically cleans up stale connections. After CloseGraceful it
+// keeps running until the last retired connection has drained, because it is
+// the only thing that applies the abandoned-body bound to those connections;
+// stopping it at CloseGraceful would let a body that is never closed pin its
+// socket for the process lifetime.
 func (t *HTTP2Transport) cleanupLoop() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -1307,8 +1316,25 @@ func (t *HTTP2Transport) cleanupLoop() {
 			return
 		case <-ticker.C:
 			t.cleanup()
+			if t.drained() {
+				return
+			}
 		}
 	}
+}
+
+// drained reports whether a closed transport has nothing left to reclaim, i.e.
+// no connection is still deferring its close behind a streaming body.
+func (t *HTTP2Transport) drained() bool {
+	t.connsMu.RLock()
+	closed := t.closed
+	t.connsMu.RUnlock()
+	if !closed {
+		return false
+	}
+	t.retiredMu.Lock()
+	defer t.retiredMu.Unlock()
+	return len(t.retired) == 0
 }
 
 // cleanup removes stale connections
@@ -1330,32 +1356,63 @@ func (t *HTTP2Transport) cleanup() {
 	t.sweepRetired()
 }
 
-// Close shuts down the transport
+// Close shuts down the transport immediately. Every connection is closed,
+// including ones with a response body still streaming and ones left draining by
+// an earlier CloseGraceful.
 func (t *HTTP2Transport) Close() {
 	t.connsMu.Lock()
-	defer t.connsMu.Unlock()
-
-	if t.closed {
-		return
-	}
 	t.closed = true
+	conns := t.conns
+	t.conns = nil
+	t.connsMu.Unlock()
 
-	close(t.stopCleanup)
+	t.stopCleanupOnce.Do(func() { close(t.stopCleanup) })
 
-	for _, conn := range t.conns {
+	for _, conn := range conns {
 		go conn.close()
 	}
-	t.conns = nil
 
 	// Connections evicted while still streaming are not in t.conns. Shutdown is
 	// unconditional, so close them here too rather than leaving their sockets
 	// behind after the transport is gone.
 	t.retiredMu.Lock()
-	for _, conn := range t.retired {
-		go conn.close()
-	}
+	retired := t.retired
 	t.retired = nil
 	t.retiredMu.Unlock()
+	for _, conn := range retired {
+		go conn.close()
+	}
+}
+
+// CloseGraceful shuts down the transport without interrupting requests that are
+// in flight. It stops taking new requests, closes every idle connection now, and
+// retires each connection that still has a response body streaming on it so it
+// closes when that body finishes (or when the abandoned-body bound reclaims it,
+// should the caller never close the body). It returns immediately; the draining
+// connections are reclaimed in the background. Close may be called afterwards
+// to force whatever is still draining.
+func (t *HTTP2Transport) CloseGraceful() {
+	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		return
+	}
+	t.closed = true
+	conns := t.conns
+	t.conns = nil
+	t.connsMu.Unlock()
+
+	// retire, not requestClose: a connection whose close is deferred must stay
+	// tracked in t.retired so the cleanup loop can still bound it.
+	for _, conn := range conns {
+		t.retire(conn)
+	}
+
+	// Nothing left draining, so the cleanup loop has nothing to do; otherwise it
+	// runs on and exits itself once the last retired connection is gone.
+	if t.drained() {
+		t.stopCleanupOnce.Do(func() { close(t.stopCleanup) })
+	}
 }
 
 // Refresh closes all connections but keeps the TLS session cache intact.

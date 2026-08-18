@@ -2341,6 +2341,23 @@ func (t *Transport) Close() {
 	t.h3Transport.Close()
 }
 
+// CloseGraceful closes the transport without interrupting requests that are in
+// flight: no new request is accepted, idle connections close now, and a
+// connection still carrying a response closes once that response's body is
+// done. It returns immediately.
+//
+// HTTP/1.1 connections are only ever closed while idle, so an in-flight one is
+// untouched and closes when its body is finished. HTTP/2 connections with a
+// body still streaming are retired and close when the body finishes, or when
+// the abandoned-body bound reclaims one that is never closed. HTTP/3
+// connections are closed immediately, as by Close: the QUIC layer has no
+// per-request drain.
+func (t *Transport) CloseGraceful() {
+	t.h1Transport.Close()
+	t.h2Transport.CloseGraceful()
+	t.h3Transport.Close()
+}
+
 // Refresh closes all connections but keeps TLS session caches intact.
 // This simulates a browser page refresh - new TCP/QUIC connections but TLS resumption.
 // Useful for resetting connection state without losing session tickets.

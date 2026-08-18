@@ -318,6 +318,7 @@ Tune the cadences to the target. A scraper hammering one host per second wants l
 - **Don't save state on every request.** Disk IO ends up dominating. Every few minutes is plenty.
 - **Don't share one session across very different targets.** Cookies in the jar are scoped per-host, but session-level state (TLS tickets, ECH config) crosses targets. One session per target keeps everything tidy.
 - **Don't forget `resp.Close()`.** Body leaks tie up connection resources and make `Refresh()` less effective, since the connection it would have dropped is still bound to a leaked body.
+- **Don't `Close()` a session other goroutines are still reading from.** `Close()` drops every connection at once, so a worker halfway through a response body gets "use of closed network connection". When you retire a live session (rotating identities, swapping proxies), call `CloseGraceful()` instead: it refuses new requests immediately and lets each in-flight body finish before its connection goes away.
 
 ## Forking sessions for parallel scrapes
 
