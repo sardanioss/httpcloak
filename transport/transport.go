@@ -1582,16 +1582,14 @@ func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error)
 	if snap.preset.SupportHTTP3 && snap.h3 != nil {
 		resp, protocol, err := t.raceH3H2(ctx, req)
 		if err == nil {
-			// ProtocolAuto means the response came from the HTTP/1.1 fallback
-			// after a non-ALPN H2 failure: nothing was learned about the host.
-			if protocol != ProtocolAuto {
-				t.protocolSupportMu.Lock()
-				t.protocolSupport[host] = protocol
-				t.protocolSupportMu.Unlock()
-			}
+			t.protocolSupportMu.Lock()
+			t.protocolSupport[host] = protocol
+			t.protocolSupportMu.Unlock()
 			return resp, nil
 		}
-		// Check if ALPN mismatch from H2 - reuse connection
+		// ALPN mismatch, from the probe or from the H2 attempt: serve HTTP/1.1
+		// on the connection that negotiated it. Not retried on failure, exactly
+		// like the branch below.
 		var alpnErr *ALPNMismatchError
 		if errors.As(err, &alpnErr) {
 			resp, err := t.doHTTP1WithTLSConn(ctx, req, alpnErr)
@@ -1840,14 +1838,16 @@ func drainLateALPN(h2Done <-chan struct{}, alpnErrCh <-chan *ALPNMismatchError) 
 }
 
 // raceH3H2 races HTTP/3 and HTTP/2 connections in parallel, then makes the request
-// on whichever protocol connects first. This eliminates the 5-second delay when
-// HTTP/3 (QUIC) is blocked by firewalls or VPNs.
+// once on whichever protocol connects first. This eliminates the 5-second delay
+// when HTTP/3 (QUIC) is blocked by firewalls or VPNs.
 //
-// The returned Protocol is what was learned about the host, for the caller to
-// cache: HTTP3 or HTTP2 when that protocol connected and served the request,
-// HTTP1 when ALPN negotiated http/1.1. ProtocolAuto means the request was served
-// by the HTTP/1.1 fallback after a non-ALPN H2 failure, which says nothing about
-// the host and must not be cached. It is only meaningful when err is nil.
+// It does not fall back. Whatever the winner's attempt returns is returned as
+// is, including an *ALPNMismatchError from the H2 side, which carries the live
+// TLS connection for the caller to serve HTTP/1.1 on. doAuto owns the fallbacks
+// (ALPN reuse, then a fresh HTTP/1.1 connection) so that a request makes the
+// same attempts whichever doAuto branch it took. The returned Protocol is the
+// one the response was served on, for the caller to cache; it is only
+// meaningful when err is nil.
 func (t *Transport) raceH3H2(ctx context.Context, req *Request) (*Response, Protocol, error) {
 	// Parse URL to get host:port
 	parsedURL, err := url.Parse(req.URL)
@@ -1868,9 +1868,9 @@ func (t *Transport) raceH3H2(ctx context.Context, req *Request) (*Response, Prot
 		return nil, ProtocolHTTP2, decision.err
 	}
 	if decision.alpnErr != nil {
-		// ALPN negotiated HTTP/1.1 instead of H2 - reuse the live connection.
-		resp, err := t.doHTTP1WithTLSConn(ctx, req, decision.alpnErr)
-		return resp, ProtocolHTTP1, err
+		// ALPN negotiated HTTP/1.1 instead of H2. Hand the live connection back
+		// to doAuto, whose ALPN handler serves the request on it.
+		return nil, ProtocolHTTP1, decision.alpnErr
 	}
 
 	switch decision.protocol {
@@ -1879,21 +1879,7 @@ func (t *Transport) raceH3H2(ctx context.Context, req *Request) (*Response, Prot
 		return resp, ProtocolHTTP3, err
 	default: // ProtocolHTTP2 (also the no-winner default)
 		resp, err := t.doHTTP2(ctx, req)
-		if err != nil {
-			// Check for ALPN mismatch - reuse connection
-			var alpnErr *ALPNMismatchError
-			if errors.As(err, &alpnErr) {
-				resp, err := t.doHTTP1WithTLSConn(ctx, req, alpnErr)
-				return resp, ProtocolHTTP1, err
-			}
-			// H2 failed for other reason, try H1 with new connection. This is
-			// a fallback, not a negotiation: it says nothing about what the
-			// host speaks, so report ProtocolAuto and let doAuto leave the host
-			// uncached rather than pin it to HTTP/1.1 (see doAuto's fallback).
-			resp, err = t.doHTTP1(ctx, req)
-			return resp, ProtocolAuto, err
-		}
-		return resp, ProtocolHTTP2, nil
+		return resp, ProtocolHTTP2, err
 	}
 }
 
