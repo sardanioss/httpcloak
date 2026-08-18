@@ -51,6 +51,7 @@ internal_tests/
 !/local_proxy_gzip_test.go
 !/rootcas_verify_test.go
 !/redirect_test.go
+!/close_graceful_test.go
 
 # Local workspace config (points at machine-local fork paths)
 go.work
