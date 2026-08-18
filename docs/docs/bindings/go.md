@@ -136,13 +136,15 @@ Streaming won't auto-follow redirects. A 3xx on a stream response has to be hand
 
 ```go
 func (s *Session) Close()
+func (s *Session) CloseGraceful()
 func (s *Session) Refresh()
 func (s *Session) RefreshWithProtocol(protocol string) error
 func (s *Session) Warmup(ctx context.Context, url string) error
 func (s *Session) Fork(n int) []*Session
 ```
 
-- `Close()` releases the connection pool and the cookie jar. Always defer it.
+- `Close()` releases the connection pool and the cookie jar. Always defer it. It closes every connection at once, so a response body another goroutine is still reading is interrupted.
+- `CloseGraceful()` is `Close()` for rotating a session that other goroutines may still be reading from: it refuses new requests immediately, closes idle connections now, and lets a connection that still has a response body streaming on it finish that body first, then closes it. It returns without waiting. Calling `Close()` afterwards forces whatever is still draining, so keep the deferred `Close()` only if you want that. HTTP/1.1 and HTTP/2 drain like this; HTTP/3 connections close immediately either way.
 - `Refresh()` drops connections but keeps cookies and TLS tickets, mirroring a browser F5.
 - `RefreshWithProtocol("h1" | "h2" | "h3" | "auto")` does a refresh and switches the wire protocol for following requests. Useful for warming TLS on H3 and then serving H2 with resumption.
 - `Warmup(ctx, url)` runs a browser-style page load: HTML first, then subresources with proper priorities, headers, and timing. Pop it before hitting an antibot endpoint.

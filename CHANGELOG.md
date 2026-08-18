@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`Session.CloseGraceful` closes a session without cutting off requests still in flight**: `Close` tears the session's connections down at once, which is right for shutdown but wrong for rotating a long-lived session, because any response body still being read on one of its connections is interrupted with "use of closed network connection". Anyone rotating sessions therefore had to guess a grace period longer than their longest possible request and sleep it out before calling `Close`. `CloseGraceful` stops the session taking new requests immediately (they fail with `ErrSessionClosed`, exactly as after `Close`), closes every idle connection now, and lets each connection that still has a response streaming on it finish that response first, closing it the moment the body is done. It returns without waiting; the draining happens in the background. This reuses the deferred close that 1.6.9 introduced for #83, applied to the whole HTTP/2 pool instead of to one evicted connection, and the pool's cleanup pass keeps running until the last such connection is gone so that a body which is never closed is still reclaimed by the abandoned-body bound rather than pinning its socket. HTTP/1.1 connections are only ever closed while idle, so they already behaved this way; HTTP/3 connections are closed immediately, as by `Close`, since the QUIC layer has no per-request drain. `Close` after `CloseGraceful` is not a no-op: it forces whatever is still draining. `Close` itself is unchanged.
+
 ## [1.6.11] - 2026-08-17
 
 ### Added

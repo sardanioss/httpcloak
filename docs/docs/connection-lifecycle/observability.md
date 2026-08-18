@@ -38,7 +38,7 @@ The fields:
 | `CreatedAt` | `time.Time` | Wall-clock time when `NewSession` returned. |
 | `LastUsed` | `time.Time` | Wall-clock time of the last request *start* (or explicit `Touch()`). Set at the top of `Do` / `DoStream` / `Warmup`, not on exit, so a long-running streaming request keeps `IdleTime()` near zero for its whole duration rather than only after the body finishes. |
 | `RequestCount` | `int64` | Total request count since creation. Counts every request that left the session, including failed ones. |
-| `Active` | `bool` | False after `Close()` returns. Same value `IsActive()` reports. |
+| `Active` | `bool` | False after `Close()` or `CloseGraceful()` returns. Same value `IsActive()` reports. |
 | `CookieCount` | `int` | Number of cookies in the jar at snapshot time. |
 | `CacheEntryCount` | `int` | Number of conditional-request cache entries (one per URL with an ETag or Last-Modified seen). |
 | `Age` | `time.Duration` | `time.Since(CreatedAt)`. |
@@ -88,7 +88,7 @@ sess.Touch()  // reset idle clock; request count is unchanged
 
 ### IsActive
 
-`IsActive()` returns `false` once `Close()` has run, `true` otherwise. The flag is set during `Close()` under the same lock that guards every other session operation, so a `true` result means the session can still service a new request, and a `false` result is permanent (closed sessions don't reopen, build a new one with `NewSession`). Use it as a guard at the top of code paths that share a session pointer across goroutines or worker tasks.
+`IsActive()` returns `false` once `Close()` or `CloseGraceful()` has run, `true` otherwise. The flag is set during the close under the same lock that guards every other session operation, so a `true` result means the session can still service a new request, and a `false` result is permanent (closed sessions don't reopen, build a new one with `NewSession`). Use it as a guard at the top of code paths that share a session pointer across goroutines or worker tasks.
 
 ```go
 if !sess.IsActive() {
