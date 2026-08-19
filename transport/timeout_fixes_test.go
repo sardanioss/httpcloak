@@ -576,12 +576,12 @@ func (m *mockConn) Read(b []byte) (int, error) {
 }
 
 func (m *mockConn) Write(b []byte) (int, error)        { return len(b), nil }
-func (m *mockConn) Close() error                        { return nil }
-func (m *mockConn) LocalAddr() net.Addr                 { return &net.TCPAddr{} }
-func (m *mockConn) RemoteAddr() net.Addr                { return &net.TCPAddr{} }
-func (m *mockConn) SetDeadline(t time.Time) error       { return nil }
-func (m *mockConn) SetReadDeadline(t time.Time) error   { return nil }
-func (m *mockConn) SetWriteDeadline(t time.Time) error  { return nil }
+func (m *mockConn) Close() error                       { return nil }
+func (m *mockConn) LocalAddr() net.Addr                { return &net.TCPAddr{} }
+func (m *mockConn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
+func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
+func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
+func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }
 
 func TestSpeculativeConnIterativeRead(t *testing.T) {
 	t.Run("complete response in single read", func(t *testing.T) {
@@ -864,12 +864,12 @@ type deadlineTrackingConn struct {
 	deadlines *[]time.Time
 }
 
-func (d *deadlineTrackingConn) Read(b []byte) (int, error)  { return d.readBuf.Read(b) }
-func (d *deadlineTrackingConn) Write(b []byte) (int, error)  { return len(b), nil }
-func (d *deadlineTrackingConn) Close() error                 { return nil }
-func (d *deadlineTrackingConn) LocalAddr() net.Addr          { return &net.TCPAddr{} }
-func (d *deadlineTrackingConn) RemoteAddr() net.Addr         { return &net.TCPAddr{} }
-func (d *deadlineTrackingConn) SetDeadline(t time.Time) error { return nil }
+func (d *deadlineTrackingConn) Read(b []byte) (int, error)         { return d.readBuf.Read(b) }
+func (d *deadlineTrackingConn) Write(b []byte) (int, error)        { return len(b), nil }
+func (d *deadlineTrackingConn) Close() error                       { return nil }
+func (d *deadlineTrackingConn) LocalAddr() net.Addr                { return &net.TCPAddr{} }
+func (d *deadlineTrackingConn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
+func (d *deadlineTrackingConn) SetDeadline(t time.Time) error      { return nil }
 func (d *deadlineTrackingConn) SetWriteDeadline(t time.Time) error { return nil }
 func (d *deadlineTrackingConn) SetReadDeadline(t time.Time) error {
 	*d.deadlines = append(*d.deadlines, t)
@@ -925,13 +925,13 @@ func (c *captureConn) Write(b []byte) (int, error) {
 	*c.writeBuf = append(*c.writeBuf, b...)
 	return len(b), nil
 }
-func (c *captureConn) Read(b []byte) (int, error)          { return 0, io.EOF }
-func (c *captureConn) Close() error                        { return nil }
-func (c *captureConn) LocalAddr() net.Addr                 { return &net.TCPAddr{} }
-func (c *captureConn) RemoteAddr() net.Addr                { return &net.TCPAddr{} }
-func (c *captureConn) SetDeadline(t time.Time) error       { return nil }
-func (c *captureConn) SetReadDeadline(t time.Time) error   { return nil }
-func (c *captureConn) SetWriteDeadline(t time.Time) error  { return nil }
+func (c *captureConn) Read(b []byte) (int, error)         { return 0, io.EOF }
+func (c *captureConn) Close() error                       { return nil }
+func (c *captureConn) LocalAddr() net.Addr                { return &net.TCPAddr{} }
+func (c *captureConn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
+func (c *captureConn) SetDeadline(t time.Time) error      { return nil }
+func (c *captureConn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *captureConn) SetWriteDeadline(t time.Time) error { return nil }
 
 // ============================================================================
 // Test closeWithTimeout with actual io.Closer interface

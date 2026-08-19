@@ -46,7 +46,7 @@ func TestUserSuppliedCacheControl_RespectsHPACKPosition(t *testing.T) {
 	// through user_headers and Set on the request.
 	req.Header.Set("cache-control", "max-age=0")
 	uh := map[string][]string{"cache-control": {"max-age=0"}}
-	applyPresetHeaders(req, preset, nil, nil, false, "h2", uh, false)
+	applyPresetHeaders(req, preset, nil, nil, false, "h2", uh, false, nil)
 	// Also mirror what bindings/transport.go:1444 does: re-apply user headers
 	// AFTER applyPresetHeaders. This is the exact production path.
 	req.Header.Set("cache-control", "max-age=0")

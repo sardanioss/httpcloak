@@ -243,11 +243,20 @@ var (
 
 // Request configuration for JSON parsing
 type RequestConfig struct {
-	Method       string            `json:"method"`
-	URL          string            `json:"url"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	Body         string            `json:"body,omitempty"`
-	BodyEncoding string            `json:"body_encoding,omitempty"` // "text" (default) or "base64"
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+	// ExactHeaders replaces the whole header pipeline for this request: the
+	// pairs go out in the order and casing given, a name may repeat, and no
+	// preset headers, client hints or alphabetical tail are added.
+	//
+	// It is a list of two-element arrays, [name, value], because the ordinary
+	// Headers map cannot carry order, casing or a repeated name, which is
+	// exactly what reproducing a captured request needs. Headers is ignored
+	// when this is set.
+	ExactHeaders [][]string `json:"exact_headers,omitempty"`
+	Body         string     `json:"body,omitempty"`
+	BodyEncoding string     `json:"body_encoding,omitempty"` // "text" (default) or "base64"
 	// Timeout's UNIT DEPENDS ON THE ENTRY POINT: httpcloak_request_raw reads it
 	// as MILLISECONDS; httpcloak_request and httpcloak_request_async (and
 	// httpcloak_stream_request) read it as SECONDS. Bindings must convert to
@@ -1094,6 +1103,7 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 		Method:                        method,
 		URL:                           config.URL,
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
+		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -1689,6 +1699,7 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) (hcRet *C.char) {
 		Method:                        config.Method,
 		URL:                           config.URL,
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
+		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -2041,6 +2052,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 			Method:                        config.Method,
 			URL:                           config.URL,
 			Headers:                       buildHeaders(config.Headers, config.FetchMode),
+			ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 			Body:                          bodyReader,
 			FollowRedirects:               config.FollowRedirects,
 			DisableConditionalCache:       config.DisableConditionalCache,
@@ -3698,6 +3710,7 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 		Method:                        config.Method,
 		URL:                           config.URL,
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
+		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -4369,4 +4382,25 @@ func toUint16(v interface{}) (uint16, bool) {
 		return uint16(n), true
 	}
 	return 0, false
+}
+
+// buildExactHeaders converts the [name, value] pairs from a request config.
+// Malformed entries are skipped rather than guessed at: a one-element or
+// three-element array has no sensible reading, and inventing one would put a
+// header on the wire the caller did not ask for.
+func buildExactHeaders(pairs [][]string) []fingerprint.HeaderPair {
+	if len(pairs) == 0 {
+		return nil
+	}
+	out := make([]fingerprint.HeaderPair, 0, len(pairs))
+	for _, p := range pairs {
+		if len(p) != 2 || p[0] == "" {
+			continue
+		}
+		out = append(out, fingerprint.HeaderPair{Key: p[0], Value: p[1]})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

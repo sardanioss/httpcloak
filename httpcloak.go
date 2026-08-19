@@ -169,8 +169,24 @@ type Request struct {
 	Method  string
 	URL     string
 	Headers map[string][]string // Multi-value headers (matches http.Header)
-	Body    io.Reader           // Streaming body for uploads
-	Timeout time.Duration
+
+	// ExactHeaders, when non-empty, replaces the whole header pipeline for this
+	// request. The pairs go on the wire in the order and casing given, a name
+	// may repeat, and nothing is added: no preset block, no client hints, no
+	// Sec-Fetch inference, and no alphabetical tail for names the preset does
+	// not know.
+	//
+	// Use it to reproduce a captured request exactly. It is an escape hatch:
+	// the caller takes on the entire request shape, including headers a browser
+	// would always send. Headers is ignored when this is set.
+	//
+	// Two things are still written for you, because they are protocol framing
+	// rather than caller headers: Host and Connection on HTTP/1.1, and the
+	// pseudo-header block on HTTP/2 and HTTP/3. Suppressing Connection would
+	// break keep-alive, and Chrome sends it on every H1 request anyway.
+	ExactHeaders []fingerprint.HeaderPair
+	Body         io.Reader // Streaming body for uploads
+	Timeout      time.Duration
 
 	// GetBody returns a fresh reader over the same body for a request that has
 	// to go on the wire more than once: a 307 or 308 redirect hop, or a retried
@@ -1157,6 +1173,7 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 		Method:                        req.Method,
 		URL:                           req.URL,
 		Headers:                       req.Headers,
+		ExactHeaders:                  req.ExactHeaders,
 		BodyReader:                    req.Body,
 		GetBody:                       req.GetBody,
 		TLSOnly:                       req.TLSOnly,
@@ -1189,6 +1206,7 @@ func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Re
 		Method:                        req.Method,
 		URL:                           req.URL,
 		Headers:                       req.Headers,
+		ExactHeaders:                  req.ExactHeaders,
 		BodyReader:                    bodyReader,
 		GetBody:                       req.GetBody,
 		TLSOnly:                       req.TLSOnly,
@@ -1551,6 +1569,7 @@ func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, 
 		Method:                        req.Method,
 		URL:                           req.URL,
 		Headers:                       req.Headers,
+		ExactHeaders:                  req.ExactHeaders,
 		BodyReader:                    req.Body,
 		GetBody:                       req.GetBody,
 		TLSOnly:                       req.TLSOnly,

@@ -208,6 +208,29 @@ type Request struct {
 
 	Timeout time.Duration
 
+	// ExactHeaders, when non-empty, replaces the whole header pipeline for this
+	// request. The pairs go on the wire in the order and the casing given, a
+	// name may repeat, and nothing else is added: no preset header block, no
+	// client hints, no Sec-Fetch inference, no alphabetical tail for names the
+	// preset does not know.
+	//
+	// It exists because the normal path is opinionated in three ways that a
+	// mirror cannot live with. It always injects the preset block, it appends
+	// unknown caller headers sorted alphabetically at the end, and it
+	// canonicalises casing through http.Header.Set. On top of that a
+	// map[string][]string cannot express two headers of the same name in a
+	// chosen position relative to other names.
+	//
+	// This is a deliberate escape hatch, not the default. A caller using it
+	// takes on responsibility for the entire request shape, including the
+	// headers a browser would always send.
+	//
+	// Two things are still written for you, because they are protocol framing
+	// rather than caller headers: Host and Connection on HTTP/1.1, and the
+	// pseudo-header block on HTTP/2 and HTTP/3. Suppressing Connection would
+	// break keep-alive, and Chrome sends it on every H1 request anyway.
+	ExactHeaders []fingerprint.HeaderPair
+
 	// TLSOnly is a per-request override for TLS-only mode.
 	// When set to true, preset HTTP headers are NOT applied - only TLS fingerprinting is used.
 	// When nil, the transport's TLSOnly setting is used.
@@ -1826,7 +1849,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 
 	// Set preset headers (with ordering for fingerprinting)
 	// Pass "h1" protocol so Chrome presets don't send Priority header on HTTP/1.1
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -1938,7 +1961,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	}
 
 	// Set preset headers - pass "h1" protocol so Chrome presets don't send Priority header
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -2057,7 +2080,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -2191,7 +2214,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints)
+	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	// Override with custom headers (multi-value support)
 	// Use Set for first value to replace preset headers, Add for additional values
@@ -2597,7 +2620,50 @@ func presetSendsSecFetch(preset *fingerprint.Preset) bool {
 	return false
 }
 
-func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool) {
+// applyExactHeaders writes the caller's headers verbatim and returns true when
+// it has taken over. Direct map assignment rather than Header.Set is the point:
+// Set canonicalises the key, and a map entry holding several values is how a
+// repeated header name survives to the wire.
+func applyExactHeaders(httpReq *http.Request, exact []fingerprint.HeaderPair, preset *fingerprint.Preset, customPseudoOrder []string, protocol string) bool {
+	if len(exact) == 0 {
+		return false
+	}
+	for k := range httpReq.Header {
+		delete(httpReq.Header, k)
+	}
+	order := make([]string, 0, len(exact))
+	seen := make(map[string]bool, len(exact))
+	for _, hp := range exact {
+		httpReq.Header[hp.Key] = append(httpReq.Header[hp.Key], hp.Value)
+		if !seen[hp.Key] {
+			seen[hp.Key] = true
+			order = append(order, hp.Key)
+		}
+	}
+	// One order entry per name. A repeated name emits all of its values at that
+	// one position, which is what a browser does with Cookie on HTTP/1.1.
+	httpReq.Header[http.HeaderOrderKey] = order
+
+	// Pseudo-header order is still the preset's. It is part of the protocol
+	// framing rather than something the caller listed, and a caller who wants
+	// it different sets it on the preset.
+	switch {
+	case len(customPseudoOrder) > 0:
+		httpReq.Header[http.PHeaderOrderKey] = customPseudoOrder
+	case preset != nil && preset.H2PseudoHeaderOrder() != nil:
+		httpReq.Header[http.PHeaderOrderKey] = preset.H2PseudoHeaderOrder()
+	case protocol == "h3":
+		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":scheme", ":path", ":authority"}
+	default:
+		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":authority", ":scheme", ":path"}
+	}
+	return true
+}
+
+func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool, exactHeaders []fingerprint.HeaderPair) {
+	if applyExactHeaders(httpReq, exactHeaders, preset, customPseudoOrder, protocol) {
+		return
+	}
 	// In TLS-only mode, skip applying preset headers but still set header order
 	if !tlsOnly {
 		if len(preset.HeaderOrder) > 0 {

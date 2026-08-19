@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
+	shttp "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
-	shttp "github.com/sardanioss/http"
 	"github.com/sardanioss/quic-go/http3"
 	utls "github.com/sardanioss/utls"
 )

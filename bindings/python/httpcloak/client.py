@@ -35,7 +35,7 @@ import uuid
 from ctypes import CFUNCTYPE, POINTER, c_char_p, c_int, c_int64, c_void_p, cast, cdll
 from io import IOBase
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
+from typing import Any, BinaryIO, Dict, List, Optional, Sequence, Tuple, Union
 from urllib.parse import quote, urlencode
 
 # File type for files parameter
@@ -2158,6 +2158,7 @@ class Session:
         data: Union[str, bytes, Dict, None] = None,
         json: Optional[Dict] = None,
         files: Optional[FilesType] = None,
+        exact_headers: Optional[Sequence[Tuple[str, str]]] = None,
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
@@ -2186,6 +2187,11 @@ class Session:
                 options). The clib expects milliseconds; the conversion is
                 applied below.
         """
+        # exact_headers replaces the whole header pipeline: the pairs go out in
+        # the order and casing given, a name may repeat, and no preset headers,
+        # client hints or alphabetical tail are added. A dict cannot express any
+        # of that, which is why this takes a sequence of pairs.
+        _exact = [[str(k), str(v)] for k, v in exact_headers] if exact_headers else None
         import json as json_module
 
         url = _add_params_to_url(url, params)
@@ -2223,6 +2229,8 @@ class Session:
             "method": method.upper(),
             "url": url,
         }
+        if _exact:
+            request_config["exact_headers"] = _exact
         if merged_headers:
             request_config["headers"] = merged_headers
         if timeout:
@@ -3451,6 +3459,7 @@ class Session:
         json: Optional[Dict] = None,
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
+        exact_headers: Optional[Sequence[Tuple[str, str]]] = None,
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
@@ -3486,6 +3495,11 @@ class Session:
             requests. If you need to keep the data, copy it with bytes(r.content).
         """
         # Use request auth if provided, otherwise fall back to session auth
+        # exact_headers replaces the whole header pipeline: the pairs go out in
+        # the order and casing given, a name may repeat, and no preset headers,
+        # client hints or alphabetical tail are added. A dict cannot express any
+        # of that, which is why this takes a sequence of pairs.
+        _exact = [[str(k), str(v)] for k, v in exact_headers] if exact_headers else None
         json_data = _resolve_json_alias(json, json_data)
         effective_auth = auth if auth is not None else self.auth
 
@@ -3523,6 +3537,8 @@ class Session:
             "method": method.upper(),
             "url": url,
         }
+        if _exact:
+            request_config["exact_headers"] = _exact
         if merged_headers:
             request_config["headers"] = merged_headers
         if timeout:

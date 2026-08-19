@@ -106,16 +106,16 @@ func TestHeaderValCaseInsensitive(t *testing.T) {
 
 func TestIsAPIAcceptValue(t *testing.T) {
 	cases := map[string]bool{
-		"application/json":                 true,
-		"application/json; charset=utf-8":  true,
-		"application/xml":                  true,
-		"text/plain":                       true,
-		"application/octet-stream":         true,
-		"*/*":                              true,
-		"text/html":                        false,
+		"application/json":                true,
+		"application/json; charset=utf-8": true,
+		"application/xml":                 true,
+		"text/plain":                      true,
+		"application/octet-stream":        true,
+		"*/*":                             true,
+		"text/html":                       false,
 		"text/html,application/xhtml+xml": false,
-		"image/png":                        false,
-		"":                                 false,
+		"image/png":                       false,
+		"":                                false,
 	}
 	for input, want := range cases {
 		if got := isAPIAcceptValue(input); got != want {
@@ -143,19 +143,19 @@ func TestIsFormContentTypeValue(t *testing.T) {
 
 func TestIsAPIContentTypeValue(t *testing.T) {
 	cases := map[string]bool{
-		"application/json":                true,
-		"application/xml":                 true,
-		"application/octet-stream":        true,
-		"application/grpc":                true,
-		"application/grpc+proto":          true,
-		"application/x-protobuf":          true,
-		"application/vnd.custom.json":     true,  // any application/* that isn't a form type
-		"text/plain":                      true,
+		"application/json":                  true,
+		"application/xml":                   true,
+		"application/octet-stream":          true,
+		"application/grpc":                  true,
+		"application/grpc+proto":            true,
+		"application/x-protobuf":            true,
+		"application/vnd.custom.json":       true, // any application/* that isn't a form type
+		"text/plain":                        true,
 		"application/x-www-form-urlencoded": false, // form — excluded
-		"multipart/form-data":             false, // not application/*
-		"text/html":                       false,
-		"image/png":                       false,
-		"":                                false,
+		"multipart/form-data":               false, // not application/*
+		"text/html":                         false,
+		"image/png":                         false,
+		"":                                  false,
 	}
 	for input, want := range cases {
 		if got := isAPIContentTypeValue(input); got != want {
