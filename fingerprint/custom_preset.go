@@ -3,6 +3,7 @@ package fingerprint
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/sardanioss/net/http2/hpack"
 	"os"
 	"strings"
 
@@ -135,9 +136,14 @@ type HTTP2Spec struct {
 	// HPACK config
 	HPACKHeaderOrder    []string `json:"hpack_header_order,omitempty"`
 	HPACKIndexingPolicy *string  `json:"hpack_indexing_policy,omitempty"` // "chrome","never","always","default"
-	HPACKNeverIndex     []string `json:"hpack_never_index,omitempty"`
-	StreamPriorityMode  *string  `json:"stream_priority_mode,omitempty"` // "chrome","default"
-	DisableCookieSplit  *bool    `json:"disable_cookie_split,omitempty"`
+	// HPACKRepresentation pins the HPACK representation per header name:
+	// "incremental", "without", "never" or "default". Override layer, empty
+	// for browser profiles, deltas only. See H2FingerprintConfig.
+	HPACKRepresentation map[string]string `json:"hpack_representation,omitempty"`
+
+	HPACKNeverIndex    []string `json:"hpack_never_index,omitempty"`
+	StreamPriorityMode *string  `json:"stream_priority_mode,omitempty"` // "chrome","default"
+	DisableCookieSplit *bool    `json:"disable_cookie_split,omitempty"`
 
 	// PriorityTable maps sec-fetch-dest values to per-resource priority
 	// settings. When populated, the transport emits a per-request RFC 7540
@@ -392,6 +398,20 @@ func BuildPreset(spec *PresetSpec) (*Preset, error) {
 //
 // Same reasoning as the JA3 pre-validation in BuildPreset: a clear error at
 // load time beats an opaque failure on the wire later.
+// validateHPACKRepresentation rejects an unknown representation name at load
+// time. Defaulting silently at connection time would make a typo look like the
+// override simply not working, which is the hardest kind of fingerprint bug to
+// notice: the request succeeds and the bytes are wrong.
+func validateHPACKRepresentation(m map[string]string) error {
+	for name, rep := range m {
+		if _, ok := hpack.ParseRepresentation(rep); !ok {
+			return fmt.Errorf("hpack_representation[%q] = %q is not a representation: "+
+				"use incremental, without, never, or default", name, rep)
+		}
+	}
+	return nil
+}
+
 func validateComplete(p *Preset) error {
 	if p.ClientHelloID.Client == "" && p.JA3 == "" && len(p.RawClientHello) == 0 {
 		return fmt.Errorf("preset %q has no TLS fingerprint source: set tls.client_hello, "+
@@ -432,6 +452,12 @@ func clonePreset(src *Preset) *Preset {
 		if src.H2Config.HPACKHeaderOrder != nil {
 			h2.HPACKHeaderOrder = make([]string, len(src.H2Config.HPACKHeaderOrder))
 			copy(h2.HPACKHeaderOrder, src.H2Config.HPACKHeaderOrder)
+		}
+		if src.H2Config.HPACKRepresentation != nil {
+			h2.HPACKRepresentation = make(map[string]string, len(src.H2Config.HPACKRepresentation))
+			for k, v := range src.H2Config.HPACKRepresentation {
+				h2.HPACKRepresentation[k] = v
+			}
 		}
 		if src.H2Config.HPACKNeverIndex != nil {
 			h2.HPACKNeverIndex = make([]string, len(src.H2Config.HPACKNeverIndex))
@@ -931,7 +957,8 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 	// H2 fingerprinting config
 	if spec.SettingsOrder != nil || spec.PseudoOrder != nil ||
 		spec.HPACKHeaderOrder != nil || spec.HPACKIndexingPolicy != nil ||
-		spec.HPACKNeverIndex != nil || spec.StreamPriorityMode != nil ||
+		spec.HPACKNeverIndex != nil || spec.HPACKRepresentation != nil ||
+		spec.StreamPriorityMode != nil ||
 		spec.DisableCookieSplit != nil || spec.PriorityTable != nil {
 		if p.H2Config == nil {
 			p.H2Config = &H2FingerprintConfig{}
@@ -952,6 +979,12 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 		}
 		if spec.HPACKIndexingPolicy != nil {
 			p.H2Config.HPACKIndexingPolicy = *spec.HPACKIndexingPolicy
+		}
+		if spec.HPACKRepresentation != nil {
+			p.H2Config.HPACKRepresentation = make(map[string]string, len(spec.HPACKRepresentation))
+			for k, v := range spec.HPACKRepresentation {
+				p.H2Config.HPACKRepresentation[k] = v
+			}
 		}
 		if spec.HPACKNeverIndex != nil {
 			p.H2Config.HPACKNeverIndex = make([]string, len(spec.HPACKNeverIndex))
@@ -1148,6 +1181,11 @@ func applyProtocols(p *Preset, spec *ProtocolSpec) {
 // --- Validation ---
 
 func validatePreset(p *Preset, spec *PresetSpec) error {
+	if spec.HTTP2 != nil {
+		if err := validateHPACKRepresentation(spec.HTTP2.HPACKRepresentation); err != nil {
+			return err
+		}
+	}
 	if spec.TLS != nil {
 		// The three TLS sources are mutually exclusive. Silently preferring one
 		// would leave the author believing the other is in effect.

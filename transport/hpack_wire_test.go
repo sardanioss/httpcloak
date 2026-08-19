@@ -229,9 +229,12 @@ func hpackSkipString(b []byte, pos int) (huff bool, next int, err error) {
 // dynamic table, so a decoded-header comparison cannot creep back in here.
 func parseHPACK(t *testing.T, block []byte) []hpackInstr {
 	t.Helper()
+	// Only the entries a test needs to match on by name. Anything absent still
+	// parses; it just reports an empty Name, so match on NameIndex there.
 	staticNames := map[uint64]string{
 		1: ":authority", 2: ":method", 3: ":method", 4: ":path", 5: ":path",
-		6: ":scheme", 7: ":scheme", 32: "cookie",
+		6: ":scheme", 7: ":scheme", 16: "accept-encoding", 17: "accept-language",
+		19: "accept", 23: "authorization", 32: "cookie", 58: "user-agent",
 	}
 
 	var out []hpackInstr

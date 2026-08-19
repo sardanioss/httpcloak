@@ -288,10 +288,10 @@ type HostPool struct {
 	// closes a body would pin the socket forever.
 	abandonedBodyTimeout time.Duration
 	connectTimeout       time.Duration
-	insecureSkipVerify bool
-	tlsVerify          *transport.TLSVerify
-	proxyURL           string
-	localAddr          string // Local IP to bind outgoing connections
+	insecureSkipVerify   bool
+	tlsVerify            *transport.TLSVerify
+	proxyURL             string
+	localAddr            string // Local IP to bind outgoing connections
 
 	// ECH (Encrypted Client Hello) configuration
 	echConfig       []byte // Custom ECH configuration
@@ -337,23 +337,23 @@ func NewHostPoolWithConfig(host, sniHost, port string, preset *fingerprint.Prese
 		sniHost = host
 	}
 	pool := &HostPool{
-		host:               host,
-		sniHost:            sniHost,
-		port:               port,
-		preset:             preset,
-		dnsCache:           dnsCache,
-		connections:        make([]*Conn, 0),
-		sessionCache:       sessionCache, // Use shared session cache for persistence
-		maxConns:             0, // 0 = unlimited connections
+		host:                 host,
+		sniHost:              sniHost,
+		port:                 port,
+		preset:               preset,
+		dnsCache:             dnsCache,
+		connections:          make([]*Conn, 0),
+		sessionCache:         sessionCache, // Use shared session cache for persistence
+		maxConns:             0,            // 0 = unlimited connections
 		maxIdleTime:          90 * time.Second,
 		maxConnAge:           5 * time.Minute,
 		abandonedBodyTimeout: 10 * time.Minute,
 		connectTimeout:       30 * time.Second,
-		insecureSkipVerify: insecureSkipVerify,
-		proxyURL:           proxyURL,
-		cachedSpec:         cachedSpec,    // Reference spec (for availability check)
-		cachedPSKSpec:      cachedPSKSpec, // Reference PSK spec (for availability check)
-		shuffleSeed:        shuffleSeed,   // Seed for generating fresh specs per connection
+		insecureSkipVerify:   insecureSkipVerify,
+		proxyURL:             proxyURL,
+		cachedSpec:           cachedSpec,    // Reference spec (for availability check)
+		cachedPSKSpec:        cachedPSKSpec, // Reference PSK spec (for availability check)
+		shuffleSeed:          shuffleSeed,   // Seed for generating fresh specs per connection
 	}
 
 	return pool
@@ -751,12 +751,13 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 			}
 			return nil
 		}(),
-		HeaderOrder:         p.preset.H2HeaderOrder(),
-		UserAgent:           p.preset.UserAgent,
-		StreamPriorityMode:  resolveStreamPriorityMode(p.preset.H2StreamPriorityMode()),
-		HPACKIndexingPolicy: resolveHPACKIndexingPolicy(p.preset.H2HPACKIndexingPolicy()),
-		HPACKNeverIndex:     p.preset.H2HPACKNeverIndex(),
-		DisableCookieSplit:  p.preset.H2DisableCookieSplit(),
+		HeaderOrder:          p.preset.H2HeaderOrder(),
+		UserAgent:            p.preset.UserAgent,
+		StreamPriorityMode:   resolveStreamPriorityMode(p.preset.H2StreamPriorityMode()),
+		HPACKIndexingPolicy:  resolveHPACKIndexingPolicy(p.preset.H2HPACKIndexingPolicy()),
+		HPACKRepresentations: hpackRepresentations(p.preset.H2HPACKRepresentation()),
+		HPACKNeverIndex:      p.preset.H2HPACKNeverIndex(),
+		DisableCookieSplit:   p.preset.H2DisableCookieSplit(),
 	}
 
 	h2Conn, err := h2Transport.NewClientConn(tlsConn)
@@ -1306,13 +1307,13 @@ type Manager struct {
 	closed   bool
 
 	// Configuration
-	maxConnsPerHost    int               // 0 = unlimited
-	proxyURL           string            // Proxy URL (optional)
-	insecureSkipVerify bool              // Skip TLS verification
+	maxConnsPerHost    int                  // 0 = unlimited
+	proxyURL           string               // Proxy URL (optional)
+	insecureSkipVerify bool                 // Skip TLS verification
 	tlsVerify          *transport.TLSVerify // Caller-supplied cert verification hooks
-	connectTo          map[string]string // Domain fronting: request host -> connect host
-	echConfig          []byte            // Custom ECH configuration
-	echConfigDomain    string            // Domain to fetch ECH config from
+	connectTo          map[string]string    // Domain fronting: request host -> connect host
+	echConfig          []byte               // Custom ECH configuration
+	echConfigDomain    string               // Domain to fetch ECH config from
 
 	// Cached TLS specs - shared across all HostPools for consistent fingerprint
 	// Chrome shuffles extension order once per session, not per connection
@@ -1803,4 +1804,23 @@ func buildHTTP2SettingsOrder(settings fingerprint.HTTP2Settings, preset *fingerp
 		order = append(order, http2.SettingNoRFC7540Priorities)
 	}
 	return order
+}
+
+// hpackRepresentations mirrors the transport helper: preset representation
+// overrides in their typed form, with anything unparseable dropped rather than
+// guessed at. Names are validated when the preset is loaded.
+func hpackRepresentations(m map[string]string) map[string]hpack.Representation {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]hpack.Representation, len(m))
+	for name, rep := range m {
+		if r, ok := hpack.ParseRepresentation(rep); ok && r != hpack.RepresentationDefault {
+			out[name] = r
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

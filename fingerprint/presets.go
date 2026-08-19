@@ -213,11 +213,28 @@ type HTTP2Settings struct {
 type H2FingerprintConfig struct {
 	HPACKHeaderOrder    []string // HPACK wire encoding order. nil = Chrome 143 default.
 	HPACKIndexingPolicy string   // "chrome"/"never"/"always"/"default". "" = "chrome".
-	HPACKNeverIndex     []string // Headers never HPACK-indexed. nil = Chrome default.
-	StreamPriorityMode  string   // "chrome"/"default". "" = "chrome".
-	DisableCookieSplit  *bool    // nil = true (single field). Chrome+Firefox crumble (false); Safari single (true).
-	SettingsOrder       []uint16 // H2 SETTINGS frame ID order. nil = dynamic from HTTP2Settings.
-	PseudoHeaderOrder   []string // Pseudo-header order. nil = heuristic (Chrome m,a,s,p / Safari m,s,p,a).
+	// HPACKRepresentation pins the HPACK representation of individual header
+	// names: "incremental", "without", "never", or "default". It is an OVERRIDE
+	// LAYER, expected to be empty for a browser profile whose base policy is
+	// already correct, and to carry only the names where a mirrored client
+	// demonstrably differs.
+	//
+	// A curl mirror needs {"authorization": "never"} and nothing else. It does
+	// NOT need a ":path" entry: the Chrome policy already emits a literal
+	// without indexing for every pseudo-header except :authority, which is what
+	// curl does too.
+	//
+	// Deriving this map means diffing a captured client's representations
+	// against what the chosen base policy would produce and recording only the
+	// deltas. Filling it from raw observation makes every preset restate its
+	// own policy and drift the moment that policy improves.
+	HPACKRepresentation map[string]string
+
+	HPACKNeverIndex    []string // Headers never HPACK-indexed. nil = Chrome default.
+	StreamPriorityMode string   // "chrome"/"default". "" = "chrome".
+	DisableCookieSplit *bool    // nil = true (single field). Chrome+Firefox crumble (false); Safari single (true).
+	SettingsOrder      []uint16 // H2 SETTINGS frame ID order. nil = dynamic from HTTP2Settings.
+	PseudoHeaderOrder  []string // Pseudo-header order. nil = heuristic (Chrome m,a,s,p / Safari m,s,p,a).
 
 	// PriorityTable maps sec-fetch-dest values to RFC 7540 stream priorities and
 	// the matching RFC 9218 priority: header value. Populated for browsers (e.g.
@@ -442,6 +459,16 @@ func (p *Preset) H2HPACKIndexingPolicy() string {
 // ~880-byte header block against Chrome's ~35.
 //
 // Set H2Config.HPACKNeverIndex explicitly to opt in for a non-browser profile.
+// H2HPACKRepresentation returns the per-name representation overrides, or nil
+// when the preset relies entirely on its base policy, which every shipped
+// browser profile does.
+func (p *Preset) H2HPACKRepresentation() map[string]string {
+	if p.H2Config != nil && len(p.H2Config.HPACKRepresentation) > 0 {
+		return p.H2Config.HPACKRepresentation
+	}
+	return nil
+}
+
 func (p *Preset) H2HPACKNeverIndex() []string {
 	if p.H2Config != nil && p.H2Config.HPACKNeverIndex != nil {
 		return p.H2Config.HPACKNeverIndex

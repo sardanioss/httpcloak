@@ -1001,11 +1001,12 @@ alpnCheck:
 				}
 			}
 		}(),
-		HeaderOrder:         t.preset.H2HeaderOrder(),
-		UserAgent:           userAgent,
-		StreamPriorityMode:  resolveStreamPriorityMode(t.preset.H2StreamPriorityMode()),
-		HPACKIndexingPolicy: resolveHPACKIndexingPolicy(t.preset.H2HPACKIndexingPolicy()),
-		HPACKNeverIndex:     t.preset.H2HPACKNeverIndex(),
+		HeaderOrder:          t.preset.H2HeaderOrder(),
+		UserAgent:            userAgent,
+		StreamPriorityMode:   resolveStreamPriorityMode(t.preset.H2StreamPriorityMode()),
+		HPACKIndexingPolicy:  resolveHPACKIndexingPolicy(t.preset.H2HPACKIndexingPolicy()),
+		HPACKRepresentations: hpackRepresentations(t.preset.H2HPACKRepresentation()),
+		HPACKNeverIndex:      t.preset.H2HPACKNeverIndex(),
 	}
 
 	h2Conn, err := h2Transport.NewClientConn(tlsConn)
@@ -1607,4 +1608,24 @@ func uint16sToSettingIDs(ids []uint16) []http2.SettingID {
 		result[i] = http2.SettingID(id)
 	}
 	return result
+}
+
+// hpackRepresentations converts a preset's per-name representation overrides
+// into the encoder's typed form. Names are validated at preset load time, so an
+// unparseable value here can only mean a preset built by some other route; it
+// is dropped rather than silently treated as a different representation.
+func hpackRepresentations(m map[string]string) map[string]hpack.Representation {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]hpack.Representation, len(m))
+	for name, rep := range m {
+		if r, ok := hpack.ParseRepresentation(rep); ok && r != hpack.RepresentationDefault {
+			out[name] = r
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
