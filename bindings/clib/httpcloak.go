@@ -118,6 +118,7 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1309,6 +1310,29 @@ func httpcloak_session_new(configJSON *C.char) (hcRet C.int64_t) {
 			if v, ok := config.ExtraFP["tls_permute_extensions"]; ok {
 				if b, ok := v.(bool); ok {
 					fp.PermuteExtensions = b
+				}
+			}
+			// JA3Extras carries seven fields; extra_fp mapped four, so three
+			// were unreachable from every binding. A Firefox mirror needs
+			// record_size_limit, a client offering two key shares needs
+			// key_share_curves, and delegated credentials are extension 34.
+			if v, ok := config.ExtraFP["tls_delegated_credential_algorithms"]; ok {
+				if arr, ok := v.([]interface{}); ok {
+					for _, item := range arr {
+						if s, ok := item.(string); ok {
+							fp.DelegatedCredentialAlgorithms = append(fp.DelegatedCredentialAlgorithms, s)
+						}
+					}
+				}
+			}
+			if v, ok := config.ExtraFP["tls_record_size_limit"]; ok {
+				if n, ok := toUint16(v); ok {
+					fp.RecordSizeLimit = n
+				}
+			}
+			if v, ok := config.ExtraFP["tls_key_share_curves"]; ok {
+				if f, ok := v.(float64); ok {
+					fp.KeyShareCurves = int(f)
 				}
 			}
 		}
@@ -4322,3 +4346,27 @@ func httpcloak_pool_free(handle C.int64_t) {
 }
 
 func main() {}
+
+// toUint16 accepts the shapes JSON can produce for a 16-bit codepoint: a
+// number, or a string spelled either "0x4001" or "16385". Anything else is
+// rejected rather than coerced, so a malformed value cannot quietly become 0
+// and read as "use the default".
+func toUint16(v interface{}) (uint16, bool) {
+	switch t := v.(type) {
+	case float64:
+		if t < 0 || t > 65535 {
+			return 0, false
+		}
+		return uint16(t), true
+	case string:
+		n, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimSpace(t), "0x"), 0, 16)
+		if err != nil {
+			if n2, err2 := strconv.ParseUint(strings.TrimSpace(t), 16, 16); err2 == nil {
+				return uint16(n2), true
+			}
+			return 0, false
+		}
+		return uint16(n), true
+	}
+	return 0, false
+}

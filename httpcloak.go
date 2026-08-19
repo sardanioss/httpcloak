@@ -34,6 +34,7 @@ import (
 	"net"
 	"net/textproto"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -945,6 +946,19 @@ type CustomFingerprint struct {
 
 	// PermuteExtensions randomly permutes the TLS extension order.
 	PermuteExtensions bool
+
+	// DelegatedCredentialAlgorithms sets extension 34. Same value vocabulary as
+	// SignatureAlgorithms. Empty keeps the Chrome defaults.
+	DelegatedCredentialAlgorithms []string
+
+	// RecordSizeLimit sets extension 28. Zero keeps the Chrome default of
+	// 0x4001. Firefox is the client that differs here.
+	RecordSizeLimit uint16
+
+	// KeyShareCurves is how many curves to send key shares for. Zero means one,
+	// which is the Chrome default; a client offering both X25519MLKEM768 and
+	// x25519 shares sends two.
+	KeyShareCurves int
 }
 
 // WithCustomFingerprint sets a custom TLS/HTTP2 fingerprint for the session.
@@ -966,12 +980,27 @@ func WithCustomFingerprint(fp CustomFingerprint) SessionOption {
 			extras := &fingerprint.JA3Extras{
 				PermuteExtensions: fp.PermuteExtensions,
 				RecordSizeLimit:   0x4001,
+				KeyShareCurves:    fp.KeyShareCurves,
+			}
+			if fp.RecordSizeLimit != 0 {
+				extras.RecordSizeLimit = fp.RecordSizeLimit
+			}
+			if len(fp.DelegatedCredentialAlgorithms) > 0 {
+				algs, err := parseSignatureAlgorithmsStrict(fp.DelegatedCredentialAlgorithms)
+				if err != nil {
+					c.configErr = fmt.Errorf("delegated_credential_algorithms: %w", err)
+				}
+				extras.DelegatedCredentialAlgorithms = algs
 			}
 			if len(fp.ALPN) > 0 {
 				extras.ALPN = fp.ALPN
 			}
 			if len(fp.SignatureAlgorithms) > 0 {
-				extras.SignatureAlgorithms = parseSignatureAlgorithms(fp.SignatureAlgorithms)
+				algs, err := parseSignatureAlgorithmsStrict(fp.SignatureAlgorithms)
+				if err != nil {
+					c.configErr = fmt.Errorf("signature_algorithms: %w", err)
+				}
+				extras.SignatureAlgorithms = algs
 			}
 			if len(fp.CertCompression) > 0 {
 				extras.CertCompAlgs = parseCertCompression(fp.CertCompression)
@@ -1599,28 +1628,68 @@ func NewManager() *Manager {
 	return session.NewManager()
 }
 
-// parseSignatureAlgorithms converts string names to tls.SignatureScheme values.
-func parseSignatureAlgorithms(names []string) []tls.SignatureScheme {
-	m := map[string]tls.SignatureScheme{
-		"ecdsa_secp256r1_sha256": tls.ECDSAWithP256AndSHA256,
-		"ecdsa_secp384r1_sha384": tls.ECDSAWithP384AndSHA384,
-		"ecdsa_secp521r1_sha512": tls.ECDSAWithP521AndSHA512,
-		"rsa_pss_rsae_sha256":    tls.PSSWithSHA256,
-		"rsa_pss_rsae_sha384":    tls.PSSWithSHA384,
-		"rsa_pss_rsae_sha512":    tls.PSSWithSHA512,
-		"rsa_pkcs1_sha256":       tls.PKCS1WithSHA256,
-		"rsa_pkcs1_sha384":       tls.PKCS1WithSHA384,
-		"rsa_pkcs1_sha512":       tls.PKCS1WithSHA512,
-	}
+// signatureSchemeNames is the spelling vocabulary for signature algorithms.
+//
+// It is not exhaustive and cannot be: TLS gains codepoints faster than a name
+// table gets updated, and this library's job is to reproduce whatever a real
+// client sent. parseSignatureAlgorithmsStrict therefore also accepts a raw
+// codepoint, so a caller is never blocked on a name being added here.
+var signatureSchemeNames = map[string]tls.SignatureScheme{
+	"ecdsa_secp256r1_sha256": tls.ECDSAWithP256AndSHA256,
+	"ecdsa_secp384r1_sha384": tls.ECDSAWithP384AndSHA384,
+	"ecdsa_secp521r1_sha512": tls.ECDSAWithP521AndSHA512,
+	"rsa_pss_rsae_sha256":    tls.PSSWithSHA256,
+	"rsa_pss_rsae_sha384":    tls.PSSWithSHA384,
+	"rsa_pss_rsae_sha512":    tls.PSSWithSHA512,
+	"rsa_pkcs1_sha256":       tls.PKCS1WithSHA256,
+	"rsa_pkcs1_sha384":       tls.PKCS1WithSHA384,
+	"rsa_pkcs1_sha512":       tls.PKCS1WithSHA512,
+	// Present in real captures and previously unspellable.
+	"rsa_pkcs1_sha1": 0x0201,
+	"ecdsa_sha1":     0x0203,
+	"ed25519":        0x0807,
+	"ed448":          0x0808,
+	// draft-ietf-tls-mldsa. Chrome 150+ sends these on TCP but not on QUIC,
+	// which is why presets carry separate TCP and QUIC sig-alg lists.
+	"mldsa44": 0x0904,
+	"mldsa65": 0x0905,
+	"mldsa87": 0x0906,
+}
+
+// parseSignatureAlgorithmsStrict converts names or raw codepoints to schemes,
+// reporting anything it does not understand.
+//
+// The previous version silently dropped unknown names, which is the worst
+// failure mode for a fingerprinting library: the request succeeds, the
+// extension is short, and nothing says why. A caller asking for ML-DSA got an
+// empty list and a Chrome 146 signature_algorithms extension.
+//
+// A codepoint may be written "0x0904" or "2308"; both reach the same value.
+func parseSignatureAlgorithmsStrict(names []string) ([]tls.SignatureScheme, error) {
 	var result []tls.SignatureScheme
 	for _, name := range names {
-		if scheme, ok := m[strings.ToLower(name)]; ok {
+		key := strings.ToLower(strings.TrimSpace(name))
+		if scheme, ok := signatureSchemeNames[key]; ok {
 			result = append(result, scheme)
+			continue
 		}
+		if n, err := strconv.ParseUint(key, 0, 16); err == nil {
+			result = append(result, tls.SignatureScheme(n))
+			continue
+		}
+		return nil, fmt.Errorf("unknown signature algorithm %q: use a known name or a "+
+			"codepoint such as 0x0904", name)
 	}
 	if len(result) == 0 {
-		return nil
+		return nil, nil
 	}
+	return result, nil
+}
+
+// parseSignatureAlgorithms is the lenient form kept for callers that cannot
+// report an error. Prefer parseSignatureAlgorithmsStrict.
+func parseSignatureAlgorithms(names []string) []tls.SignatureScheme {
+	result, _ := parseSignatureAlgorithmsStrict(names)
 	return result
 }
 
