@@ -66,6 +66,13 @@ type http1Conn struct {
 	useCount   int64
 	mu         sync.Mutex
 	closed     bool
+	// Handshake outcome, captured once when the connection is established.
+	// H2 has carried these since it was written; H1 exposed nothing, so there
+	// was no way to tell a resumed handshake from a full one on this protocol,
+	// and no way to notice a preset that could never resume.
+	sessionResumed bool
+	tlsVersion     uint16
+	cipherSuite    uint16
 	// poisoned marks a connection interrupted mid-exchange by a cancelled
 	// request context. Atomic rather than guarded by mu: it is set from the
 	// context watchdog while doRequest holds mu for the whole exchange.
@@ -408,15 +415,19 @@ func (t *HTTP1Transport) RoundTripWithTLSConn(req *http.Request, tlsConn *utls.U
 	t.closedMu.RUnlock()
 
 	// Wrap the existing TLS connection into an http1Conn
+	handoffState := tlsConn.ConnectionState()
 	conn := &http1Conn{
-		host:       host,
-		port:       port,
-		conn:       tlsConn,
-		tlsConn:    tlsConn,
-		createdAt:  time.Now(),
-		lastUsedAt: time.Now(),
-		br:         bufio.NewReaderSize(tlsConn, 64*1024),  // 64KB read buffer
-		bw:         bufio.NewWriterSize(tlsConn, 256*1024), // 256KB write buffer
+		host:           host,
+		port:           port,
+		conn:           tlsConn,
+		tlsConn:        tlsConn,
+		createdAt:      time.Now(),
+		lastUsedAt:     time.Now(),
+		sessionResumed: handoffState.DidResume,
+		tlsVersion:     handoffState.Version,
+		cipherSuite:    handoffState.CipherSuite,
+		br:             bufio.NewReaderSize(tlsConn, 64*1024),  // 64KB read buffer
+		bw:             bufio.NewWriterSize(tlsConn, 256*1024), // 256KB write buffer
 	}
 
 	stopWatch := watchContext(req.Context(), conn)
@@ -747,6 +758,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			MinVersion:                         tls.VersionTLS12,
 			MaxVersion:                         tls.VersionTLS13,
 			NextProtos:                         []string{"http/1.1"}, // Force HTTP/1.1 only
+			OmitEmptyPsk:                       true,                 // Chrome sends no empty PSK on a first connection
 			PreferSkipResumptionOnNilExtension: true,                 // Skip resumption if spec has no PSK extension
 			KeyLogWriter:                       keyLogWriter,
 		}
@@ -776,7 +788,18 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 		} else {
 			// Use preset's ClientHelloID directly
 			// Note: ClientHelloID includes ALPN with [h2, http/1.1], so we must modify it
-			tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+			//
+			// The PSK variant is chosen the same way H2 chooses it. H1 used to
+			// hardcode the plain ClientHelloID, whose spec carries no
+			// pre_shared_key extension, so no ticket was ever offered and H1
+			// never resumed a session. Measured before this: four refreshes on
+			// a chrome-latest session, SessionResumed false every time, while
+			// H2 and H3 both resumed on the first refresh.
+			helloID := t.preset.ClientHelloID
+			if wantPSK && t.preset.PSKClientHelloID.Client != "" {
+				helloID = t.preset.PSKClientHelloID
+			}
+			tlsConn = utls.UClient(rawConn, tlsConfig, helloID)
 			tlsConn.SetSessionCache(t.sessionCache)
 
 			// Build handshake state first - this populates Extensions from ClientHelloID
@@ -836,7 +859,11 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 						return nil, NewTLSError("apply_"+specSource.String()+"_preset", host, port, "h1", applyErr)
 					}
 				} else {
-					tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
+					helloID := t.preset.ClientHelloID
+					if wantPSK && t.preset.PSKClientHelloID.Client != "" {
+						helloID = t.preset.PSKClientHelloID
+					}
+					tlsConn = utls.UClient(rawConn, tlsConfig, helloID)
 					if buildErr := tlsConn.BuildHandshakeState(); buildErr != nil {
 						rawConn.Close()
 						return nil, NewTLSError("build_handshake", host, port, "h1", buildErr)
@@ -871,6 +898,14 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 
 		conn.tlsConn = tlsConn
 		conn.conn = tlsConn
+
+		// Record the handshake outcome once, here. Resumption is a property of
+		// the handshake, so reading it later off a pooled connection would be
+		// asking the wrong question.
+		cs := tlsConn.ConnectionState()
+		conn.sessionResumed = cs.DidResume
+		conn.tlsVersion = cs.Version
+		conn.cipherSuite = cs.CipherSuite
 
 		// Validate the negotiated protocol. H1 offers only http/1.1; an empty
 		// result (server did no ALPN) is fine, but if a non-conformant server
@@ -1652,6 +1687,8 @@ func (t *HTTP1Transport) Stats() map[string]HTTP1ConnStats {
 		var totalUseCount int64
 		var oldestCreated time.Time
 		var newestUsed time.Time
+		var resumed bool
+		var ver, suite uint16
 
 		for _, conn := range conns {
 			conn.mu.Lock()
@@ -1661,6 +1698,7 @@ func (t *HTTP1Transport) Stats() map[string]HTTP1ConnStats {
 			}
 			if conn.lastUsedAt.After(newestUsed) {
 				newestUsed = conn.lastUsedAt
+				resumed, ver, suite = conn.sessionResumed, conn.tlsVersion, conn.cipherSuite
 			}
 			conn.mu.Unlock()
 		}
@@ -1670,6 +1708,9 @@ func (t *HTTP1Transport) Stats() map[string]HTTP1ConnStats {
 			TotalUseCount:  totalUseCount,
 			OldestCreated:  oldestCreated,
 			NewestLastUsed: newestUsed,
+			SessionResumed: resumed,
+			TLSVersion:     ver,
+			CipherSuite:    suite,
 		}
 	}
 
@@ -1682,6 +1723,13 @@ type HTTP1ConnStats struct {
 	TotalUseCount  int64
 	OldestCreated  time.Time
 	NewestLastUsed time.Time
+
+	// Handshake state of the newest idle connection for this host. Resumption
+	// is a property of a handshake, not of a pool, so these describe one
+	// connection rather than aggregating.
+	SessionResumed bool
+	TLSVersion     uint16
+	CipherSuite    uint16
 }
 
 // GetDNSCache returns the DNS cache

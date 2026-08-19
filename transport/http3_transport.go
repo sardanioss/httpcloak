@@ -216,7 +216,11 @@ type HTTP3Transport struct {
 	// Track requests for timing
 	requestCount int64
 	dialCount    int64 // Number of times dialQUIC was called (new connections)
-	mu           sync.RWMutex
+	// lastConn is the most recent connection handed back by any dial path,
+	// kept so Stats can read its handshake state on demand. One pointer,
+	// replaced per dial and dropped on Refresh and Close.
+	lastConn *quic.Conn
+	mu       sync.RWMutex
 
 	// ipv4FirstOverride transiently forces the Happy-Eyeballs QUIC dial to lead
 	// with IPv4 regardless of the DNS cache's PreferIPv4 knob. doHTTP3 sets it for
@@ -1279,12 +1283,45 @@ func (t *HTTP3Transport) buildH3AdditionalSettings() map[uint64]uint64 {
 	return settings
 }
 
+// recordHandshakeState wraps a dial function so the newest connection is
+// remembered however it was reached: directly, through a SOCKS5 proxy, or over
+// MASQUE. Stats then reads its handshake state on demand.
+//
+// Wrapping the single point where http3.Transport is handed its dialer, rather
+// than editing each dialer's return sites, means a future dial path cannot
+// quietly go unobserved. The dialCount counters are no use for this: all three
+// increment at the top of their function, before the handshake has happened.
+//
+// The state is read lazily rather than snapshotted here, because the dial does
+// not always return with the handshake finished. Measured on a refreshed
+// session: the first connection reported TLS 1.3 and a real cipher, and the
+// one after Refresh reported all zeros, since 0-RTT dialling hands the
+// connection back before completion. Snapshotting at dial time therefore
+// either records zeros or, if guarded against them, leaves the previous
+// connection's numbers in place, and a stale stat is worse than none.
+func (t *HTTP3Transport) recordHandshakeState(
+	dial func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error),
+) func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+	if dial == nil {
+		return nil
+	}
+	return func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+		conn, err := dial(ctx, addr, tlsCfg, cfg)
+		if err == nil && conn != nil {
+			t.mu.Lock()
+			t.lastConn = conn
+			t.mu.Unlock()
+		}
+		return conn, err
+	}
+}
+
 // buildHTTP3Transport builds the http3.Transport from preset getters.
 func (t *HTTP3Transport) buildHTTP3Transport(dialFunc func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error), additionalSettings map[uint64]uint64) *http3.Transport {
 	return &http3.Transport{
 		TLSClientConfig:        t.tlsConfig,
 		QUICConfig:             t.quicConfig,
-		Dial:                   dialFunc,
+		Dial:                   t.recordHandshakeState(dialFunc),
 		EnableDatagrams:        true, // Always true at HTTP/3 level (original behavior); H3 SETTINGS controls per-browser advertisement
 		AdditionalSettings:     additionalSettings,
 		MaxResponseHeaderBytes: int(t.preset.H3MaxResponseHeaderBytes()),
@@ -1661,6 +1698,9 @@ func (t *HTTP3Transport) Refresh() error {
 	// Reset counters so IsConnectionReused/Stats are accurate after refresh
 	t.dialCount = 0
 	t.requestCount = 0
+	// Drop the observed connection too; it is about to be closed, and reporting
+	// its handshake after a refresh would describe a connection that is gone.
+	t.lastConn = nil
 
 	// Close the current transport (this closes all QUIC connections)
 	// Use timeout to prevent blocking if QUIC drain takes too long
@@ -2097,10 +2137,21 @@ func (t *HTTP3Transport) Stats() HTTP3Stats {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
+	var resumed, used0RTT bool
+	var ver, suite uint16
+	if t.lastConn != nil {
+		cs := t.lastConn.ConnectionState()
+		resumed, used0RTT = cs.TLS.DidResume, cs.Used0RTT
+		ver, suite = cs.TLS.Version, cs.TLS.CipherSuite
+	}
 	return HTTP3Stats{
-		RequestCount: t.requestCount,
-		DialCount:    t.dialCount,
-		Reusing:      t.requestCount > t.dialCount,
+		RequestCount:   t.requestCount,
+		DialCount:      t.dialCount,
+		Reusing:        t.requestCount > t.dialCount,
+		SessionResumed: resumed,
+		Used0RTT:       used0RTT,
+		TLSVersion:     ver,
+		CipherSuite:    suite,
 	}
 }
 
@@ -2108,7 +2159,16 @@ func (t *HTTP3Transport) Stats() HTTP3Stats {
 type HTTP3Stats struct {
 	RequestCount int64
 	DialCount    int64 // Number of new connections created
-	Reusing      bool  // True if connections are being reused
+
+	// Handshake state of the most recent successful dial. H2 has carried the
+	// equivalent since it was written and H1 gained it alongside this; H3
+	// exposed nothing, so there was no way to tell a resumed QUIC handshake
+	// from a full one, or to notice a preset that could never resume.
+	SessionResumed bool
+	Used0RTT       bool
+	TLSVersion     uint16
+	CipherSuite    uint16
+	Reusing        bool // True if connections are being reused
 }
 
 // GetDNSCache returns the DNS cache
