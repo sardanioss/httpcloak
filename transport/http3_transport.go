@@ -2008,11 +2008,17 @@ func (t *HTTP3Transport) Connect(ctx context.Context, host, port string) error {
 	}
 	t.tlsVerify.Apply(tlsCfg)
 
-	// Fetch ECH configs from DNS HTTPS records (use request host for ECH). Skipped
-	// for a host that recently stalled/rejected ECH (issue #74). Non-blocking - if
-	// it fails, we proceed without ECH.
+	// Fetch ECH configs from DNS HTTPS records (use request host for ECH).
+	// Skipped for a host that recently stalled or rejected ECH (issue #74), and
+	// skipped when the caller has turned ECH off.
+	//
+	// t.disableECH was missing from this condition. dialQUIC honours it, so the
+	// documented "disable ECH for a faster first request" option worked on the
+	// real request path and did nothing here, on the probe that runs first in
+	// auto mode. The query walks three public resolvers serially, so a caller
+	// who had explicitly opted out still paid for it on every new host.
 	var echConfigList []byte
-	if !dns.IsECHIncompatible(host) {
+	if !t.disableECH && !dns.IsECHIncompatible(host) {
 		echConfigList, _ = dns.FetchECHConfigs(ctx, host)
 	}
 
@@ -2241,10 +2247,15 @@ const echTransportCacheTTL = 5 * time.Minute
 // of one logical request; it must NOT pin a stale config forever, or a CDN ECH
 // key rotation strands the session on a retired key until restart.)
 func (t *HTTP3Transport) getECHConfig(ctx context.Context, targetHost string) []byte {
-	// Skip ECH entirely for a host that recently stalled or rejected an ECH
-	// handshake (issue #74), so H3 stops paying the stall until the incompatibility
-	// window lapses and ECH is retried for self-heal.
-	if dns.IsECHIncompatible(targetHost) {
+	// Skip ECH entirely when the caller turned it off, and for a host that
+	// recently stalled or rejected an ECH handshake (issue #74), so H3 stops
+	// paying the stall until the incompatibility window lapses and ECH is
+	// retried for self-heal.
+	//
+	// The disableECH check belongs here for the same reason it belongs in
+	// Connect: dialQUIC honoured the flag and these paths did not, so the
+	// option was doing only part of what it says.
+	if t.disableECH || dns.IsECHIncompatible(targetHost) {
 		return nil
 	}
 
