@@ -24,9 +24,14 @@ import (
 type StreamResponse struct {
 	StatusCode int
 	Headers    map[string][]string // Multi-value headers
-	FinalURL   string
-	Timing     *protocol.Timing
-	Protocol   string // "h1", "h2", or "h3"
+
+	// HeaderOrder is the order the peer sent its headers in, lowercase. See
+	// Response.HeaderOrder; nil on HTTP/1.1.
+	HeaderOrder []string
+
+	FinalURL string
+	Timing   *protocol.Timing
+	Protocol string // "h1", "h2", or "h3"
 
 	// ContentLength is the expected total size (-1 if unknown/chunked)
 	ContentLength int64
@@ -428,6 +433,7 @@ func (t *Transport) doStreamHTTP1(ctx context.Context, req *Request) (*StreamRes
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
 		Headers:       headers,
+		HeaderOrder:   responseHeaderOrder(resp.Header),
 		FinalURL:      req.URL,
 		Timing:        timing,
 		Protocol:      "h1",
@@ -534,6 +540,7 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
 		Headers:       headers,
+		HeaderOrder:   responseHeaderOrder(resp.Header),
 		FinalURL:      req.URL,
 		Timing:        timing,
 		Protocol:      "h2",
@@ -640,6 +647,7 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
 		Headers:       headers,
+		HeaderOrder:   responseHeaderOrder(resp.Header),
 		FinalURL:      req.URL,
 		Timing:        timing,
 		Protocol:      "h3",

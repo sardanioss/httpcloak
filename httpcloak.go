@@ -315,10 +315,21 @@ type RedirectInfo struct {
 type Response struct {
 	StatusCode int
 	Headers    map[string][]string // Multi-value headers (matches http.Header)
-	Body       io.ReadCloser       // Streaming body - call Close() when done
-	FinalURL   string
-	Protocol   string
-	History    []*RedirectInfo
+
+	// HeaderOrder is the order the server sent its headers in, lowercase, one
+	// entry per occurrence. Headers is a map and cannot carry order, so code
+	// that relays this response onward would otherwise emit a different
+	// sequence than the origin did.
+	//
+	// Nil when the protocol path did not record one: HTTP/2 and HTTP/3 decode
+	// an ordered field list and record it for free, while HTTP/1.1 reads
+	// through textproto, which canonicalises the names and drops the order.
+	HeaderOrder []string
+
+	Body     io.ReadCloser // Streaming body - call Close() when done
+	FinalURL string
+	Protocol string
+	History  []*RedirectInfo
 
 	// bodyBytes caches the body after reading
 	bodyBytes []byte
@@ -1150,12 +1161,13 @@ func toResponse(resp *transport.Response) *Response {
 	}
 
 	return &Response{
-		StatusCode: resp.StatusCode,
-		Headers:    resp.Headers,
-		Body:       resp.Body,
-		FinalURL:   resp.FinalURL,
-		Protocol:   resp.Protocol,
-		History:    history,
+		StatusCode:  resp.StatusCode,
+		Headers:     resp.Headers,
+		HeaderOrder: resp.HeaderOrder,
+		Body:        resp.Body,
+		FinalURL:    resp.FinalURL,
+		Protocol:    resp.Protocol,
+		History:     history,
 	}
 }
 
@@ -1526,8 +1538,13 @@ func UnmarshalSessionWithOptions(data []byte, opts *SessionLoadOptions) (*Sessio
 // StreamResponse represents a streaming HTTP response where the body
 // is read incrementally. Use this for large file downloads.
 type StreamResponse struct {
-	StatusCode    int
-	Headers       map[string][]string
+	StatusCode int
+	Headers    map[string][]string
+
+	// HeaderOrder is the order the server sent its headers in, lowercase. See
+	// Response.HeaderOrder; nil on HTTP/1.1.
+	HeaderOrder []string
+
 	FinalURL      string
 	Protocol      string
 	ContentLength int64 // -1 if unknown (chunked encoding)
@@ -1589,6 +1606,7 @@ func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, 
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
 		Headers:       resp.Headers,
+		HeaderOrder:   resp.HeaderOrder,
 		FinalURL:      resp.FinalURL,
 		Protocol:      resp.Protocol,
 		ContentLength: resp.ContentLength,

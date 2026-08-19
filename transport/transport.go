@@ -399,11 +399,23 @@ type RedirectInfo struct {
 type Response struct {
 	StatusCode int
 	Headers    map[string][]string // Multi-value headers (matches http.Header)
-	Body       io.ReadCloser       // Streaming body - call Close() when done
-	FinalURL   string
-	Timing     *protocol.Timing
-	Protocol   string // "h1", "h2", or "h3"
-	History    []*RedirectInfo
+
+	// HeaderOrder is the order the peer sent its headers in, lowercase, one
+	// entry per occurrence. Headers is a map and cannot carry order, so a
+	// caller relaying this response onward would otherwise emit a different
+	// sequence than the origin did.
+	//
+	// Nil when the protocol path did not record one. HTTP/2 and HTTP/3 decode
+	// an ordered field list and record it for free; HTTP/1.1 reads through
+	// textproto, which canonicalises the names and drops the order, so it
+	// reports nil.
+	HeaderOrder []string
+
+	Body     io.ReadCloser // Streaming body - call Close() when done
+	FinalURL string
+	Timing   *protocol.Timing
+	Protocol string // "h1", "h2", or "h3"
+	History  []*RedirectInfo
 
 	// bodyBytes caches the body after reading for multiple access
 	bodyBytes []byte
@@ -1897,14 +1909,15 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 	headers := buildHeadersMap(resp.Header)
 
 	return &Response{
-		StatusCode: resp.StatusCode,
-		Headers:    headers,
-		Body:       io.NopCloser(bytes.NewReader(body)),
-		FinalURL:   req.URL,
-		Timing:     timing,
-		Protocol:   "h1",
-		bodyBytes:  body,
-		bodyRead:   true,
+		StatusCode:  resp.StatusCode,
+		Headers:     headers,
+		HeaderOrder: responseHeaderOrder(resp.Header),
+		Body:        io.NopCloser(bytes.NewReader(body)),
+		FinalURL:    req.URL,
+		Timing:      timing,
+		Protocol:    "h1",
+		bodyBytes:   body,
+		bodyRead:    true,
 	}, nil
 }
 
@@ -2009,14 +2022,15 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	headers := buildHeadersMap(resp.Header)
 
 	return &Response{
-		StatusCode: resp.StatusCode,
-		Headers:    headers,
-		Body:       io.NopCloser(bytes.NewReader(body)),
-		FinalURL:   parsedURL.String(),
-		Timing:     timing,
-		Protocol:   "h1",
-		bodyBytes:  body,
-		bodyRead:   true,
+		StatusCode:  resp.StatusCode,
+		Headers:     headers,
+		HeaderOrder: responseHeaderOrder(resp.Header),
+		Body:        io.NopCloser(bytes.NewReader(body)),
+		FinalURL:    parsedURL.String(),
+		Timing:      timing,
+		Protocol:    "h1",
+		bodyBytes:   body,
+		bodyRead:    true,
 	}, nil
 }
 
@@ -2147,14 +2161,15 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	headers := buildHeadersMap(resp.Header)
 
 	return &Response{
-		StatusCode: resp.StatusCode,
-		Headers:    headers,
-		Body:       io.NopCloser(bytes.NewReader(body)),
-		FinalURL:   req.URL,
-		Timing:     timing,
-		Protocol:   "h2",
-		bodyBytes:  body,
-		bodyRead:   true,
+		StatusCode:  resp.StatusCode,
+		Headers:     headers,
+		HeaderOrder: responseHeaderOrder(resp.Header),
+		Body:        io.NopCloser(bytes.NewReader(body)),
+		FinalURL:    req.URL,
+		Timing:      timing,
+		Protocol:    "h2",
+		bodyBytes:   body,
+		bodyRead:    true,
 	}, nil
 }
 
@@ -2291,14 +2306,15 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	headers := buildHeadersMap(resp.Header)
 
 	return &Response{
-		StatusCode: resp.StatusCode,
-		Headers:    headers,
-		Body:       io.NopCloser(bytes.NewReader(body)),
-		FinalURL:   req.URL,
-		Timing:     timing,
-		Protocol:   "h3",
-		bodyBytes:  body,
-		bodyRead:   true,
+		StatusCode:  resp.StatusCode,
+		Headers:     headers,
+		HeaderOrder: responseHeaderOrder(resp.Header),
+		Body:        io.NopCloser(bytes.NewReader(body)),
+		FinalURL:    req.URL,
+		Timing:      timing,
+		Protocol:    "h3",
+		bodyBytes:   body,
+		bodyRead:    true,
 	}, nil
 }
 
@@ -2930,6 +2946,12 @@ func extractHost(urlStr string) string {
 func buildHeadersMap(h http.Header) map[string][]string {
 	headers := make(map[string][]string)
 	for key, values := range h {
+		// The order key is transport bookkeeping, not a header the peer sent.
+		// It reaches the response map because the H2 read path records the
+		// arrival order there; it is surfaced separately as Response.HeaderOrder.
+		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey {
+			continue
+		}
 		lowerKey := strings.ToLower(key)
 		// Copy values to avoid sharing underlying array
 		headerValues := make([]string, len(values))
@@ -2937,6 +2959,24 @@ func buildHeadersMap(h http.Header) map[string][]string {
 		headers[lowerKey] = headerValues
 	}
 	return headers
+}
+
+// responseHeaderOrder returns the order the peer sent its headers in, or nil
+// when the protocol path did not record one.
+//
+// A map cannot carry order, so a caller relaying a response onward, a MITM
+// addon handing it back to a real browser for instance, otherwise emits a
+// different header sequence than the origin did. HTTP/2 and HTTP/3 decode an
+// ordered field list and can record it for free. HTTP/1.1 reads through
+// textproto, which canonicalises and reorders, so it reports nil for now.
+func responseHeaderOrder(h http.Header) []string {
+	order, ok := h[http.HeaderOrderKey]
+	if !ok || len(order) == 0 {
+		return nil
+	}
+	out := make([]string, len(order))
+	copy(out, order)
+	return out
 }
 
 // readBodyOptimized reads a response body and returns a buffer owned solely by
