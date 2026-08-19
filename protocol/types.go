@@ -122,11 +122,24 @@ type Response struct {
 
 // Timing contains request timing breakdown in milliseconds
 type Timing struct {
-	DNSLookup    float64 `json:"dnsLookup"`    // DNS lookup time (0 = cached/reused)
-	TCPConnect   float64 `json:"tcpConnect"`   // TCP connection time (0 = reused)
-	TLSHandshake float64 `json:"tlsHandshake"` // TLS handshake time (0 = reused)
-	FirstByte    float64 `json:"firstByte"`    // Time to first response byte
-	Total        float64 `json:"total"`        // Total request time
+	// Every field is measured. A zero means the phase did not happen on this
+	// request (a reused connection) or is not separable on the path taken, and
+	// never that a number was unavailable and got estimated.
+	//
+	// These three used to be computed as fixed fractions of FirstByte, so they
+	// were a reshaped copy of one measurement presented as a breakdown. Anyone
+	// diagnosing latency from them was reading invented numbers.
+	DNSLookup    float64 `json:"dnsLookup"`    // DNS lookup (0 = cached, reused, or not separable)
+	TCPConnect   float64 `json:"tcpConnect"`   // TCP connect (0 = reused, or QUIC, or not separable)
+	TLSHandshake float64 `json:"tlsHandshake"` // TLS handshake (0 = reused or not separable)
+
+	// Connect is the whole connection setup where the phases above cannot be
+	// split: QUIC folds transport and TLS into one exchange, and a proxy dial
+	// hides DNS and TCP behind the proxy. Zero on a reused connection.
+	Connect float64 `json:"connect"`
+
+	FirstByte float64 `json:"firstByte"` // Time to first response byte
+	Total     float64 `json:"total"`     // Total request time
 }
 
 // ErrorInfo contains error details

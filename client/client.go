@@ -75,13 +75,13 @@ import (
 // Client is an HTTP client with connection pooling and fingerprint spoofing
 // By default, it tries HTTP/3 first, then HTTP/2, then HTTP/1.1 as fallback
 type Client struct {
-	poolManager       *pool.Manager
-	quicManager       *pool.QUICManager
+	poolManager *pool.Manager
+	quicManager *pool.QUICManager
 	// h3Mu guards quicManager, masqueTransport and socks5H3Transport. The proxy
 	// setters close and replace all three, and a request in flight re-reads them
 	// after its own nil check has already passed, so an unguarded swap is a nil
 	// dereference. In the cgo bindings a Go panic takes the host process with it.
-	h3Mu sync.RWMutex
+	h3Mu              sync.RWMutex
 	masqueTransport   *transport.HTTP3Transport // MASQUE proxy transport (if using MASQUE)
 	socks5H3Transport *transport.HTTP3Transport // SOCKS5 UDP relay transport for HTTP/3
 	h1Transport       *transport.HTTP1Transport
@@ -1492,10 +1492,10 @@ func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.R
 
 	// Calculate timing
 	if conn.Uses() == 1 {
-		connTime := float64(time.Since(connStart).Milliseconds())
-		timing.DNSLookup = connTime / 3
-		timing.TCPConnect = 0
-		timing.TLSHandshake = connTime * 2 / 3
+		// One measurement, reported as one number. QUIC folds the transport
+		// and TLS handshakes into a single exchange, so splitting this into
+		// thirds was inventing a breakdown that does not exist.
+		timing.Connect = float64(time.Since(connStart).Milliseconds())
 	}
 
 	firstByteTime := time.Now()
@@ -1530,10 +1530,9 @@ func (c *Client) doHTTP2(ctx context.Context, host, port string, httpReq *http.R
 	// under the connection's mutex in MarkUsed, so a bare read here races with
 	// any other request acquiring the same multiplexed H2 connection.
 	if conn.Uses() == 1 {
-		connTime := float64(time.Since(connStart).Milliseconds())
-		timing.DNSLookup = connTime / 3
-		timing.TCPConnect = connTime / 3
-		timing.TLSHandshake = connTime / 3
+		// One measurement, reported as one number rather than split three ways.
+		// This path does not observe the phases separately.
+		timing.Connect = float64(time.Since(connStart).Milliseconds())
 	}
 
 	firstByteTime := time.Now()

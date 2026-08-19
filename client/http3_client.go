@@ -7,8 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	http "github.com/sardanioss/http"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -113,9 +113,9 @@ func (c *HTTP3Client) Do(ctx context.Context, req *Request) (*Response, error) {
 	if conn.Uses() == 1 {
 		// New connection - estimate timing breakdown
 		connTime := float64(time.Since(connStart).Milliseconds())
-		timing.DNSLookup = connTime / 3
-		timing.TCPConnect = 0 // QUIC doesn't use TCP
-		timing.TLSHandshake = connTime * 2 / 3 // QUIC combines connection + TLS
+		// One measurement, reported as one number. QUIC combines connection
+		// setup and TLS, so a DNS/TLS split here was invented.
+		timing.Connect = connTime
 	} else {
 		// Reused connection - no overhead
 		timing.DNSLookup = 0

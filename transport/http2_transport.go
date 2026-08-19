@@ -89,9 +89,19 @@ type persistentConn struct {
 	closeRequested bool  // close as soon as the last in-flight request finishes
 	closed         bool  // close() has already run
 	sessionResumed bool  // True if TLS session was resumed (faster handshake)
-	tlsVersion     uint16
-	cipherSuite    uint16
-	mu             sync.Mutex
+
+	// Measured setup phases in milliseconds, filled during creation. These
+	// replace a fabricated breakdown: the response path used to report
+	// DNSLookup, TCPConnect and TLSHandshake as fixed fractions of FirstByte
+	// (0.2, 0.3 and 0.5 of 70% of it), which are invented numbers in a public
+	// API field. A phase that is not measured on a path stays zero, which is
+	// the same value the struct already documents for "cached or reused".
+	dnsMs       float64
+	tcpMs       float64
+	tlsMs       float64
+	tlsVersion  uint16
+	cipherSuite uint16
+	mu          sync.Mutex
 
 	// lastProgress is the unix-nano timestamp of the most recent body read.
 	// Kept outside the mutex because it is touched on every Read. Only
@@ -613,6 +623,13 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 	var rawConn net.Conn
 	var err error
 
+	// Measured setup phases, in milliseconds. They stay zero on the proxy path,
+	// where DNS and the TCP connect happen inside the proxy dial and are not
+	// separable from here. Zero is what the Timing struct already documents for
+	// a phase that did not happen, and reporting zero is the point: these
+	// numbers used to be fabricated as fixed fractions of FirstByte.
+	var dnsMs, dnsElapsed, tcpElapsed, tlsElapsed float64
+
 	// Get the connection host (may be different for domain fronting)
 	connectHost := t.getConnectHost(host)
 
@@ -627,7 +644,9 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 	} else {
 		// Direct connection with DNS resolution and IPv4/IPv6 fallback
 		// Resolve the connection host, not request host
+		dnsStart := time.Now()
 		ips, err := t.dnsCache.ResolveAllSorted(ctx, connectHost)
+		dnsElapsed = float64(time.Since(dnsStart).Microseconds()) / 1000
 		if err != nil {
 			return nil, fmt.Errorf("DNS resolution failed: %w", err)
 		}
@@ -667,6 +686,7 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 		// Race the resolved addresses with a staggered start (Happy Eyeballs):
 		// an unreachable address no longer delays the next, and the fastest
 		// reachable one wins. Bounded by the dialer timeout + ctx; losers closed.
+		tcpStart := time.Now()
 		rawConn, err = staggeredRace(ctx, len(ips), 250*time.Millisecond,
 			func(rctx context.Context, idx int) (net.Conn, error) {
 				network := "tcp4"
@@ -683,6 +703,8 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 		if rawConn == nil {
 			return nil, fmt.Errorf("TCP connect failed: all connection attempts failed")
 		}
+		tcpElapsed = float64(time.Since(tcpStart).Microseconds()) / 1000
+		dnsMs = dnsElapsed
 	}
 
 	// Set TCP keepalive
@@ -786,6 +808,7 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 	}
 
 	// Perform TLS handshake
+	tlsStart := time.Now()
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		rawConn.Close()
 
@@ -860,8 +883,12 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 
 		return nil, fmt.Errorf("TLS handshake failed: %w", err)
 	}
-
 alpnCheck:
+	// Measured here rather than after the handshake call, because the
+	// speculative-TLS fallback re-dials and jumps straight to this label, and
+	// that path's handshake has to be counted too.
+	tlsElapsed = float64(time.Since(tlsStart).Microseconds()) / 1000
+
 	// Check ALPN negotiation result
 	state := tlsConn.ConnectionState()
 	if state.NegotiatedProtocol != "h2" {
@@ -1031,6 +1058,9 @@ alpnCheck:
 		sessionResumed: sessionResumed,
 		tlsVersion:     connState.Version,
 		cipherSuite:    connState.CipherSuite,
+		dnsMs:          dnsMs,
+		tcpMs:          tcpElapsed,
+		tlsMs:          tlsElapsed,
 	}, nil
 }
 
@@ -1430,6 +1460,30 @@ func (t *HTTP2Transport) IsConnectionReused(host, port string) bool {
 	}
 	// If connection exists and is usable, it will be reused
 	return t.isConnUsable(conn)
+}
+
+// ConnectionSetupTiming reports the measured DNS, TCP and TLS phases for the
+// pooled connection serving host:port, in milliseconds.
+//
+// It exists so the response path can report real numbers instead of the
+// fabricated breakdown it used to compute: DNSLookup, TCPConnect and
+// TLSHandshake were fixed fractions of FirstByte (0.2, 0.3 and 0.5 of 70% of
+// it), which are invented values in a public API field.
+//
+// ok is false when there is no such connection. A phase that was not separable
+// on the path taken, the proxy dial in particular, reports zero, which is the
+// value the Timing struct already documents for a phase that did not happen.
+func (t *HTTP2Transport) ConnectionSetupTiming(host, port string) (dnsMs, tcpMs, tlsMs float64, ok bool) {
+	key := net.JoinHostPort(host, port)
+	t.connsMu.RLock()
+	conn, exists := t.conns[key]
+	t.connsMu.RUnlock()
+	if !exists || conn == nil {
+		return 0, 0, 0, false
+	}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	return conn.dnsMs, conn.tcpMs, conn.tlsMs, true
 }
 
 // GetConnectionUseCount returns how many times a connection has been used

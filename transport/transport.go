@@ -2124,18 +2124,22 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 
 	timing.Total = float64(time.Since(startTime).Milliseconds())
 
-	// Calculate timing breakdown
-	wasReused := useCountBefore >= 1
-	if wasReused {
-		timing.DNSLookup = 0
-		timing.TCPConnect = 0
-		timing.TLSHandshake = 0
-	} else {
-		connectionOverhead := timing.FirstByte * 0.7
-		if connectionOverhead > 10 {
-			timing.DNSLookup = connectionOverhead * 0.2
-			timing.TCPConnect = connectionOverhead * 0.3
-			timing.TLSHandshake = connectionOverhead * 0.5
+	// Timing breakdown, measured at connection setup.
+	//
+	// This used to be fabricated: DNSLookup, TCPConnect and TLSHandshake were
+	// fixed fractions of FirstByte (0.2, 0.3 and 0.5 of 70% of it), which are
+	// invented numbers in a public API field. Anyone diagnosing latency from
+	// them was reading a reshaped copy of one measurement.
+	//
+	// A reused connection reports zeros, which is what the Timing struct
+	// documents, and so does any phase that was not separable on the path
+	// taken, the proxy dial in particular.
+	if useCountBefore == 0 {
+		if dnsMs, tcpMs, tlsMs, ok := snap.h2.ConnectionSetupTiming(host, port); ok {
+			timing.DNSLookup = dnsMs
+			timing.TCPConnect = tcpMs
+			timing.TLSHandshake = tlsMs
+			timing.Connect = dnsMs + tcpMs + tlsMs
 		}
 	}
 
@@ -2267,21 +2271,21 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 
 	timing.Total = float64(time.Since(startTime).Milliseconds())
 
-	// Calculate timing breakdown (HTTP/3 uses QUIC, no TCP)
-	dialCountAfter := t.h3Transport.GetDialCount()
-	wasReused := dialCountAfter == dialCountBefore
+	// Timing breakdown for HTTP/3.
+	//
+	// All three phases stay zero. QUIC folds the transport and TLS handshakes
+	// into one exchange inside quic-go, so there is nothing here to split
+	// without threading measurements out of the fork, and there is no TCP
+	// connect at all. Zero is the value the Timing struct documents for a phase
+	// that did not happen.
+	//
+	// The previous code invented 0.3 and 0.7 shares of FirstByte for DNSLookup
+	// and TLSHandshake, which is a reshaped copy of one measurement presented
+	// as three.
+	_ = dialCountBefore
+	timing.DNSLookup = 0
 	timing.TCPConnect = 0
-
-	if wasReused {
-		timing.DNSLookup = 0
-		timing.TLSHandshake = 0
-	} else {
-		connectionOverhead := timing.FirstByte * 0.7
-		if connectionOverhead > 10 {
-			timing.DNSLookup = connectionOverhead * 0.3
-			timing.TLSHandshake = connectionOverhead * 0.7
-		}
-	}
+	timing.TLSHandshake = 0
 
 	// Build response headers map
 	headers := buildHeadersMap(resp.Header)
