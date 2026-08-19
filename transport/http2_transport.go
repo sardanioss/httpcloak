@@ -79,9 +79,9 @@ type HTTP2Transport struct {
 
 // persistentConn represents a persistent HTTP/2 connection
 type persistentConn struct {
-	host            string
-	tlsConn         *utls.UConn
-	h2Conn          *http2.ClientConn
+	host           string
+	tlsConn        *utls.UConn
+	h2Conn         *http2.ClientConn
 	createdAt      time.Time
 	lastUsedAt     time.Time
 	useCount       int64
@@ -249,26 +249,29 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 	crand.Read(seedBytes[:])
 	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
 
-	// Check if PSK spec is available for this preset, custom JA3, or preset JA3
-	hasPSKSpec := preset.PSKClientHelloID.Client != ""
-	if !hasPSKSpec && config != nil && config.CustomJA3 != "" {
-		hasPSKSpec = fingerprint.JA3HasExtension(config.CustomJA3, "41")
+	// Whether this preset can produce a resumption-shaped ClientHello at all.
+	//
+	// This used to ask whether the JA3 string contained extension 41. That can
+	// only be true of a JA3 captured mid-resumption, and a first capture never
+	// is, so a JA3 preset always reported "no PSK" and never resumed. Asking the
+	// preset what it actually carries removes the guess.
+	customJA3 := ""
+	if config != nil {
+		customJA3 = config.CustomJA3
 	}
-	if !hasPSKSpec && preset.JA3 != "" {
-		hasPSKSpec = fingerprint.JA3HasExtension(preset.JA3, "41")
-	}
+	hasPSKSpec := fingerprint.HasPSKVariant(preset, customJA3)
 
 	t := &HTTP2Transport{
-		preset:         preset,
-		dnsCache:       dnsCache,
-		proxy:          proxy,
-		config:         config,
-		conns:          make(map[string]*persistentConn),
-		sessionCache:   sessionCache,
-		shuffleSeed:    shuffleSeed,
-		hasPSKSpec:     hasPSKSpec,
-		maxIdleTime: 90 * time.Second,
-		maxConnAge:  5 * time.Minute,
+		preset:       preset,
+		dnsCache:     dnsCache,
+		proxy:        proxy,
+		config:       config,
+		conns:        make(map[string]*persistentConn),
+		sessionCache: sessionCache,
+		shuffleSeed:  shuffleSeed,
+		hasPSKSpec:   hasPSKSpec,
+		maxIdleTime:  90 * time.Second,
+		maxConnAge:   5 * time.Minute,
 		// A response body that has not produced a single byte for this long is
 		// treated as abandoned by its caller, so the connection can be
 		// reclaimed. Without a bound here, a caller that never closes a body
@@ -691,41 +694,26 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 	// Generate fresh spec for this connection to avoid race condition
 	// utls's ApplyPreset mutates the spec (clears KeyShares.Data, etc.), so each
 	// connection needs its own copy. Use same shuffleSeed for consistent ordering.
-	var specToUse *utls.ClientHelloSpec
-	// Determine JA3 source: config.CustomJA3 takes priority, then preset.JA3
-	ja3String := ""
-	var ja3Extras *fingerprint.JA3Extras
-	if t.config != nil && t.config.CustomJA3 != "" {
-		ja3String = t.config.CustomJA3
-		ja3Extras = t.config.CustomJA3Extras
-	} else if t.preset.JA3 != "" {
-		ja3String = t.preset.JA3
-		ja3Extras = t.preset.JA3Extras
+	// One resolver for every TLS source, shared with the H1 transport. This used
+	// to be an inline if/else chain whose first arm was `if ja3String != ""`,
+	// taken unconditionally, which made the PSK arm below it unreachable for any
+	// JA3 preset. Adding raw hellos as a fourth source to that shape would have
+	// reproduced the same bug, so the decision lives in fingerprint now.
+	customJA3, customJA3Extras := "", (*fingerprint.JA3Extras)(nil)
+	if t.config != nil {
+		customJA3, customJA3Extras = t.config.CustomJA3, t.config.CustomJA3Extras
 	}
-	if ja3String != "" {
-		// JA3: parse to fresh spec each connection (ApplyPreset mutates)
-		spec, parseErr := fingerprint.ParseJA3(ja3String, ja3Extras)
-		if parseErr != nil {
-			rawConn.Close()
-			return nil, fmt.Errorf("failed to parse JA3: %w", parseErr)
-		}
-		specToUse = spec
-	} else if t.hasPSKSpec {
-		// Generate fresh PSK spec for this connection
-		if spec, err := utls.UTLSIdToSpecWithSeed(t.preset.PSKClientHelloID, t.shuffleSeed); err == nil {
-			specToUse = &spec
-		}
+	specToUse, specSource, specErr := fingerprint.ResolveClientHelloSpec(
+		t.preset, customJA3, customJA3Extras, t.hasPSKSpec, t.shuffleSeed)
+	if specErr != nil {
+		rawConn.Close()
+		return nil, fmt.Errorf("resolve client hello: %w", specErr)
 	}
-	if specToUse == nil {
-		// Generate fresh regular spec
-		if spec, err := utls.UTLSIdToSpecWithSeed(t.preset.ClientHelloID, t.shuffleSeed); err == nil {
-			specToUse = &spec
-		}
-	}
-	// Apply the preset's TCP signature_algorithms override (e.g. Chrome 150's
-	// ML-DSA codepoints) on top of the ClientHelloID base. The JA3 path carries its
-	// own sig-algs via JA3Extras, so it is skipped here.
-	if ja3String == "" && specToUse != nil {
+	// The preset's TCP signature_algorithms override (Chrome 150's ML-DSA
+	// codepoints, for instance) layers on top of a ClientHelloID base only. JA3
+	// carries its own via JA3Extras, and a captured raw hello already contains
+	// the client's real list, so overwriting it there would undo the capture.
+	if specSource == fingerprint.SourceClientHelloID {
 		fingerprint.ApplySignatureAlgorithms(specToUse.Extensions, t.preset.SignatureAlgorithms)
 	}
 
@@ -973,7 +961,7 @@ alpnCheck:
 		Settings:           h2Settings,
 		SettingsOrder:      h2SettingsOrder,
 		DisableCookieSplit: t.preset.H2DisableCookieSplit(),
-		PseudoHeaderOrder: pseudoOrder,
+		PseudoHeaderOrder:  pseudoOrder,
 		HeaderPriority: func() *http2.PriorityParam {
 			// Chrome 120+ uses RFC 9218 extensible priorities (priority: header)
 			// instead of RFC 7540 PRIORITY frames. StreamWeight=0 means no PRIORITY data.
@@ -1620,4 +1608,3 @@ func uint16sToSettingIDs(ids []uint16) []http2.SettingID {
 	}
 	return result
 }
-

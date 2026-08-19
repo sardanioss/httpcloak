@@ -85,8 +85,22 @@ type Preset struct {
 	H2Config             *H2FingerprintConfig // nil = Chrome defaults for all H2 fingerprinting
 	H3Config             *H3FingerprintConfig // nil = Chrome defaults for all H3/QUIC fingerprinting
 	JA3                  string               // JA3 fingerprint string. When set, parsed fresh per connection instead of using ClientHelloID.
+	PSKJA3               string               // JA3 captured from a resuming connection (extension list contains 41). Empty = no JA3-mode resumption.
 	JA3Extras            *JA3Extras           // Supplements JA3 parsing. nil = Chrome defaults.
-	BasedOn              string               // For custom presets: name of the parent preset (used by inheritance-loop detection). Empty for built-ins.
+
+	// RawClientHello holds the DECODED bytes of a captured TLS ClientHello
+	// record, not a parsed spec. That is deliberate: uTLS ApplyPreset mutates
+	// a ClientHelloSpec (it clears KeyShares.Data among other things), so a
+	// spec cached on the preset would be corrupt after the first handshake.
+	// The spec is re-derived per connection, exactly as the JA3 path does.
+	//
+	// RawPSKClientHello is the same client captured mid-resumption, carrying a
+	// pre_shared_key extension. RawBluntMimicry passes unknown extensions
+	// through verbatim (curl needs it for extension 22).
+	RawClientHello    []byte
+	RawPSKClientHello []byte
+	RawBluntMimicry   bool
+	BasedOn           string // For custom presets: name of the parent preset (used by inheritance-loop detection). Empty for built-ins.
 
 	// SignatureAlgorithms, when non-empty, replaces the signature_algorithms
 	// extension emitted on TCP (HTTP/1.1 + HTTP/2), on top of whatever base spec

@@ -3,12 +3,12 @@ package transport
 import (
 	"bufio"
 	"context"
-	tls "github.com/sardanioss/utls"
 	"encoding/base64"
 	"fmt"
+	http "github.com/sardanioss/http"
+	tls "github.com/sardanioss/utls"
 	"io"
 	"net"
-	http "github.com/sardanioss/http"
 	"net/textproto"
 	"net/url"
 	"sort"
@@ -709,20 +709,37 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			keyLogWriter = GetKeyLogWriter()
 		}
 
-		// Determine the effective JA3 source: a programmatic CustomJA3 takes
-		// priority, then the preset's own JA3 (set by JSON custom presets). H2
-		// already does this; H1 used to look at config.CustomJA3 only, so a
-		// JSON-registered JA3 preset fell through to an empty ClientHelloID and
-		// failed with "tls: unknown ClientHelloID: -".
-		effJA3 := ""
-		var effJA3Extras *fingerprint.JA3Extras
-		if t.config != nil && t.config.CustomJA3 != "" {
-			effJA3 = t.config.CustomJA3
-			effJA3Extras = t.config.CustomJA3Extras
-		} else if t.preset.JA3 != "" {
-			effJA3 = t.preset.JA3
-			effJA3Extras = t.preset.JA3Extras
+		// One resolver for every TLS source, shared with the H2 transport, so a
+		// custom JA3, a preset JA3 and a captured raw hello are all decided in
+		// the same place rather than by two divergent inline chains.
+		customJA3, customJA3Extras := "", (*fingerprint.JA3Extras)(nil)
+		if t.config != nil {
+			customJA3, customJA3Extras = t.config.CustomJA3, t.config.CustomJA3Extras
 		}
+		wantPSK := fingerprint.HasPSKVariant(t.preset, customJA3)
+		specSource := fingerprint.ClientHelloSourceOf(t.preset, customJA3)
+		// Only the HelloCustom branch needs a spec; the ClientHelloID branch
+		// hands the ID straight to UClient. Resolving unconditionally would
+		// build one on every connection just to throw it away.
+		var resolvedSpec *utls.ClientHelloSpec
+		if specSource != fingerprint.SourceClientHelloID {
+			var specErr error
+			// The seed only feeds UTLSIdToSpecWithSeed, which this branch never
+			// reaches, so H1 needs no shuffle seed of its own.
+			resolvedSpec, _, specErr = fingerprint.ResolveClientHelloSpec(
+				t.preset, customJA3, customJA3Extras, wantPSK, 0)
+			if specErr != nil {
+				rawConn.Close()
+				return nil, NewTLSError("resolve_client_hello", host, port, "h1", specErr)
+			}
+		}
+		// Attaching a session cache to a spec with no pre_shared_key extension
+		// can break the handshake. This used to ask whether the JA3 string
+		// carried extension 41, which only worked for one of the three sources;
+		// inspecting the resolved spec answers it for all of them, and answers
+		// it about what actually goes on the wire.
+		useSessionCache := specSource == fingerprint.SourceClientHelloID ||
+			fingerprint.SpecHasPSKExtension(resolvedSpec)
 
 		tlsConfig := &utls.Config{
 			ServerName:                         host,
@@ -734,20 +751,16 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			KeyLogWriter:                       keyLogWriter,
 		}
 		t.tlsVerify.Apply(tlsConfig)
-		// Only set session cache when not using a JA3 without PSK extension
-		if effJA3 == "" || fingerprint.JA3HasExtension(effJA3, "41") {
+		if useSessionCache {
 			tlsConfig.ClientSessionCache = t.sessionCache
 		}
 
 		// Create TLS connection with appropriate fingerprint
 		var tlsConn *utls.UConn
-		if effJA3 != "" {
-			// JA3 (programmatic CustomJA3 or preset.JA3): parse to spec and apply with HelloCustom
-			spec, parseErr := fingerprint.ParseJA3(effJA3, effJA3Extras)
-			if parseErr != nil {
-				rawConn.Close()
-				return nil, NewTLSError("parse_ja3", host, port, "h1", parseErr)
-			}
+		if specSource != fingerprint.SourceClientHelloID {
+			// JA3 or a captured raw hello: both give us a spec, so both go
+			// through HelloCustom rather than a named ClientHelloID.
+			spec := resolvedSpec
 			// Force HTTP/1.1 ALPN in the spec
 			for _, ext := range spec.Extensions {
 				if alpn, ok := ext.(*utls.ALPNExtension); ok {
@@ -758,7 +771,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			tlsConn = utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
 			if err := tlsConn.ApplyPreset(spec); err != nil {
 				rawConn.Close()
-				return nil, NewTLSError("apply_ja3_preset", host, port, "h1", err)
+				return nil, NewTLSError("apply_"+specSource.String()+"_preset", host, port, "h1", err)
 			}
 		} else {
 			// Use preset's ClientHelloID directly
@@ -785,9 +798,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			// ML-DSA) on the materialised extensions, same mechanism as the ALPN edit.
 			fingerprint.ApplySignatureAlgorithms(tlsConn.Extensions, t.preset.SignatureAlgorithms)
 		}
-		// Only set session cache for preset path or JA3 with PSK extension.
-		// Setting session cache on a spec without PSK extension can cause handshake failures.
-		if effJA3 == "" || fingerprint.JA3HasExtension(effJA3, "41") {
+		if useSessionCache {
 			tlsConn.SetSessionCache(t.sessionCache)
 		}
 
@@ -804,12 +815,14 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 					return nil, NewTLSError("speculative_fallback_dial", host, port, "h1", dialErr)
 				}
 
-				// Redo TLS setup on the clean connection
-				if effJA3 != "" {
-					spec, parseErr := fingerprint.ParseJA3(effJA3, effJA3Extras)
+				// Redo TLS setup on the clean connection. The spec is resolved
+				// again rather than reused: ApplyPreset mutated the first one.
+				if specSource != fingerprint.SourceClientHelloID {
+					spec, _, parseErr := fingerprint.ResolveClientHelloSpec(
+						t.preset, customJA3, customJA3Extras, wantPSK, 0)
 					if parseErr != nil {
 						rawConn.Close()
-						return nil, NewTLSError("parse_ja3", host, port, "h1", parseErr)
+						return nil, NewTLSError("resolve_client_hello", host, port, "h1", parseErr)
 					}
 					for _, ext := range spec.Extensions {
 						if alpn, ok := ext.(*utls.ALPNExtension); ok {
@@ -820,7 +833,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 					tlsConn = utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
 					if applyErr := tlsConn.ApplyPreset(spec); applyErr != nil {
 						rawConn.Close()
-						return nil, NewTLSError("apply_ja3_preset", host, port, "h1", applyErr)
+						return nil, NewTLSError("apply_"+specSource.String()+"_preset", host, port, "h1", applyErr)
 					}
 				} else {
 					tlsConn = utls.UClient(rawConn, tlsConfig, t.preset.ClientHelloID)
@@ -835,13 +848,13 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 						}
 					}
 				}
-				// Apply the preset's TCP signature_algorithms override on the
-				// speculative-fallback ClientHelloID path (JA3 carries its own).
-				if effJA3 == "" {
+				// The sig-algs override layers on a ClientHelloID base only. JA3
+				// carries its own, and a captured raw hello already has the
+				// client's real list.
+				if specSource == fingerprint.SourceClientHelloID {
 					fingerprint.ApplySignatureAlgorithms(tlsConn.Extensions, t.preset.SignatureAlgorithms)
 				}
-				// Only set session cache when not using a JA3 without PSK extension
-				if effJA3 == "" || fingerprint.JA3HasExtension(effJA3, "41") {
+				if useSessionCache {
 					tlsConn.SetSessionCache(t.sessionCache)
 				}
 				if hsErr := tlsConn.HandshakeContext(ctx); hsErr != nil {

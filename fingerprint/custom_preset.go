@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	tls "github.com/sardanioss/utls"
 )
@@ -52,7 +53,33 @@ type ClientHintsSpec struct {
 
 // TLSSpec defines TLS fingerprint configuration.
 type TLSSpec struct {
-	// Mutually exclusive: use client_hello OR ja3, not both
+	// RawClientHello is a base64 TLS record (starting 0x16) captured from a real
+	// client, reproduced byte for byte via uTLS Fingerprinter.RawClientHello.
+	//
+	// It exists because JA3 cannot express GREASE. A hello mirrored through
+	// tls.ja3 emits none at all, while the real Chrome hello it came from carries
+	// one GREASE cipher and two GREASE extensions in fixed positions. JA4 and
+	// JA3N both ignore GREASE, so a JA3 mirror reports an exact match on every
+	// reflector while putting different bytes on the wire.
+	//
+	// RawPSKClientHello is the same client captured on a RESUMING connection, so
+	// it carries a pre_shared_key extension. Without it a raw-hello preset can
+	// never resume: a first capture has no ticket, so there is nothing to derive
+	// a PSK-shaped hello from.
+	//
+	// AllowBluntMimicry passes unknown extensions through verbatim instead of
+	// rejecting them. curl needs it for extension 22; without it the load fails
+	// with "unsupported extension 22".
+	RawClientHello    string `json:"raw_client_hello,omitempty"`
+	RawPSKClientHello string `json:"raw_psk_client_hello,omitempty"`
+	AllowBluntMimicry *bool  `json:"allow_blunt_mimicry,omitempty"`
+
+	// PSKJA3 is a JA3 captured from a resuming connection, i.e. one whose
+	// extension list contains 41. It is the JA3-mode counterpart of
+	// psk_client_hello, which JA3 mode was forbidden from using.
+	PSKJA3 string `json:"psk_ja3,omitempty"`
+
+	// Mutually exclusive: use client_hello OR ja3 OR raw_client_hello
 	ClientHello        string `json:"client_hello,omitempty"`      // e.g., "chrome-146-windows"
 	PSKClientHello     string `json:"psk_client_hello,omitempty"`  // e.g., "chrome-146-windows-psk"
 	QUICClientHello    string `json:"quic_client_hello,omitempty"` // e.g., "chrome-146-quic"
@@ -366,9 +393,9 @@ func BuildPreset(spec *PresetSpec) (*Preset, error) {
 // Same reasoning as the JA3 pre-validation in BuildPreset: a clear error at
 // load time beats an opaque failure on the wire later.
 func validateComplete(p *Preset) error {
-	if p.ClientHelloID.Client == "" && p.JA3 == "" {
+	if p.ClientHelloID.Client == "" && p.JA3 == "" && len(p.RawClientHello) == 0 {
 		return fmt.Errorf("preset %q has no TLS fingerprint source: set tls.client_hello, "+
-			"tls.ja3, or based_on to inherit one", p.Name)
+			"tls.ja3, tls.raw_client_hello, or based_on to inherit one", p.Name)
 	}
 	if p.UserAgent == "" {
 		return fmt.Errorf("preset %q has no user agent: set headers.user_agent, or based_on "+
@@ -540,10 +567,45 @@ func clonePreset(src *Preset) *Preset {
 // --- Apply Functions ---
 
 func applyTLS(p *Preset, spec *TLSSpec) error {
+	// raw_client_hello wins over both other sources. It is the only one that
+	// can carry GREASE, so a preset that has it never wants to fall back.
+	if spec.RawClientHello != "" {
+		blunt := spec.AllowBluntMimicry != nil && *spec.AllowBluntMimicry
+		raw, err := DecodeRawClientHello("tls.raw_client_hello", spec.RawClientHello, blunt)
+		if err != nil {
+			return err
+		}
+		p.RawClientHello = raw
+		p.RawBluntMimicry = blunt
+		if spec.RawPSKClientHello != "" {
+			pskRaw, err := DecodeRawClientHello("tls.raw_psk_client_hello", spec.RawPSKClientHello, blunt)
+			if err != nil {
+				return err
+			}
+			p.RawPSKClientHello = pskRaw
+		}
+		// Same reasoning as the JA3 branch below: the captured bytes are the
+		// whole TLS fingerprint, so leaving a ClientHelloID behind would let a
+		// stale inherited identity win at some branch further down.
+		p.ClientHelloID = tls.ClientHelloID{}
+		p.PSKClientHelloID = tls.ClientHelloID{}
+		p.QUICClientHelloID = tls.ClientHelloID{}
+		p.QUICPSKClientHelloID = tls.ClientHelloID{}
+		p.JA3 = ""
+		p.PSKJA3 = ""
+		return nil
+	}
+
 	// ja3 and client_hello are mutually exclusive (validated catches both set)
 	if spec.JA3 != "" {
 		p.JA3 = spec.JA3
-		// Clear ClientHelloID fields — JA3 takes over TLS fingerprinting
+		if spec.PSKJA3 != "" {
+			p.PSKJA3 = spec.PSKJA3
+		}
+		// Clear ClientHelloID fields — JA3 takes over TLS fingerprinting.
+		// PSKClientHelloID goes with them, which is correct: a PSK hello built
+		// from a named ClientHelloID would not match the JA3 the rest of the
+		// connection advertises. psk_ja3 is the JA3-mode route to resumption.
 		p.ClientHelloID = tls.ClientHelloID{}
 		p.PSKClientHelloID = tls.ClientHelloID{}
 		p.QUICClientHelloID = tls.ClientHelloID{}
@@ -1087,9 +1149,35 @@ func applyProtocols(p *Preset, spec *ProtocolSpec) {
 
 func validatePreset(p *Preset, spec *PresetSpec) error {
 	if spec.TLS != nil {
-		// ja3 and client_hello are mutually exclusive
-		if spec.TLS.JA3 != "" && spec.TLS.ClientHello != "" {
-			return fmt.Errorf("ja3 and client_hello are mutually exclusive")
+		// The three TLS sources are mutually exclusive. Silently preferring one
+		// would leave the author believing the other is in effect.
+		named := 0
+		var which []string
+		for _, src := range []struct {
+			name string
+			set  bool
+		}{
+			{"client_hello", spec.TLS.ClientHello != ""},
+			{"ja3", spec.TLS.JA3 != ""},
+			{"raw_client_hello", spec.TLS.RawClientHello != ""},
+		} {
+			if src.set {
+				named++
+				which = append(which, src.name)
+			}
+		}
+		if named > 1 {
+			return fmt.Errorf("%s are mutually exclusive, pick one", strings.Join(which, " and "))
+		}
+		// A resumption hello is meaningless without the source it resumes.
+		if spec.TLS.RawPSKClientHello != "" && spec.TLS.RawClientHello == "" {
+			return fmt.Errorf("raw_psk_client_hello requires raw_client_hello")
+		}
+		if spec.TLS.PSKJA3 != "" && p.JA3 == "" {
+			return fmt.Errorf("psk_ja3 requires ja3 to be set (directly or via based_on)")
+		}
+		if spec.TLS.AllowBluntMimicry != nil && spec.TLS.RawClientHello == "" {
+			return fmt.Errorf("allow_blunt_mimicry only applies to raw_client_hello")
 		}
 		// PSK/QUIC hello IDs require a primary client_hello or JA3 on the built preset
 		// (could come from based_on inheritance, not just the spec)
@@ -1115,7 +1203,8 @@ func validatePreset(p *Preset, spec *PresetSpec) error {
 				return fmt.Errorf("quic_psk_client_hello cannot be used with ja3; JA3 does not control QUIC TLS fingerprinting — use client_hello mode instead")
 			}
 			if spec.TLS.PSKClientHello != "" {
-				return fmt.Errorf("psk_client_hello cannot be used with ja3; use ja3_extras for PSK configuration instead")
+				return fmt.Errorf("psk_client_hello cannot be used with ja3; use psk_ja3, " +
+					"a JA3 captured from a resuming connection (its extension list contains 41)")
 			}
 		}
 		// ja3_extras without ja3 is invalid
