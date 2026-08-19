@@ -20,6 +20,12 @@ Example:
 import asyncio
 import base64
 import json
+import warnings
+
+# The request methods take a parameter called json, which shadows the module
+# inside their bodies. _json is the same object under a name that does not
+# collide, so those methods can still serialise.
+_json = json
 import mimetypes
 import os
 import platform
@@ -1019,8 +1025,16 @@ class _AsyncCallbackManager:
         # Register a NEW callback for this request (Go gives us a unique ID)
         callback_id = lib.httpcloak_register_callback(self._callback_ref)
 
-        # Create future and store it with start time
-        loop = asyncio.get_event_loop()
+        # Create future and store it with start time.
+        #
+        # get_running_loop, not get_event_loop: this loop is the one _on_callback
+        # later hands to call_soon_threadsafe from the cgo callback thread, so
+        # binding the wrong one means futures resolve on the wrong thread or
+        # never resolve at all. get_event_loop only happens to return the right
+        # object because every caller is a coroutine; outside a running loop it
+        # warns on 3.12 and raises on 3.14. This states the requirement instead
+        # of relying on it.
+        loop = asyncio.get_running_loop()
         future = loop.create_future()
         start_time = time.perf_counter()
         with self._lock:
@@ -1316,6 +1330,35 @@ def _parse_response(result_ptr, elapsed: float = 0.0) -> Response:
         raise HTTPCloakError(data["error"])
     return Response._from_dict(data, elapsed=elapsed)
 
+
+
+
+def _resolve_json_alias(json_value, json_data_value):
+    """
+    Reconcile the two spellings of the JSON body parameter.
+
+    The sync non-fast methods took ``json``; the async, fast and streaming
+    methods took ``json_data``, so the same argument had a different name
+    depending on which method you reached for. ``json`` is the primary name
+    now and matches what requests-shaped code expects. ``json_data`` still
+    works and is deprecated.
+
+    Passing both is a mistake rather than something to merge, so it raises
+    instead of silently picking one.
+    """
+    if json_value is not None and json_data_value is not None:
+        raise TypeError(
+            "pass json= or json_data=, not both. json_data is a deprecated "
+            "alias for json"
+        )
+    if json_data_value is not None:
+        warnings.warn(
+            "json_data is deprecated, use json instead",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return json_data_value
+    return json_value
 
 
 def _last_error(lib, handle, fallback="Request failed"):
@@ -2378,6 +2421,7 @@ class Session:
         self,
         url: str,
         data: Union[str, bytes, Dict, None] = None,
+        json: Optional[Dict] = None,
         json_data: Optional[Dict] = None,
         files: Optional[FilesType] = None,
         params: Optional[Dict[str, Any]] = None,
@@ -2404,6 +2448,7 @@ class Session:
             cookies: Cookies to send with this request
             auth: Basic auth tuple (username, password)
         """
+        json_data = _resolve_json_alias(json, json_data)
         url = _add_params_to_url(url, params)
         merged_headers = self._merge_headers(headers)
 
@@ -2414,7 +2459,7 @@ class Session:
             merged_headers = merged_headers or {}
             merged_headers["Content-Type"] = content_type
         elif json_data is not None:
-            body = json.dumps(json_data).encode("utf-8")
+            body = _json.dumps(json_data).encode("utf-8")
             merged_headers = merged_headers or {}
             merged_headers.setdefault("Content-Type", "application/json")
         elif data is not None:
@@ -2465,7 +2510,7 @@ class Session:
             # The async clib exports read timeout in SECONDS (the sync *_raw
             # exports use milliseconds).
             options["timeout"] = timeout
-        options_json = json.dumps(options).encode("utf-8") if options else None
+        options_json = _json.dumps(options).encode("utf-8") if options else None
 
         # Start async request
         self._lib.httpcloak_post_async(
@@ -2483,6 +2528,7 @@ class Session:
         method: str,
         url: str,
         data: Union[str, bytes, Dict, None] = None,
+        json: Optional[Dict] = None,
         json_data: Optional[Dict] = None,
         files: Optional[FilesType] = None,
         params: Optional[Dict[str, Any]] = None,
@@ -2510,6 +2556,7 @@ class Session:
             cookies: Cookies to send with this request
             auth: Basic auth tuple (username, password)
         """
+        json_data = _resolve_json_alias(json, json_data)
         url = _add_params_to_url(url, params)
         merged_headers = self._merge_headers(headers)
 
@@ -2523,7 +2570,7 @@ class Session:
             merged_headers = merged_headers or {}
             merged_headers["Content-Type"] = content_type
         elif json_data is not None:
-            body = json.dumps(json_data)
+            body = _json.dumps(json_data)
             merged_headers = merged_headers or {}
             merged_headers.setdefault("Content-Type", "application/json")
         elif data is not None:
@@ -2573,7 +2620,7 @@ class Session:
         # Start async request
         self._lib.httpcloak_request_async(
             self._handle,
-            json.dumps(request_config).encode("utf-8"),
+            _json.dumps(request_config).encode("utf-8"),
             callback_id,
         )
 
@@ -3308,6 +3355,7 @@ class Session:
         self,
         url: str,
         data: Optional[Union[str, bytes, Dict[str, Any]]] = None,
+        json: Optional[Dict] = None,
         json_data: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
@@ -3341,6 +3389,7 @@ class Session:
             requests. If you need to keep the data, copy it with bytes(r.content).
         """
         # Use request auth if provided, otherwise fall back to session auth
+        json_data = _resolve_json_alias(json, json_data)
         effective_auth = auth if auth is not None else self.auth
 
         merged_headers = self._merge_headers(headers)
@@ -3351,8 +3400,13 @@ class Session:
         body_bytes = None
         body_len = 0
         if json_data is not None:
-            body_bytes = json.dumps(json_data).encode("utf-8")
+            body_bytes = _json.dumps(json_data).encode("utf-8")
             body_len = len(body_bytes)
+            # _apply_cookies returns None when there are neither headers nor
+            # cookies, so this assignment used to raise TypeError and a JSON
+            # body with no headers could not be sent at all. The sync methods
+            # already guard the same way.
+            merged_headers = merged_headers or {}
             merged_headers["content-type"] = "application/json"
         elif data is not None:
             if isinstance(data, dict):
@@ -3372,7 +3426,7 @@ class Session:
         options = {}
         if merged_headers:
             options["headers"] = merged_headers
-        options_json = json.dumps(options).encode("utf-8") if options else None
+        options_json = _json.dumps(options).encode("utf-8") if options else None
 
         start_time = time.perf_counter()
         response_handle = self._lib.httpcloak_post_raw(
@@ -3394,6 +3448,7 @@ class Session:
         method: str,
         url: str,
         data: Optional[Union[str, bytes, Dict[str, Any]]] = None,
+        json: Optional[Dict] = None,
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -3431,6 +3486,7 @@ class Session:
             requests. If you need to keep the data, copy it with bytes(r.content).
         """
         # Use request auth if provided, otherwise fall back to session auth
+        json_data = _resolve_json_alias(json, json_data)
         effective_auth = auth if auth is not None else self.auth
 
         url = _add_params_to_url(url, params)
@@ -3442,8 +3498,13 @@ class Session:
         body_bytes = None
         body_len = 0
         if json_data is not None:
-            body_bytes = json.dumps(json_data).encode("utf-8")
+            body_bytes = _json.dumps(json_data).encode("utf-8")
             body_len = len(body_bytes)
+            # _apply_cookies returns None when there are neither headers nor
+            # cookies, so this assignment used to raise TypeError and a JSON
+            # body with no headers could not be sent at all. The sync methods
+            # already guard the same way.
+            merged_headers = merged_headers or {}
             merged_headers["content-type"] = "application/json"
         elif data is not None:
             if isinstance(data, dict):
@@ -3467,7 +3528,7 @@ class Session:
         if timeout:
             request_config["timeout"] = timeout
 
-        request_json = json.dumps(request_config).encode("utf-8")
+        request_json = _json.dumps(request_config).encode("utf-8")
 
         start_time = time.perf_counter()
         response_handle = self._lib.httpcloak_request_raw(
@@ -3487,6 +3548,7 @@ class Session:
         self,
         url: str,
         data: Optional[Union[str, bytes, Dict[str, Any]]] = None,
+        json: Optional[Dict] = None,
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -3510,6 +3572,7 @@ class Session:
         Returns:
             FastResponse with memoryview content
         """
+        json_data = _resolve_json_alias(json, json_data)
         return self.request_fast(
             "PUT", url, data=data, json_data=json_data, params=params,
             headers=headers, cookies=cookies, auth=auth, timeout=timeout,
@@ -3547,6 +3610,7 @@ class Session:
         self,
         url: str,
         data: Optional[Union[str, bytes, Dict[str, Any]]] = None,
+        json: Optional[Dict] = None,
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -3570,6 +3634,7 @@ class Session:
         Returns:
             FastResponse with memoryview content
         """
+        json_data = _resolve_json_alias(json, json_data)
         return self.request_fast(
             "PATCH", url, data=data, json_data=json_data, params=params,
             headers=headers, cookies=cookies, auth=auth, timeout=timeout,
@@ -3663,6 +3728,7 @@ class Session:
         self,
         url: str,
         data: Union[str, bytes, Dict, None] = None,
+        json: Optional[Dict] = None,
         json_data: Optional[Dict] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -3690,12 +3756,13 @@ class Session:
         Returns:
             StreamResponse for streaming the response body
         """
+        json_data = _resolve_json_alias(json, json_data)
         url = _add_params_to_url(url, params)
         merged_headers = self._merge_headers(headers)
 
         body = None
         if json_data is not None:
-            body = json.dumps(json_data).encode("utf-8")
+            body = _json.dumps(json_data).encode("utf-8")
             merged_headers = merged_headers or {}
             merged_headers.setdefault("Content-Type", "application/json")
         elif data is not None:
@@ -3726,7 +3793,7 @@ class Session:
             options["disable_client_hints"] = True
         if disable_high_entropy_client_hints:
             options["disable_high_entropy_client_hints"] = True
-        options_json = json.dumps(options).encode("utf-8") if options else None
+        options_json = _json.dumps(options).encode("utf-8") if options else None
 
         # Start stream
         stream_handle = self._lib.httpcloak_stream_post(
@@ -3746,7 +3813,7 @@ class Session:
             self._lib.httpcloak_stream_close(stream_handle)
             raise HTTPCloakError("Failed to get stream metadata")
 
-        metadata = json.loads(metadata_str)
+        metadata = _json.loads(metadata_str)
         if "error" in metadata:
             self._lib.httpcloak_stream_close(stream_handle)
             raise HTTPCloakError(metadata["error"])
@@ -3935,6 +4002,7 @@ class Session:
         self,
         url: str,
         data: Union[str, bytes, Dict, None] = None,
+        json: Optional[Dict] = None,
         json_data: Optional[Dict] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -3962,12 +4030,13 @@ class Session:
         Returns:
             StreamResponse for streaming the response body
         """
+        json_data = _resolve_json_alias(json, json_data)
         url = _add_params_to_url(url, params)
         merged_headers = self._merge_headers(headers)
 
         body = None
         if json_data is not None:
-            body = json.dumps(json_data)
+            body = _json.dumps(json_data)
             merged_headers = merged_headers or {}
             merged_headers.setdefault("Content-Type", "application/json")
         elif data is not None:
@@ -4029,6 +4098,7 @@ class Session:
         self,
         url: str,
         data: Union[str, bytes, Dict, None] = None,
+        json: Optional[Dict] = None,
         json_data: Optional[Dict] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -4056,12 +4126,13 @@ class Session:
         Returns:
             StreamResponse for streaming the response body
         """
+        json_data = _resolve_json_alias(json, json_data)
         url = _add_params_to_url(url, params)
         merged_headers = self._merge_headers(headers)
 
         body = None
         if json_data is not None:
-            body = json.dumps(json_data)
+            body = _json.dumps(json_data)
             merged_headers = merged_headers or {}
             merged_headers.setdefault("Content-Type", "application/json")
         elif data is not None:
