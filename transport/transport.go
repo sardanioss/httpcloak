@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/andybalholm/brotli"
@@ -1558,12 +1559,22 @@ func (t *Transport) raceConnectProtocol(ctx context.Context, host, port string) 
 }
 
 // raceTwoProbes runs the H3 and H2 connection probes concurrently under a
-// shared cancellable context and returns as soon as one connects, or when the
-// H2 probe reports an ALPN downgrade to HTTP/1.1, or when the budget elapses
-// (default to H2 then). The losing probe is cancelled. budget bounds the wait
-// so a blocked H3 probe cannot stall the caller. Split out from
-// raceConnectProtocol so the race/timeout logic is unit-testable with injected
-// probes.
+// shared cancellable context and returns as soon as one connects, when the H2
+// probe reports an ALPN downgrade to HTTP/1.1, when BOTH probes have failed, or
+// when the budget elapses (default to H2 then). The losing probe is cancelled.
+// budget bounds the wait so a blocked H3 probe cannot stall the caller. Split
+// out from raceConnectProtocol so the race/timeout logic is unit-testable with
+// injected probes.
+//
+// The both-failed case matters more than it looks. Each goroutine used to
+// signal only on success, so a plain error from either was dropped on the
+// floor and the race sat out the entire budget even when both probes had
+// already given up. Measured against a host that does not resolve: every
+// forced protocol reported "no such host" in 20 to 130ms, while auto mode took
+// 6005ms, the budget almost exactly. Any request with a timeout under the
+// budget therefore died as "context deadline exceeded" and the real reason
+// never reached the caller. That applies to every fast failure, not just
+// NXDOMAIN: connection refused, no route to host, a rejected handshake.
 func raceTwoProbes(ctx context.Context, budget time.Duration, h3Probe, h2Probe func(context.Context) error) connectDecision {
 	raceCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -1571,6 +1582,17 @@ func raceTwoProbes(ctx context.Context, budget time.Duration, h3Probe, h2Probe f
 	winnerCh := make(chan Protocol, 1)
 	alpnErrCh := make(chan *ALPNMismatchError, 1)
 	doneCh := make(chan struct{})
+	// bothFailedCh closes once each probe has reported a failure that is not an
+	// ALPN downgrade, so a race nobody can win ends now instead of at the
+	// budget. An ALPN mismatch is not a failure here: it resolves the race on
+	// alpnErrCh and hands the caller a live connection.
+	bothFailedCh := make(chan struct{})
+	var failures atomic.Int32
+	noteFailure := func() {
+		if failures.Add(1) == 2 {
+			close(bothFailedCh)
+		}
+	}
 	// h2Done closes when the H2 probe goroutine has fully returned. The drainer
 	// (see drainLateALPN) waits on it so a late ALPN downgrade — an *ALPNMismatchError
 	// carrying a live *utls.UConn that the probe emits AFTER the race resolved —
@@ -1584,7 +1606,9 @@ func raceTwoProbes(ctx context.Context, budget time.Duration, h3Probe, h2Probe f
 			case winnerCh <- ProtocolHTTP3:
 			default:
 			}
+			return
 		}
+		noteFailure()
 	}()
 
 	// Race HTTP/2 connection
@@ -1604,6 +1628,8 @@ func raceTwoProbes(ctx context.Context, budget time.Duration, h3Probe, h2Probe f
 				case alpnErrCh <- alpnErr:
 				default:
 				}
+			} else {
+				noteFailure()
 			}
 		}
 	}()
@@ -1630,6 +1656,19 @@ func raceTwoProbes(ctx context.Context, budget time.Duration, h3Probe, h2Probe f
 		// This alpnErr's conn is handed to the caller to reuse; do NOT close it
 		// and do NOT drain (the probe emits exactly one alpnErr).
 		return connectDecision{alpnErr: alpnErr}
+	case <-bothFailedCh:
+		cancel()
+		// Same outcome as the budget path, just without the wait: the caller
+		// falls back to H2 then H1, which fail fast now that DNS or the dial
+		// has already answered, and produces the real error instead of a
+		// deadline.
+		select {
+		case alpnErr := <-alpnErrCh:
+			return connectDecision{alpnErr: alpnErr}
+		default:
+		}
+		drainLateALPN(h2Done, alpnErrCh)
+		return connectDecision{protocol: ProtocolHTTP2}
 	case <-doneCh:
 		cancel()
 		select {

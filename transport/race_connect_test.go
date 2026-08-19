@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestRaceTwoProbes_H3BlockedH2Wins_NoStall(t *testing.T) {
 	budget := 2 * time.Second
 	t0 := time.Now()
 	d := raceTwoProbes(context.Background(), budget,
-		blockUntilCancel(),               // H3 never connects
+		blockUntilCancel(),                // H3 never connects
 		connectAfter(50*time.Millisecond), // H2 connects quickly
 	)
 	el := time.Since(t0)
@@ -133,4 +134,72 @@ func TestRaceTwoProbes_ALPNDowngradeSurfaced(t *testing.T) {
 	}
 	// Caller owns the conn now; close it.
 	d.alpnErr.TLSConn.Close()
+}
+
+// Both probes failing fast must end the race immediately, not at the budget.
+//
+// Each goroutine used to signal only on success, so a plain error from either
+// was dropped and the race waited out the whole budget even though nobody
+// could win. Measured against a host that does not resolve: every forced
+// protocol reported "no such host" in 20 to 130ms while auto mode took
+// 6005ms, which is the 6s budget. Any caller with a timeout under that got
+// "context deadline exceeded" and never saw the real reason.
+//
+// This is not specific to DNS. Connection refused, no route to host and a
+// rejected handshake all fail fast and all hit the same wait.
+func TestRaceTwoProbes_BothFailFast_NoBudgetWait(t *testing.T) {
+	budget := 2 * time.Second
+	failFast := func(context.Context) error { return errors.New("no such host") }
+
+	t0 := time.Now()
+	d := raceTwoProbes(context.Background(), budget, failFast, failFast)
+	el := time.Since(t0)
+
+	// Same decision as the budget path: the caller falls back to H2 then H1
+	// and produces the real error. Only the waiting is gone.
+	if d.err != nil || d.alpnErr != nil {
+		t.Fatalf("unexpected decision: %+v", d)
+	}
+	if d.protocol != ProtocolHTTP2 {
+		t.Fatalf("want H2 default, got %v", d.protocol)
+	}
+	if el > budget/4 {
+		t.Fatalf("both probes failed immediately but the race took %v of a %v budget; "+
+			"the failure signal is not resolving the race", el, budget)
+	}
+}
+
+// One probe failing fast must NOT end the race. The other may still win, and
+// cutting it short here would turn "H3 is blocked" into "no H3 for this host"
+// on every connection.
+func TestRaceTwoProbes_OneFailureDoesNotEndTheRace(t *testing.T) {
+	budget := 2 * time.Second
+	slowWinner := func(ctx context.Context) error {
+		select {
+		case <-time.After(200 * time.Millisecond):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	d := raceTwoProbes(context.Background(), budget,
+		func(context.Context) error { return errors.New("quic blocked") },
+		slowWinner,
+	)
+	if d.protocol != ProtocolHTTP2 {
+		t.Fatalf("H2 connected after H3 failed, want H2 as winner, got %+v", d)
+	}
+}
+
+// An ALPN downgrade is not a failure. It resolves the race on its own channel
+// and hands the caller a live connection, so counting it would race the two
+// paths against each other.
+func TestRaceTwoProbes_ALPNDowngradeIsNotCountedAsFailure(t *testing.T) {
+	d := raceTwoProbes(context.Background(), 2*time.Second,
+		func(context.Context) error { return errors.New("quic blocked") },
+		func(context.Context) error { return &ALPNMismatchError{Negotiated: "http/1.1"} },
+	)
+	if d.alpnErr == nil {
+		t.Fatalf("want the ALPN downgrade surfaced, got %+v", d)
+	}
 }

@@ -52,6 +52,13 @@ internal_tests/
 !/rootcas_verify_test.go
 !/redirect_test.go
 
+# Python regression locks. The repo tracked no Python tests until the fast-path
+# JSON body bug (post_fast/put_fast crashed outright on json= with no headers)
+# showed the surface needs the same coverage Go already gets. Whitelisted one
+# file at a time, like the root-level Go tests above, so this stays a
+# deliberate list rather than an open door.
+!/tests/python/test_json_alias.py
+
 # Local workspace config (points at machine-local fork paths)
 go.work
 go.work.sum
