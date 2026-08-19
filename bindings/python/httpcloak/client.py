@@ -1214,6 +1214,8 @@ def _setup_lib(lib):
     lib.httpcloak_post_raw.restype = c_int64
     lib.httpcloak_request_raw.argtypes = [c_int64, c_char_p, c_char_p, c_int]
     lib.httpcloak_request_raw.restype = c_int64
+    lib.httpcloak_last_error.argtypes = [c_int64]
+    lib.httpcloak_last_error.restype = c_void_p
     lib.httpcloak_response_get_metadata.argtypes = [c_int64]
     lib.httpcloak_response_get_metadata.restype = c_void_p
     lib.httpcloak_response_get_body.argtypes = [c_int64, POINTER(c_int)]
@@ -1313,6 +1315,28 @@ def _parse_response(result_ptr, elapsed: float = 0.0) -> Response:
     if "error" in data:
         raise HTTPCloakError(data["error"])
     return Response._from_dict(data, elapsed=elapsed)
+
+
+
+def _last_error(lib, handle, fallback="Request failed"):
+    """
+    Read why the most recent int64-returning call on ``handle`` failed.
+
+    ``httpcloak_request_raw`` returns a response handle and signals failure
+    with -1, so the return type cannot carry a message. Without this, an
+    invalid request JSON, an undecodable body and a real network failure all
+    reached the caller as the same ``Request failed`` string.
+    """
+    ptr = lib.httpcloak_last_error(handle)
+    if not ptr:
+        return fallback
+    try:
+        raw = cast(ptr, c_char_p).value
+        if not raw:
+            return fallback
+        return raw.decode("utf-8", "replace")
+    finally:
+        lib.httpcloak_free_string(ptr)
 
 
 def _parse_raw_response(lib, response_handle: int, elapsed: float = 0.0) -> Response:
@@ -2079,7 +2103,7 @@ class Session:
         elapsed = time.perf_counter() - start_time
 
         if response_handle < 0:
-            raise HTTPCloakError("Request failed")
+            raise HTTPCloakError(_last_error(self._lib, self._handle))
 
         return _parse_raw_response(self._lib, response_handle, elapsed=elapsed)
 
@@ -2184,7 +2208,7 @@ class Session:
         elapsed = time.perf_counter() - start_time
 
         if response_handle < 0:
-            raise HTTPCloakError("Request failed")
+            raise HTTPCloakError(_last_error(self._lib, self._handle))
 
         return _parse_raw_response(self._lib, response_handle, elapsed=elapsed)
 
@@ -3215,7 +3239,7 @@ class Session:
         elapsed = time.perf_counter() - start_time
 
         if response_handle < 0:
-            raise HTTPCloakError("Request failed")
+            raise HTTPCloakError(_last_error(self._lib, self._handle))
 
         return _parse_raw_response(self._lib, response_handle, elapsed=elapsed)
 
@@ -3276,7 +3300,7 @@ class Session:
         elapsed = time.perf_counter() - start_time
 
         if response_handle < 0:
-            raise HTTPCloakError("Request failed")
+            raise HTTPCloakError(_last_error(self._lib, self._handle))
 
         return _parse_fast_response(self._lib, response_handle, elapsed=elapsed)
 
@@ -3361,7 +3385,7 @@ class Session:
         elapsed = time.perf_counter() - start_time
 
         if response_handle < 0:
-            raise HTTPCloakError("Request failed")
+            raise HTTPCloakError(_last_error(self._lib, self._handle))
 
         return _parse_fast_response(self._lib, response_handle, elapsed=elapsed)
 
@@ -3455,7 +3479,7 @@ class Session:
         elapsed = time.perf_counter() - start_time
 
         if response_handle < 0:
-            raise HTTPCloakError("Request failed")
+            raise HTTPCloakError(_last_error(self._lib, self._handle))
 
         return _parse_fast_response(self._lib, response_handle, elapsed=elapsed)
 

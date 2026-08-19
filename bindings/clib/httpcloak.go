@@ -159,8 +159,19 @@ func encodeResponseBody(b []byte) (string, string) {
 
 // Session handle management
 var (
-	sessionMu      sync.RWMutex
-	sessions       = make(map[int64]*httpcloak.Session)
+	sessionMu sync.RWMutex
+	sessions  = make(map[int64]*httpcloak.Session)
+
+	// lastErrors carries the most recent failure for a session handle.
+	// httpcloak_request_raw returns C.int64_t and signals failure with -1, so
+	// it physically cannot carry an error string; every failure class reached
+	// the caller as the same generic "Request failed". This is where the real
+	// reason goes, retrievable with httpcloak_last_error.
+	//
+	// Guarded by sessionMu and deleted in httpcloak_session_free, so an entry
+	// cannot outlive its session. Nothing is stored for a handle that does not
+	// resolve, which stops a caller passing junk handles from growing the map.
+	lastErrors     = make(map[int64]string)
 	sessionCounter int64
 )
 
@@ -897,6 +908,7 @@ func httpcloak_response_finalize(handle C.int64_t, dest unsafe.Pointer, destLen 
 //export httpcloak_get_raw
 func httpcloak_get_raw(handle C.int64_t, url *C.char, optionsJSON *C.char) (hcRet C.int64_t) {
 	defer guardInt64("httpcloak_get_raw", &hcRet)
+	clearLastError(handle)
 	session := getSession(handle)
 	if session == nil {
 		return -1
@@ -933,15 +945,41 @@ func httpcloak_get_raw(handle C.int64_t, url *C.char, optionsJSON *C.char) (hcRe
 
 	resp, err := session.Do(ctx, req)
 	if err != nil {
+		setLastError(handle, "%v", err)
 		return -1
 	}
 
 	return C.int64_t(makeRawResponse(resp))
 }
 
+// httpcloak_last_error returns why the most recent int64-returning call on
+// this session handle failed, or an empty string if it succeeded. The caller
+// owns the returned string and must release it with httpcloak_free_string.
+//
+// It exists because httpcloak_request_raw returns a response handle as an
+// int64 and signals failure with -1. That return type cannot carry a message,
+// so an invalid request JSON, an undecodable body and a genuine network
+// failure were indistinguishable to every binding; they all surfaced as the
+// same generic text. The async path never had this problem because it returns
+// *C.char and can put the error in the payload.
+//
+//export httpcloak_last_error
+func httpcloak_last_error(handle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_last_error", &hcRet)
+	sessionMu.Lock()
+	_, exists := sessions[int64(handle)]
+	msg := lastErrors[int64(handle)]
+	sessionMu.Unlock()
+	if !exists {
+		return C.CString("invalid or closed session handle")
+	}
+	return C.CString(msg)
+}
+
 //export httpcloak_post_raw
 func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.int, optionsJSON *C.char) (hcRet C.int64_t) {
 	defer guardInt64("httpcloak_post_raw", &hcRet)
+	clearLastError(handle)
 	session := getSession(handle)
 	if session == nil {
 		return -1
@@ -988,6 +1026,7 @@ func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.i
 
 	resp, err := session.Do(ctx, req)
 	if err != nil {
+		setLastError(handle, "%v", err)
 		return -1
 	}
 
@@ -997,15 +1036,25 @@ func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.i
 //export httpcloak_request_raw
 func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, bodyLen C.int) (hcRet C.int64_t) {
 	defer guardInt64("httpcloak_request_raw", &hcRet)
+	clearLastError(handle)
 	session := getSession(handle)
 	if session == nil {
+		// Nowhere to store this one: setLastError refuses unresolvable
+		// handles, and httpcloak_last_error reports the same thing itself.
 		return -1
 	}
 
 	var config RequestConfig
 	if requestJSON != nil {
 		jsonStr := C.GoString(requestJSON)
-		json.Unmarshal([]byte(jsonStr), &config)
+		// The error used to be discarded, which was worse than returning -1:
+		// a malformed request JSON left config at its zero value and went on
+		// to issue a GET to an empty URL, so the caller saw a network-shaped
+		// failure for what was a serialisation bug on their side.
+		if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
+			setLastError(handle, "request JSON is not valid: %v", err)
+			return -1
+		}
 	}
 
 	var bodyBytes []byte
@@ -1015,7 +1064,9 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 		var err error
 		bodyBytes, err = decodeRequestBody(config.Body, config.BodyEncoding)
 		if err != nil {
-			return -1 // Invalid base64
+			setLastError(handle, "request body could not be decoded as %s: %v",
+				config.BodyEncoding, err)
+			return -1
 		}
 	}
 
@@ -1051,6 +1102,7 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 
 	resp, err := session.Do(ctx, req)
 	if err != nil {
+		setLastError(handle, "%v", err)
 		return -1
 	}
 
@@ -1309,6 +1361,7 @@ func httpcloak_session_free(handle C.int64_t) {
 	if exists {
 		delete(sessions, int64(handle))
 	}
+	delete(lastErrors, int64(handle))
 	sessionMu.Unlock()
 
 	if session != nil {
@@ -1365,6 +1418,26 @@ func httpcloak_session_warmup(handle C.int64_t, url *C.char, timeoutMs C.int64_t
 	}
 
 	return nil
+}
+
+// setLastError records why an int64-returning entry point returned -1.
+// Storing nothing for an unresolvable handle is deliberate; see lastErrors.
+func setLastError(handle C.int64_t, format string, args ...interface{}) {
+	sessionMu.Lock()
+	defer sessionMu.Unlock()
+	if _, exists := sessions[int64(handle)]; !exists {
+		return
+	}
+	lastErrors[int64(handle)] = fmt.Sprintf(format, args...)
+}
+
+// clearLastError drops any stored error for a handle. Called at the top of
+// each attempt so a stored message only ever describes the most recent call,
+// rather than a stale failure surviving a later success.
+func clearLastError(handle C.int64_t) {
+	sessionMu.Lock()
+	defer sessionMu.Unlock()
+	delete(lastErrors, int64(handle))
 }
 
 func getSession(handle C.int64_t) *httpcloak.Session {
@@ -3438,6 +3511,7 @@ func getStream(handle int64) *httpcloak.StreamResponse {
 //export httpcloak_stream_get
 func httpcloak_stream_get(sessionHandle C.int64_t, url *C.char, optionsJSON *C.char) (hcRet C.int64_t) {
 	defer guardInt64("httpcloak_stream_get", &hcRet)
+	clearLastError(sessionHandle)
 	session := getSession(sessionHandle)
 	if session == nil {
 		return -1
@@ -3494,6 +3568,7 @@ func httpcloak_stream_get(sessionHandle C.int64_t, url *C.char, optionsJSON *C.c
 //export httpcloak_stream_post
 func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, optionsJSON *C.char) (hcRet C.int64_t) {
 	defer guardInt64("httpcloak_stream_post", &hcRet)
+	clearLastError(sessionHandle)
 	session := getSession(sessionHandle)
 	if session == nil {
 		return -1
@@ -3558,6 +3633,7 @@ func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, o
 //export httpcloak_stream_request
 func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcRet C.int64_t) {
 	defer guardInt64("httpcloak_stream_request", &hcRet)
+	clearLastError(sessionHandle)
 	session := getSession(sessionHandle)
 	if session == nil {
 		return -1
