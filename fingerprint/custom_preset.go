@@ -26,15 +26,15 @@ type PoolSpec struct {
 
 // PresetSpec defines a single preset in JSON.
 type PresetSpec struct {
-	Name     string        `json:"name"`
-	BasedOn  string        `json:"based_on,omitempty"`
-	TLS      *TLSSpec      `json:"tls,omitempty"`
-	HTTP2    *HTTP2Spec    `json:"http2,omitempty"`
-	HTTP3    *HTTP3Spec    `json:"http3,omitempty"`
-	Headers  *HeaderSpec   `json:"headers,omitempty"`
+	Name        string           `json:"name"`
+	BasedOn     string           `json:"based_on,omitempty"`
+	TLS         *TLSSpec         `json:"tls,omitempty"`
+	HTTP2       *HTTP2Spec       `json:"http2,omitempty"`
+	HTTP3       *HTTP3Spec       `json:"http3,omitempty"`
+	Headers     *HeaderSpec      `json:"headers,omitempty"`
 	ClientHints *ClientHintsSpec `json:"client_hints,omitempty"`
-	TCP      *TCPSpec      `json:"tcp,omitempty"`
-	Protocol *ProtocolSpec `json:"protocols,omitempty"`
+	TCP         *TCPSpec         `json:"tcp,omitempty"`
+	Protocol    *ProtocolSpec    `json:"protocols,omitempty"`
 }
 
 // ClientHintsSpec defines high-entropy UA client hint overrides for a preset.
@@ -53,34 +53,34 @@ type ClientHintsSpec struct {
 // TLSSpec defines TLS fingerprint configuration.
 type TLSSpec struct {
 	// Mutually exclusive: use client_hello OR ja3, not both
-	ClientHello     string `json:"client_hello,omitempty"`      // e.g., "chrome-146-windows"
-	PSKClientHello  string `json:"psk_client_hello,omitempty"`  // e.g., "chrome-146-windows-psk"
-	QUICClientHello string `json:"quic_client_hello,omitempty"` // e.g., "chrome-146-quic"
+	ClientHello        string `json:"client_hello,omitempty"`      // e.g., "chrome-146-windows"
+	PSKClientHello     string `json:"psk_client_hello,omitempty"`  // e.g., "chrome-146-windows-psk"
+	QUICClientHello    string `json:"quic_client_hello,omitempty"` // e.g., "chrome-146-quic"
 	QUICPSKClientHello string `json:"quic_psk_client_hello,omitempty"`
 
-	JA3 string    `json:"ja3,omitempty"` // JA3 string
+	JA3           string         `json:"ja3,omitempty"` // JA3 string
 	JA3ExtrasSpec *JA3ExtrasSpec `json:"ja3_extras,omitempty"`
 
 	// Individual extension data (supplements client_hello or ja3)
-	SignatureAlgorithms            []uint16 `json:"signature_algorithms,omitempty"`      // TCP (H1/H2) sig-algs override; overrides the ClientHelloID base
-	QUICSignatureAlgorithms        []uint16 `json:"quic_signature_algorithms,omitempty"` // HTTP/3 (QUIC) sig-algs override; separate because a browser's QUIC set can differ (e.g. Chrome 150 sends ML-DSA on TCP only)
-	DelegatedCredentialAlgorithms  []uint16 `json:"delegated_credential_algorithms,omitempty"`
-	ALPN                           []string `json:"alpn,omitempty"`
-	CertCompression    []string `json:"cert_compression,omitempty"` // "brotli", "zlib", "zstd"
-	PermuteExtensions  *bool    `json:"permute_extensions,omitempty"`
-	RecordSizeLimit    *uint16  `json:"record_size_limit,omitempty"`
-	KeyShareCurves     *int     `json:"key_share_curves,omitempty"` // number of curves to send key shares for; nil/0 = 1
+	SignatureAlgorithms           []uint16 `json:"signature_algorithms,omitempty"`      // TCP (H1/H2) sig-algs override; overrides the ClientHelloID base
+	QUICSignatureAlgorithms       []uint16 `json:"quic_signature_algorithms,omitempty"` // HTTP/3 (QUIC) sig-algs override; separate because a browser's QUIC set can differ (e.g. Chrome 150 sends ML-DSA on TCP only)
+	DelegatedCredentialAlgorithms []uint16 `json:"delegated_credential_algorithms,omitempty"`
+	ALPN                          []string `json:"alpn,omitempty"`
+	CertCompression               []string `json:"cert_compression,omitempty"` // "brotli", "zlib", "zstd"
+	PermuteExtensions             *bool    `json:"permute_extensions,omitempty"`
+	RecordSizeLimit               *uint16  `json:"record_size_limit,omitempty"`
+	KeyShareCurves                *int     `json:"key_share_curves,omitempty"` // number of curves to send key shares for; nil/0 = 1
 }
 
 // JA3ExtrasSpec is the JSON representation of JA3Extras.
 type JA3ExtrasSpec struct {
-	SignatureAlgorithms            []uint16 `json:"signature_algorithms,omitempty"`
-	DelegatedCredentialAlgorithms  []uint16 `json:"delegated_credential_algorithms,omitempty"`
-	ALPN                           []string `json:"alpn,omitempty"`
-	CertCompression                []string `json:"cert_compression,omitempty"`
-	PermuteExtensions              *bool    `json:"permute_extensions,omitempty"`
-	RecordSizeLimit                *uint16  `json:"record_size_limit,omitempty"`
-	KeyShareCurves                 *int     `json:"key_share_curves,omitempty"`
+	SignatureAlgorithms           []uint16 `json:"signature_algorithms,omitempty"`
+	DelegatedCredentialAlgorithms []uint16 `json:"delegated_credential_algorithms,omitempty"`
+	ALPN                          []string `json:"alpn,omitempty"`
+	CertCompression               []string `json:"cert_compression,omitempty"`
+	PermuteExtensions             *bool    `json:"permute_extensions,omitempty"`
+	RecordSizeLimit               *uint16  `json:"record_size_limit,omitempty"`
+	KeyShareCurves                *int     `json:"key_share_curves,omitempty"`
 }
 
 // HTTP2Spec defines HTTP/2 fingerprint configuration.
@@ -89,16 +89,16 @@ type HTTP2Spec struct {
 	Akamai string `json:"akamai,omitempty"`
 
 	// Individual SETTINGS fields (overlay on top of akamai if both set)
-	HeaderTableSize      *uint32 `json:"header_table_size,omitempty"`
-	EnablePush           *bool   `json:"enable_push,omitempty"`
-	MaxConcurrentStreams  *uint32 `json:"max_concurrent_streams,omitempty"`
-	InitialWindowSize    *uint32 `json:"initial_window_size,omitempty"`
-	MaxFrameSize         *uint32 `json:"max_frame_size,omitempty"`
-	MaxHeaderListSize    *uint32 `json:"max_header_list_size,omitempty"`
+	HeaderTableSize        *uint32 `json:"header_table_size,omitempty"`
+	EnablePush             *bool   `json:"enable_push,omitempty"`
+	MaxConcurrentStreams   *uint32 `json:"max_concurrent_streams,omitempty"`
+	InitialWindowSize      *uint32 `json:"initial_window_size,omitempty"`
+	MaxFrameSize           *uint32 `json:"max_frame_size,omitempty"`
+	MaxHeaderListSize      *uint32 `json:"max_header_list_size,omitempty"`
 	ConnectionWindowUpdate *uint32 `json:"connection_window_update,omitempty"`
-	StreamWeight         *uint16 `json:"stream_weight,omitempty"`
-	StreamExclusive      *bool   `json:"stream_exclusive,omitempty"`
-	NoRFC7540Priorities  *bool   `json:"no_rfc7540_priorities,omitempty"`
+	StreamWeight           *uint16 `json:"stream_weight,omitempty"`
+	StreamExclusive        *bool   `json:"stream_exclusive,omitempty"`
+	NoRFC7540Priorities    *bool   `json:"no_rfc7540_priorities,omitempty"`
 
 	// H2 fingerprinting config
 	Settings      []HTTP2SettingSpec `json:"settings,omitempty"`
@@ -139,21 +139,21 @@ type HTTP2SettingSpec struct {
 
 // HTTP3Spec defines HTTP/3 and QUIC fingerprint configuration.
 type HTTP3Spec struct {
-	QPACKMaxTableCapacity        *uint64 `json:"qpack_max_table_capacity,omitempty"`
-	QPACKBlockedStreams           *uint64 `json:"qpack_blocked_streams,omitempty"`
-	MaxFieldSectionSize          *uint64 `json:"max_field_section_size,omitempty"`
-	EnableDatagrams              *bool   `json:"enable_datagrams,omitempty"`
-	QUICInitialPacketSize        *uint16 `json:"quic_initial_packet_size,omitempty"`
-	QUICMaxIncomingStreams        *int64  `json:"quic_max_incoming_streams,omitempty"`
-	QUICMaxIncomingUniStreams     *int64  `json:"quic_max_incoming_uni_streams,omitempty"`
-	QUICAllow0RTT                *bool   `json:"quic_allow_0rtt,omitempty"`
-	QUICChromeStyleInitial       *bool   `json:"quic_chrome_style_initial,omitempty"`
-	QUICDisableHelloScramble     *bool   `json:"quic_disable_hello_scramble,omitempty"`
-	QUICTransportParamOrder      *string `json:"quic_transport_param_order,omitempty"` // "chrome","random"
-	QUICConnectionIDLength       *int    `json:"quic_connection_id_length,omitempty"`
-	QUICMaxDatagramFrameSize     *uint64 `json:"quic_max_datagram_frame_size,omitempty"`
-	MaxResponseHeaderBytes       *uint64 `json:"max_response_header_bytes,omitempty"`
-	SendGreaseFrames             *bool   `json:"send_grease_frames,omitempty"`
+	QPACKMaxTableCapacity     *uint64 `json:"qpack_max_table_capacity,omitempty"`
+	QPACKBlockedStreams       *uint64 `json:"qpack_blocked_streams,omitempty"`
+	MaxFieldSectionSize       *uint64 `json:"max_field_section_size,omitempty"`
+	EnableDatagrams           *bool   `json:"enable_datagrams,omitempty"`
+	QUICInitialPacketSize     *uint16 `json:"quic_initial_packet_size,omitempty"`
+	QUICMaxIncomingStreams    *int64  `json:"quic_max_incoming_streams,omitempty"`
+	QUICMaxIncomingUniStreams *int64  `json:"quic_max_incoming_uni_streams,omitempty"`
+	QUICAllow0RTT             *bool   `json:"quic_allow_0rtt,omitempty"`
+	QUICChromeStyleInitial    *bool   `json:"quic_chrome_style_initial,omitempty"`
+	QUICDisableHelloScramble  *bool   `json:"quic_disable_hello_scramble,omitempty"`
+	QUICTransportParamOrder   *string `json:"quic_transport_param_order,omitempty"` // "chrome","random"
+	QUICConnectionIDLength    *int    `json:"quic_connection_id_length,omitempty"`
+	QUICMaxDatagramFrameSize  *uint64 `json:"quic_max_datagram_frame_size,omitempty"`
+	MaxResponseHeaderBytes    *uint64 `json:"max_response_header_bytes,omitempty"`
+	SendGreaseFrames          *bool   `json:"send_grease_frames,omitempty"`
 
 	// QUIC flow-control windows. These map to quic.Config fields and ultimately
 	// to wire transport parameters initial_max_data (4) and initial_max_stream_data_*
@@ -225,7 +225,14 @@ func LoadAndBuildPreset(path string) (*Preset, error) {
 	if pf.Preset == nil {
 		return nil, fmt.Errorf("preset file has no 'preset' field")
 	}
-	return BuildPreset(pf.Preset)
+	p, err := BuildPreset(pf.Preset)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateComplete(p); err != nil {
+		return nil, fmt.Errorf("validation: %w", err)
+	}
+	return p, nil
 }
 
 // LoadAndBuildPresetFromJSON is a convenience function: parse JSON + build a single preset.
@@ -237,7 +244,14 @@ func LoadAndBuildPresetFromJSON(data []byte) (*Preset, error) {
 	if pf.Preset == nil {
 		return nil, fmt.Errorf("preset JSON has no 'preset' field")
 	}
-	return BuildPreset(pf.Preset)
+	p, err := BuildPreset(pf.Preset)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateComplete(p); err != nil {
+		return nil, fmt.Errorf("validation: %w", err)
+	}
+	return p, nil
 }
 
 // --- Core Build ---
@@ -333,8 +347,38 @@ func BuildPreset(spec *PresetSpec) (*Preset, error) {
 	if err := validatePreset(p, spec); err != nil {
 		return nil, fmt.Errorf("validation: %w", err)
 	}
-
 	return p, nil
+}
+
+// validateComplete rejects a preset that built successfully but cannot serve a
+// request. Without based_on the build starts from an empty Preset, so a spec
+// describing only TLS yields a profile with no User-Agent, no header set and
+// no HTTP/2 settings. Nothing used to catch that: the preset registered, the
+// session was created, and the first request fell back to HTTP/1.1 and then
+// sat there until the deadline expired. The caller saw a timeout for what is
+// a static configuration mistake, with no hint that the preset caused it.
+//
+// This runs in the loaders rather than in BuildPreset, because BuildPreset is
+// a builder and a partial preset is a legitimate intermediate there. The
+// loaders are the "here is my finished profile" entry points, and they are
+// what every binding and the C ABI go through.
+//
+// Same reasoning as the JA3 pre-validation in BuildPreset: a clear error at
+// load time beats an opaque failure on the wire later.
+func validateComplete(p *Preset) error {
+	if p.ClientHelloID.Client == "" && p.JA3 == "" {
+		return fmt.Errorf("preset %q has no TLS fingerprint source: set tls.client_hello, "+
+			"tls.ja3, or based_on to inherit one", p.Name)
+	}
+	if p.UserAgent == "" {
+		return fmt.Errorf("preset %q has no user agent: set headers.user_agent, or based_on "+
+			"to inherit a complete header profile", p.Name)
+	}
+	if len(p.HeaderOrder) == 0 && len(p.Headers) == 0 {
+		return fmt.Errorf("preset %q has no headers: set a headers block, or based_on to "+
+			"inherit one. A TLS-only preset cannot serve a request", p.Name)
+	}
+	return nil
 }
 
 // clonePreset performs a deep copy of a Preset.
