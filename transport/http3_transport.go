@@ -216,6 +216,13 @@ type HTTP3Transport struct {
 	// Track requests for timing
 	requestCount int64
 	dialCount    int64 // Number of times dialQUIC was called (new connections)
+	// zeroRTTRejected records hosts that rejected early data. The 0-RTT retry
+	// loop used to recreate the transport and dial again with the SAME session
+	// ticket, so every retry offered 0-RTT and got the same rejection: three
+	// rounds, six dials, several seconds, then a hard failure on a host that
+	// would have answered a plain handshake immediately.
+	zeroRTTRejected map[string]bool
+
 	// lastConn is the most recent connection handed back by any dial path,
 	// kept so Stats can read its handshake state on demand. One pointer,
 	// replaced per dial and dropped on Refresh and Close.
@@ -1306,6 +1313,21 @@ func (t *HTTP3Transport) recordHandshakeState(
 		return nil
 	}
 	return func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+		// A host that rejected early data once will reject it again. Dropping
+		// the session cache for that dial forces a full handshake, which is the
+		// only thing that makes the retry different from the attempt that just
+		// failed.
+		if host, _, splitErr := net.SplitHostPort(addr); splitErr == nil {
+			t.mu.RLock()
+			rejected := t.zeroRTTRejected[host]
+			t.mu.RUnlock()
+			if rejected && tlsCfg != nil && tlsCfg.ClientSessionCache != nil {
+				noResume := tlsCfg.Clone()
+				noResume.ClientSessionCache = nil
+				tlsCfg = noResume
+			}
+		}
+
 		conn, err := dial(ctx, addr, tlsCfg, cfg)
 		if err == nil && conn != nil {
 			t.mu.Lock()
@@ -1568,7 +1590,20 @@ func (t *HTTP3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if err == nil || !is0RTTRejectedError(err) {
 			break
 		}
-		// 0-RTT rejected - close unusable connection and recreate transport
+		// 0-RTT rejected. Mark the host BEFORE recreating, so the next dial
+		// suppresses the session cache and does a full handshake. Without this
+		// the retry repeats the identical offer and gets the identical
+		// rejection, which is what turned a recoverable stall into a hard
+		// failure after six dials.
+		if host := hostOnly(req.URL.Host); host != "" {
+			t.mu.Lock()
+			if t.zeroRTTRejected == nil {
+				t.zeroRTTRejected = make(map[string]bool)
+			}
+			t.zeroRTTRejected[host] = true
+			t.mu.Unlock()
+		}
+		// close unusable connection and recreate transport
 		// Use timeout to prevent blocking if QUIC drain takes too long
 		closeWithTimeout(transport, 3*time.Second)
 		t.recreateTransport()
@@ -2303,4 +2338,12 @@ func (t *HTTP3Transport) getECHConfig(ctx context.Context, targetHost string) []
 	t.echConfigCacheMu.Unlock()
 
 	return echConfig
+}
+
+// hostOnly strips any port from a host:port string, tolerating a bare host.
+func hostOnly(hostport string) string {
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		return h
+	}
+	return hostport
 }
