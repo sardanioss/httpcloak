@@ -3,12 +3,12 @@ package transport
 import (
 	"bufio"
 	"context"
-	tls "github.com/sardanioss/utls"
 	"encoding/base64"
 	"fmt"
+	http "github.com/sardanioss/http"
+	tls "github.com/sardanioss/utls"
 	"io"
 	"net"
-	http "github.com/sardanioss/http"
 	"net/textproto"
 	"net/url"
 	"sort"
@@ -345,15 +345,11 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		// anything wrong. GetBody is set by http.NewRequestWithContext for every
 		// in-memory body; one that cannot be re-opened cannot be retried at all,
 		// so the connection error stands rather than a corrupt request going out.
-		if req.Body != nil && req.Body != http.NoBody {
+		if rewindErr := rewindRequestBody(req); rewindErr != nil {
 			if req.GetBody == nil {
 				return nil, WrapError("request", host, port, "h1", err)
 			}
-			rc, gerr := req.GetBody()
-			if gerr != nil {
-				return nil, WrapError("request", host, port, "h1", gerr)
-			}
-			req.Body = rc
+			return nil, WrapError("request", host, port, "h1", rewindErr)
 		}
 	}
 
@@ -386,6 +382,25 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	return resp, nil
+}
+
+// rewindRequestBody restores a request body after an attempt on a pooled
+// connection consumed it. Retrying with the exhausted reader would preserve
+// Content-Length while sending no bytes, leaving the peer waiting for a body
+// and the client waiting for response headers until the request deadline.
+func rewindRequestBody(req *http.Request) error {
+	if req.Body == nil || req.Body == http.NoBody {
+		return nil
+	}
+	if req.GetBody == nil {
+		return fmt.Errorf("request body cannot be replayed")
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return fmt.Errorf("rewind request body: %w", err)
+	}
+	req.Body = body
+	return nil
 }
 
 // RoundTripWithTLSConn performs an HTTP/1.1 request using an existing TLS connection.
@@ -1426,8 +1441,20 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 
 // shouldKeepAlive determines if connection should be reused
 func (t *HTTP1Transport) shouldKeepAlive(req *http.Request, resp *http.Response) bool {
+	// ReadResponse records connection-close semantics in Response.Close. Some
+	// HTTP implementations remove the hop-by-hop Connection header after parsing,
+	// so checking the header alone can incorrectly return a closing socket to the
+	// idle pool.
+	if resp.Close {
+		return false
+	}
+
 	// Check response Connection header
 	if strings.EqualFold(resp.Header.Get("Connection"), "close") {
+		return false
+	}
+
+	if req.Close {
 		return false
 	}
 

@@ -95,6 +95,18 @@ func (j *CookieJar) Set(requestHost string, cookie *CookieData, requestSecure bo
 		path = "/"
 	}
 
+	// Replacing a cookie preserves its creation time. RFC 6265 requires this,
+	// and browsers use that time when ordering same-path cookies on the wire.
+	// Resetting it here moves every refreshed cookie to the end of Cookie,
+	// which is observably different from Chrome and can trip order-sensitive
+	// bot protection.
+	createdAt := time.Now()
+	if domainCookies := j.cookies[domain]; domainCookies != nil {
+		if existing := domainCookies[cookieKey(path, cookie.Name)]; existing != nil {
+			createdAt = existing.CreatedAt
+		}
+	}
+
 	// Create the stored cookie
 	stored := &CookieData{
 		Name:      cookie.Name,
@@ -107,7 +119,7 @@ func (j *CookieJar) Set(requestHost string, cookie *CookieData, requestSecure bo
 		Secure:    cookie.Secure,
 		HttpOnly:  cookie.HttpOnly,
 		SameSite:  cookie.SameSite,
-		CreatedAt: time.Now(),
+		CreatedAt: createdAt,
 	}
 
 	// Store the cookie
