@@ -1400,6 +1400,7 @@ func (t *HTTP2Transport) SetInsecureSkipVerify(skip bool) {
 // SetLocalAddr sets the local IP address for outgoing connections
 func (t *HTTP2Transport) SetLocalAddr(addr string) {
 	t.localAddr = addr
+	narrowDNSToLocalFamily(t.dnsCache, addr)
 }
 
 // Stats returns transport statistics

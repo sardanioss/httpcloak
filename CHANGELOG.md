@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A session bound to a local address no longer resolves the family it cannot dial**: `WithLocalAddress` fixes the address family for every connection a session makes, because a socket bound to an IPv6 source cannot reach an IPv4 peer and vice versa. All three transports already knew this and dropped the unusable records after resolving them, each filtering the resolved set against the bound family before dialing and erroring with "no IPv6 addresses found for host" when nothing survives. The resolver was never told, so it was asked for both families on every lookup and half the answer was thrown away.
+
+  `getaddrinfo` turns an unrestricted lookup into an A query and an AAAA query, so that was two queries per lookup where one would do. Sessions are commonly built per connection when rotating source addresses, and each new session starts with a cold cache, so the waste scales with connection rate rather than with host count: at 200 new connections a second, one per five milliseconds, it is 200 queries a second for records that are discarded on arrival. Measured on Linux with the CGO resolver against a local `systemd-resolved`, sustaining the lookups alone with no connection attached, the discarded half cost roughly 270 microseconds of CPU each, about two thirds in the calling process and one third in the resolver. That is close to five percent of a core at 200 lookups a second, and around ten points of a core at both 500 and 1000.
+
+  `dns.Cache` now takes an address family via `SetNetwork("ip4" | "ip6" | "")`, and `NewTransportWithConfig` sets it from `LocalAddr` using the new `dns.NetworkForLocalAddr` helper. A restricted cache resolves through `net.Resolver.LookupIP` with that network instead of `LookupIPAddr`, which is what keeps the query off the wire rather than filtering the answer afterwards. Sessions with no local address are untouched and still query both families.
+
+  The restriction is only applied where one address is known to hold for the whole transport, which is at construction. The three protocol transports share a cache but keep their own local address, so a later `SetLocalAddr` on one of them reaches a cache its siblings are still filtering against: rebinding within the current family keeps the restriction, and anything else lifts it and resolves both families again, so no configuration reachable that way is worse off than before. Cached entries are stamped with the family they were resolved under and are not served while the cache is on another one, so a rebind cannot hand back a set the new family would filter down to nothing, and neither can a lookup that was already in flight when the family changed.
+
+  Nothing that previously connected stops connecting: the records no longer resolved are exactly the ones the dial paths were already refusing. The one visible difference is the error for a host that publishes no record of the bound family, which now comes back as a resolver error naming the host instead of a dial error reporting no usable address; it was a failure before this change too. `SetNetwork` ignores any value other than the three above, so a bad string cannot quietly turn every lookup into an error, and it does not re-resolve entries already in the cache, so change it before use or follow it with `Clear`.
+
 ## [1.6.11] - 2026-08-17
 
 ### Added
