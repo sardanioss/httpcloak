@@ -36,6 +36,14 @@ type Entry struct {
 	LookupAt  time.Time
 	negative  bool
 	err       error
+
+	// network is the address family the entry was resolved under, stamped by
+	// store. An entry is only valid while the cache is still on that family:
+	// handing an AAAA-only result to a caller that has since rebound to IPv4
+	// looks to it like a host with no usable address. Comparing here rather
+	// than flushing on change makes that hold even against a lookup that was
+	// already in flight when the family changed.
+	network string
 }
 
 // IsExpired checks if the entry has expired
@@ -53,6 +61,10 @@ type Cache struct {
 	negTTL     time.Duration
 	minTTL     time.Duration
 	preferIPv4 bool // If true, prefer IPv4 over IPv6
+
+	// network restricts lookups to one address family: "ip4", "ip6", or "" for
+	// both. See SetNetwork.
+	network string
 
 	// sf collapses concurrent lookups of the same host into a single resolver
 	// call (the others wait and share the result), preventing a thundering herd
@@ -104,14 +116,67 @@ func (c *Cache) PreferIPv4() bool {
 	return c.preferIPv4
 }
 
+// SetNetwork restricts lookups to a single address family: "ip4" queries only
+// A records, "ip6" only AAAA, and "" (the default) both. Anything else is
+// ignored, so a bad value cannot silently turn every lookup into an error.
+//
+// This is a narrower knob than SetPreferIPv4, which only orders a result set
+// that still contains both families. Restricting is for the case where the
+// other family cannot be dialled at all, so resolving it is work whose result
+// is discarded; see NetworkForLocalAddr.
+//
+// Entries resolved under the previous family are not flushed; they are stamped
+// with it and ignored while the cache is on another one, so a lookup already in
+// flight when the family changes cannot land as a usable entry either. The next
+// lookup for that host replaces the entry, since entries are keyed by host
+// alone, and any that are not looked up again expire on the normal TTL.
+func (c *Cache) SetNetwork(network string) {
+	if network != "" && network != "ip4" && network != "ip6" {
+		return
+	}
+	c.mu.Lock()
+	c.network = network
+	c.mu.Unlock()
+}
+
+// Network returns the address family lookups are restricted to, or "" when
+// both are queried.
+func (c *Cache) Network() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.network
+}
+
+// NetworkForLocalAddr returns the SetNetwork value matching the family of a
+// local source address, or "" when addr is empty or not an IP.
+//
+// Binding a source address makes the other family undialable: a socket bound
+// to an IPv6 source cannot reach an IPv4 peer, and the transports already drop
+// those addresses after resolving them. Feeding this to SetNetwork moves that
+// filter ahead of the resolver, so the addresses that were going to be
+// discarded are never asked for.
+func NetworkForLocalAddr(addr string) string {
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return ""
+	}
+	if ip.To4() != nil {
+		return "ip4"
+	}
+	return "ip6"
+}
+
 // Resolve looks up the IP addresses for a hostname
 // Returns cached result if available and not expired
 func (c *Cache) Resolve(ctx context.Context, host string) ([]net.IP, error) {
-	// Fast path: a fresh cached entry (positive or negative).
+	// Fast path: a fresh cached entry (positive or negative) for the family the
+	// cache is currently on. Both are read under one lock so the pair cannot be
+	// torn by a concurrent SetNetwork.
 	c.mu.RLock()
 	entry, exists := c.entries[host]
+	network := c.network
 	c.mu.RUnlock()
-	if exists && !entry.IsExpired() {
+	if exists && entry.network == network && !entry.IsExpired() {
 		if entry.negative {
 			return nil, entry.err
 		}
@@ -127,8 +192,9 @@ func (c *Cache) Resolve(ctx context.Context, host string) ([]net.IP, error) {
 		// were waiting for the single-flight slot.
 		c.mu.RLock()
 		e, ok := c.entries[host]
+		current := c.network
 		c.mu.RUnlock()
-		if ok && !e.IsExpired() {
+		if ok && e.network == current && !e.IsExpired() {
 			if e.negative {
 				return nil, e.err
 			}
@@ -148,7 +214,11 @@ func (c *Cache) Resolve(ctx context.Context, host string) ([]net.IP, error) {
 				// Transient (timeout/temporary/network): serve a stale positive
 				// entry if we have one, and do NOT negative-cache — the name may
 				// be fine, the resolver just hiccuped.
-				if ok && !e.negative && len(e.IPs) > 0 {
+				// Only a stale entry from the family the cache is on: one
+				// resolved under a different family is not a usable answer for
+				// this caller, so serving it would turn a resolver hiccup into
+				// a host with no dialable address.
+				if ok && e.network == current && !e.negative && len(e.IPs) > 0 {
 					return e.IPs, nil
 				}
 				return nil, lerr
@@ -191,6 +261,7 @@ func (c *Cache) Resolve(ctx context.Context, host string) ([]net.IP, error) {
 // goroutine.
 func (c *Cache) store(host string, e *Entry) {
 	c.mu.Lock()
+	e.network = c.network
 	if len(c.entries) >= maxCacheEntries {
 		now := time.Now()
 		for h, ent := range c.entries {
@@ -237,6 +308,14 @@ func (c *Cache) lookup(ctx context.Context, host string) ([]net.IP, error) {
 
 	if c.lookupHook != nil {
 		return c.lookupHook(ctx, host)
+	}
+
+	// LookupIP asks the resolver for one family; LookupIPAddr asks for both.
+	// getaddrinfo turns the unrestricted form into an A query and an AAAA query,
+	// so when a family has been ruled out, going through LookupIP is what keeps
+	// the query for it off the wire rather than filtering the answer afterwards.
+	if network := c.Network(); network != "" {
+		return c.resolver.LookupIP(ctx, network, host)
 	}
 
 	addrs, err := c.resolver.LookupIPAddr(ctx, host)
