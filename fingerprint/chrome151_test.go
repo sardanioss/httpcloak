@@ -126,7 +126,7 @@ func TestChrome151LatestAliases(t *testing.T) {
 		"chrome-latest-linux":   "Chrome/152.0.0.0",
 		"chrome-latest-macos":   "Chrome/152.0.0.0",
 		"chrome-latest-android": "Chrome/152.0.0.0",
-		"chrome-latest-ios":     "CriOS/150.",
+		"chrome-latest-ios":     "CriOS/151.0.7922.112",
 	} {
 		p := Get(alias)
 		if p == nil {

@@ -102,15 +102,22 @@ func TestChrome152Desktop(t *testing.T) {
 	}
 }
 
-// iOS Chrome is WebKit underneath, so NEITHER wire change applies. Only the
-// User-Agent moves between versions.
+// iOS Chrome is WebKit underneath, so NEITHER wire change applies.
+//
+// There is no Chrome 152 iOS capture, and the build number cannot be derived
+// from the major version: a real CriOS/151 is 151.0.7922.112, which no scheme
+// would have guessed. So chrome-152-ios carries no file of its own and falls
+// back to the captured 151, rather than shipping an invented User-Agent. The
+// earlier invented one, CriOS/151.0.7990.44, was wrong in both the build and
+// the iOS version.
 func TestChrome152iOSCarriesNeitherWireChange(t *testing.T) {
 	p := Get("chrome-152-ios")
 	if p == nil {
 		t.Fatal("chrome-152-ios not registered")
 	}
-	if !strings.Contains(p.UserAgent, "CriOS/152.") {
-		t.Errorf("UA = %q, want CriOS/152.", p.UserAgent)
+	if !strings.Contains(p.UserAgent, "CriOS/151.0.7922.112") {
+		t.Errorf("UA = %q, want the captured CriOS/151.0.7922.112; with no 152 "+
+			"capture this must fall back rather than invent a build number", p.UserAgent)
 	}
 	if len(p.TrustAnchors) != 0 {
 		t.Errorf("chrome-152-ios carries %d trust anchors; WebKit does not send "+

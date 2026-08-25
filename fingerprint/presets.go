@@ -2664,13 +2664,11 @@ func AndroidChrome151() *Preset {
 // sends no client hints at all - which means the User-Agent is the only thing
 // that changes between iOS versions.
 //
-// PROVISIONAL: iOS Chrome spells its version out in full (CriOS/150.0.7871.51
-// for 150) rather than using the reduced desktop form, and that build number
-// cannot be derived from the major version. The value here is a placeholder
-// pending a real iOS 151 capture. Because of that, "chrome-latest-ios"
-// deliberately still resolves to IOSChrome150, so nobody gets an unverified
-// fingerprint without asking for it by name. Once a capture lands, correct the
-// user_agent in fingerprint/embedded/chrome-151-ios.json and repoint the alias.
+// CAPTURED. The User-Agent was a placeholder until a real CriOS/151 capture
+// landed; it is now the measured value, CriOS/151.0.7922.112 on iOS 26_6_0.
+// The invented one had guessed 151.0.7990.44 on 26_5_0, wrong in both parts,
+// which is why the iOS line does not invent build numbers any more.
+// "chrome-latest-ios" resolves here now rather than to IOSChrome150.
 //
 // Falls back to IOSChrome150.
 func IOSChrome151() *Preset {
@@ -2763,14 +2761,12 @@ func AndroidChrome152() *Preset {
 // GREASE, and no client hints at all. The User-Agent is the only thing that
 // moves between versions.
 //
-// PROVISIONAL, exactly as chrome-151-ios is. iOS Chrome spells its version out
-// in full (CriOS/152.0.8080.60) rather than using the reduced desktop form, and
-// that build number cannot be derived from the major version, so the value here
-// is a placeholder pending a real capture. "chrome-latest-ios" therefore still
-// resolves to IOSChrome150, so nobody gets an unverified fingerprint without
-// asking for it by name.
-//
-// Falls back to IOSChrome151.
+// There is deliberately no chrome-152-ios file, so this resolves to the
+// captured 151. iOS Chrome spells its version out in full rather than using the
+// reduced desktop form, and the build number cannot be derived: a real CriOS/151
+// is 151.0.7922.112, which no scheme would have guessed. Shipping an invented
+// one is worse than resolving to a fingerprint that was actually measured.
+// Give it a file once a 152 capture lands.
 func IOSChrome152() *Preset {
 	if p := LookupCustom("chrome-152-ios"); p != nil {
 		return p
@@ -3389,7 +3385,7 @@ var presets = map[string]func() *Preset{
 	"firefox-latest-linux":   Firefox148Linux,
 	"firefox-latest-macos":   Firefox148macOS,
 	"safari-latest":          Safari18,
-	"chrome-latest-ios":      IOSChrome150,
+	"chrome-latest-ios":      IOSChrome151,
 	"safari-latest-ios":      IOSSafari18,
 	"chrome-latest-android":  AndroidChrome152,
 

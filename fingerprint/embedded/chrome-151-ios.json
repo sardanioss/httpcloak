@@ -4,16 +4,40 @@
     "name": "chrome-151-ios",
     "based_on": "chrome-150-ios",
     "headers": {
-      "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/151.0.7990.44 Mobile/15E148 Safari/604.1",
+      "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_6_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/151.0.7922.112 Mobile/15E148 Safari/604.1",
       "order": [
-        {"key": "sec-fetch-dest", "value": "document"},
-        {"key": "user-agent", "value": ""},
-        {"key": "accept", "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
-        {"key": "sec-fetch-site", "value": "none"},
-        {"key": "sec-fetch-mode", "value": "navigate"},
-        {"key": "accept-language", "value": "en-US,en;q=0.9"},
-        {"key": "priority", "value": "u=0, i"},
-        {"key": "accept-encoding", "value": "gzip, deflate, br, zstd"}
+        {
+          "key": "sec-fetch-dest",
+          "value": "document"
+        },
+        {
+          "key": "user-agent",
+          "value": ""
+        },
+        {
+          "key": "accept",
+          "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        },
+        {
+          "key": "sec-fetch-site",
+          "value": "none"
+        },
+        {
+          "key": "sec-fetch-mode",
+          "value": "navigate"
+        },
+        {
+          "key": "accept-language",
+          "value": "en-US,en;q=0.9"
+        },
+        {
+          "key": "priority",
+          "value": "u=0, i"
+        },
+        {
+          "key": "accept-encoding",
+          "value": "gzip, deflate, br, zstd"
+        }
       ]
     }
   }
