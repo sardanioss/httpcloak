@@ -430,6 +430,20 @@ type H3FingerprintConfig struct {
 	MaxResponseHeaderBytes    *uint64 // nil = 262144
 	SendGreaseFrames          *bool   // nil = true
 
+	// QUICConnectionOptions are the four-character QUIC tags carried in
+	// google_connection_options (0x3128), concatenated in the order given.
+	//
+	// nil means Chrome's unmodified default, ["ORIG"]. An explicitly empty
+	// list omits the parameter, which is what a non-Chromium profile wants.
+	//
+	// The value is not fixed by Chrome version. Chromium builds it from
+	// features::kQuicOptions, a Finch parameter parsed under kTryQuicByDefault
+	// whose shipped default is "ORIG", so a browser that has picked up a
+	// different seed emits something else: captures of one Chrome 152 install
+	// show both ["ORIG"] and ["IW50","ORIG"]. Hence a key rather than a
+	// constant.
+	QUICConnectionOptions *[]string
+
 	// QUIC flow-control windows. quic-go translates these to wire transport
 	// parameters initial_max_data (4) and initial_max_stream_data_* (5/6/7).
 	// nil = quic-go default (~7.5 MB conn, ~512 KB stream). Safari/iOS Chrome
@@ -788,6 +802,17 @@ func (p *Preset) H3QUICMaxDatagramFrameSize() uint64 {
 		return *p.H3Config.QUICMaxDatagramFrameSize
 	}
 	return 65536 // Chrome default
+}
+
+// H3QUICConnectionOptions returns the QUIC tags for google_connection_options
+// (0x3128). Each tag is four characters and they are sent concatenated.
+//
+// nil is Chrome's shipped default of one tag, "ORIG".
+func (p *Preset) H3QUICConnectionOptions() []string {
+	if p.H3Config != nil && p.H3Config.QUICConnectionOptions != nil {
+		return *p.H3Config.QUICConnectionOptions
+	}
+	return []string{"ORIG"}
 }
 
 // H3MaxResponseHeaderBytes returns the max response header bytes.

@@ -205,6 +205,11 @@ type HTTP3Spec struct {
 	MaxResponseHeaderBytes    *uint64 `json:"max_response_header_bytes,omitempty"`
 	SendGreaseFrames          *bool   `json:"send_grease_frames,omitempty"`
 
+	// QUICConnectionOptions are four-character QUIC tags concatenated into
+	// google_connection_options (0x3128). Omit for Chrome's default ["ORIG"];
+	// give an empty list to drop the parameter entirely.
+	QUICConnectionOptions *[]string `json:"quic_connection_options,omitempty"`
+
 	// QUIC flow-control windows. These map to quic.Config fields and ultimately
 	// to wire transport parameters initial_max_data (4) and initial_max_stream_data_*
 	// (5/6/7). nil = quic-go default. iOS Chrome / Safari uses larger conn (16 MiB)
@@ -575,6 +580,11 @@ func clonePreset(src *Preset) *Preset {
 		if src.H3Config.SendGreaseFrames != nil {
 			v := *src.H3Config.SendGreaseFrames
 			h3.SendGreaseFrames = &v
+		}
+		if src.H3Config.QUICConnectionOptions != nil {
+			v := make([]string, len(*src.H3Config.QUICConnectionOptions))
+			copy(v, *src.H3Config.QUICConnectionOptions)
+			h3.QUICConnectionOptions = &v
 		}
 		if src.H3Config.QUICInitialStreamReceiveWindow != nil {
 			v := *src.H3Config.QUICInitialStreamReceiveWindow
@@ -1127,6 +1137,11 @@ func applyHTTP3(p *Preset, spec *HTTP3Spec) {
 	if spec.SendGreaseFrames != nil {
 		v := *spec.SendGreaseFrames
 		h3.SendGreaseFrames = &v
+	}
+	if spec.QUICConnectionOptions != nil {
+		v := make([]string, len(*spec.QUICConnectionOptions))
+		copy(v, *spec.QUICConnectionOptions)
+		h3.QUICConnectionOptions = &v
 	}
 	if spec.QUICInitialStreamReceiveWindow != nil {
 		v := *spec.QUICInitialStreamReceiveWindow

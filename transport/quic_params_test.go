@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 	"testing"
 
 	"github.com/sardanioss/httpcloak/fingerprint"
@@ -172,5 +173,84 @@ func TestChromeQUICParamsOnlyForChromePresets(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// google_connection_options is preset-driven, and the preset key has to reach
+// the wire rather than only the getter.
+//
+// The value is not fixed by Chrome version. Chromium parses it from
+// features::kQuicOptions under kTryQuicByDefault, net/base/features.cc:
+//
+//	BASE_FEATURE_PARAM(std::string, kQuicOptions, &kTryQuicByDefault,
+//	                   "quic_options", "ORIG");
+//
+// so "ORIG" is the shipped default and a browser holding a different Finch seed
+// sends something else. Captures of one Chrome 152 install show both: a resumed
+// connection carried "ORIG" and two fresh ones carried "IW50ORIG". IW50 is not
+// a Chromium default anywhere, so the default here stays at the unmodified
+// value and anything else comes from the preset.
+//
+// This drives the whole path: JSON in, describe out, JSON back in, then the
+// bytes the connection would actually send. A getter assertion would pass even
+// if the JSON key were dropped on the way in, which is exactly the failure the
+// data_frame_max_size key had.
+func TestConnectionOptionsReachTheWire(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		json string
+		want string // "" means the parameter must be absent
+	}{
+		{"default", "", "ORIG"},
+		{"two tags", `,"http3":{"quic_connection_options":["IW50","ORIG"]}`, "IW50ORIG"},
+		{"one other tag", `,"http3":{"quic_connection_options":["B2ON"]}`, "B2ON"},
+		{"empty omits", `,"http3":{"quic_connection_options":[]}`, ""},
+		{"bad width dropped", `,"http3":{"quic_connection_options":["TOOLONG","ORIG"]}`, "ORIG"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			name := "connopt-" + strings.ReplaceAll(tc.name, " ", "-")
+			if tc.json == "" {
+				name = "chrome-151-windows"
+			} else {
+				registerPreset(t, name, tc.json)
+			}
+
+			p := fingerprint.Get(name)
+			if p == nil {
+				t.Fatalf("preset %q is not registered", name)
+			}
+
+			// Round-trip through describe so the emit and the parse are both
+			// on the path, not just the struct field.
+			described, err := fingerprint.Describe(name)
+			if err != nil {
+				t.Fatalf("describe: %v", err)
+			}
+			rt, err := fingerprint.LoadAndBuildPresetFromJSON([]byte(described))
+			if err != nil {
+				t.Fatalf("reload described JSON: %v", err)
+			}
+
+			for label, preset := range map[string]*fingerprint.Preset{"direct": p, "round-tripped": rt} {
+				params := AdditionalTransportParamsForPreset(preset, nil, "", 0)
+				got, ok := params[tpGoogleConnectionOptions]
+				if tc.want == "" {
+					if ok {
+						t.Errorf("%s: google_connection_options present as %q for an empty tag list", label, got)
+					}
+					continue
+				}
+				if !ok {
+					t.Fatalf("%s: google_connection_options (0x3128) absent, want %q", label, tc.want)
+				}
+				if string(got) != tc.want {
+					t.Errorf("%s: google_connection_options = %q (% x), want %q", label, got, got, tc.want)
+				}
+				if len(got)%4 != 0 {
+					t.Errorf("%s: google_connection_options is %d bytes, which is not a whole number of 4-byte QUIC tags",
+						label, len(got))
+				}
+			}
+		})
 	}
 }

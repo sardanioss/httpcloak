@@ -311,6 +311,10 @@ func flattenHTTP3(p *Preset) *HTTP3Spec {
 	out.MaxResponseHeaderBytes = &maxRespHdr
 	grease := p.H3SendGreaseFrames()
 	out.SendGreaseFrames = &grease
+	srcOpts := p.H3QUICConnectionOptions()
+	connOpts := make([]string, len(srcOpts))
+	copy(connOpts, srcOpts)
+	out.QUICConnectionOptions = &connOpts
 
 	// Optional flow-control overrides — only emit when set explicitly so
 	// presets that leave them at quic-go defaults (the vast majority) don't

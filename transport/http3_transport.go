@@ -49,9 +49,19 @@ const (
 	tpGoogleConnectionOptions = 0x3128 // Google's connection options param (12584)
 )
 
-// BuildChromeTransportParams creates Chrome-like QUIC transport parameters.
+// BuildChromeTransportParams creates Chrome-like QUIC transport parameters
+// with Chrome's shipped connection options.
+//
 // Exported so pool and other packages can reference the canonical set.
 func BuildChromeTransportParams() map[uint64][]byte {
+	return BuildChromeTransportParamsFor(nil)
+}
+
+// BuildChromeTransportParamsFor is BuildChromeTransportParams with the
+// google_connection_options tags supplied by the caller, which is how a preset
+// overrides them. Nil takes Chrome's default of a single "ORIG" tag; an empty
+// slice omits the parameter.
+func BuildChromeTransportParamsFor(connectionOptions []string) map[uint64][]byte {
 	params := make(map[uint64][]byte)
 
 	// version_information (0x11) - RFC 9368
@@ -78,15 +88,37 @@ func BuildChromeTransportParams() map[uint64][]byte {
 	}
 	params[tpVersionInformation] = versionInfo
 
-	// google_connection_options (0x3128 / 12584) - 4-byte QUIC tag(s).
-	// Stable Chrome ships with kQuicOptions default "ORIG" (origin-frame
-	// experiment hint), per Chromium net/base/features.cc:
+	// google_connection_options (0x3128 / 12584) - 4-byte QUIC tag(s),
+	// concatenated in the order given.
+	//
+	// Chromium does not fix this by version. It parses the value from
+	// features::kQuicOptions under kTryQuicByDefault, per net/base/features.cc:
 	//   BASE_FEATURE_PARAM(std::string, kQuicOptions, &kTryQuicByDefault,
 	//                      "quic_options", "ORIG");
-	// The previous "B2ON" value (Enable BBRv2) only appears when a Chrome
-	// install has --enable-features=QuicConnectionOptions=B2ON or a Finch
-	// override, which is rare on the open web — bot fingerprinters flag it.
-	params[tpGoogleConnectionOptions] = []byte("ORIG")
+	// so the shipped default is the single tag "ORIG" and a browser carrying a
+	// different Finch seed sends something else. Two captures of one Chrome 152
+	// install differ: a resumed connection sent "ORIG" and two fresh ones sent
+	// "IW50ORIG". The default here stays at the unmodified Chromium value and
+	// the preset key carries anything else.
+	//
+	// "B2ON" (enable BBRv2) only appears with an explicit
+	// --enable-features=QuicConnectionOptions=B2ON or a Finch override, which
+	// is rare enough on the open web that bot fingerprinters flag it.
+	if connectionOptions == nil {
+		connectionOptions = []string{"ORIG"}
+	}
+	var tags []byte
+	for _, tag := range connectionOptions {
+		// A QUIC tag is exactly four bytes. Anything else would produce a
+		// malformed parameter, so drop it rather than emit it.
+		if len(tag) != 4 {
+			continue
+		}
+		tags = append(tags, tag...)
+	}
+	if len(tags) > 0 {
+		params[tpGoogleConnectionOptions] = tags
+	}
 
 	// Note: GREASE transport param is NOT added here — quic-go's Chrome-mode
 	// marshaling (transport_parameters.go) already inserts exactly 1 GREASE param
@@ -148,7 +180,7 @@ func AdditionalTransportParamsForPreset(preset *fingerprint.Preset, _ context.Co
 		// life of the process, silently undoing this gate.
 		return map[uint64][]byte{}
 	}
-	return BuildChromeTransportParams()
+	return BuildChromeTransportParamsFor(preset.H3QUICConnectionOptions())
 }
 
 // presetIsChromeQUIC reports whether a preset impersonates a Chromium-based
