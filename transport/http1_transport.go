@@ -839,6 +839,12 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			// not. That is a known defect of this whole code region, not of
 			// trust_anchors, and it is filed separately.
 			fingerprint.ApplyTrustAnchors(&tlsConn.Extensions, t.preset.TrustAnchors)
+			// The overrides above may introduce a GREASE placeholder, and
+			// ApplyPreset already regreased inside BuildHandshakeState, so
+			// nothing would replace it. Left alone, a Chrome 152 preset forced
+			// onto HTTP/1.1 emits the literal 0x0a0a on every connection: a
+			// constant where the browser draws one of sixteen.
+			tlsConn.RegreaseSignatureAlgorithms()
 		}
 		if useSessionCache {
 			tlsConn.SetSessionCache(t.sessionCache)
@@ -907,6 +913,12 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 					// not. That is a known defect of this whole code region, not of
 					// trust_anchors, and it is filed separately.
 					fingerprint.ApplyTrustAnchors(&tlsConn.Extensions, t.preset.TrustAnchors)
+			// The overrides above may introduce a GREASE placeholder, and
+			// ApplyPreset already regreased inside BuildHandshakeState, so
+			// nothing would replace it. Left alone, a Chrome 152 preset forced
+			// onto HTTP/1.1 emits the literal 0x0a0a on every connection: a
+			// constant where the browser draws one of sixteen.
+			tlsConn.RegreaseSignatureAlgorithms()
 				}
 				if useSessionCache {
 					tlsConn.SetSessionCache(t.sessionCache)
