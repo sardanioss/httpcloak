@@ -15,6 +15,28 @@ import (
 	"github.com/sardanioss/net/http2/hpack"
 )
 
+// encoderTableSizeLimit is the largest dynamic table we are willing to
+// maintain for ENCODING. It is a memory policy, not a fingerprint of anything.
+//
+// It used to be the profile's own SETTINGS_HEADER_TABLE_SIZE, which is a
+// category error: that value is what we tell the peer our DECODER can hold,
+// and the encoder limit governs the other direction of the connection. The
+// consequence was visible on the wire. A peer advertising more than our own
+// number got a table size update carrying our number back, which is a
+// discrepancy the peer chooses and can therefore probe for; quiche sets its
+// bound to the maximum representable value and lets the peer's value through
+// untouched.
+//
+// 16 MiB rather than unbounded because the cost is real and one-directional.
+// The entry table shrinks by reslicing and never returns capacity, and the two
+// lookup maps never shrink their bucket arrays after a delete, so a connection
+// holds its high-water mark for its whole life. At this ceiling that is
+// roughly half a million entries and about 36 MB as the pathological worst
+// case. The growth vector is cheaper than "deliberately hostile" too: neither
+// cookie jar caps cookies per domain, so a server that keeps issuing Set-Cookie
+// grows the indexed crumb count directly.
+const encoderTableSizeLimit = 16 << 20
+
 // Options are the few things a call site knows that the preset does not.
 type Options struct {
 	// Preset is the profile being impersonated. Required.
@@ -53,7 +75,7 @@ func Transport(o Options) *http2.Transport {
 		MaxHeaderListSize:          s.MaxHeaderListSize,
 		MaxReadFrameSize:           s.MaxFrameSize,
 		MaxDecoderHeaderTableSize:  s.HeaderTableSize,
-		MaxEncoderHeaderTableSize:  s.HeaderTableSize,
+		MaxEncoderHeaderTableSize:  encoderTableSizeLimit,
 
 		// The periodic health-check ping, off for every shipped preset. It is
 		// a PING with no frame behind it on a fixed timer, and Chromium's

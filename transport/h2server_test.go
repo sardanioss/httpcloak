@@ -114,10 +114,12 @@ type h2Config struct {
 	// receive window past the 65535 default.
 	ConnWindowIncrement uint32
 
-	// MidSettings sends another SETTINGS frame once the server has finished
+	// MidSettings sends further SETTINGS frames once the server has finished
 	// responding to the given number of requests. Keyed on that count so a
-	// lock can land the frame between two specific header blocks.
-	MidSettings map[int][]h2Setting
+	// lock can land them between two specific header blocks, and a LIST of
+	// frames rather than one, because some encoder state only diverges when
+	// two SETTINGS arrive with no header block encoded in between.
+	MidSettings map[int][][]h2Setting
 
 	// ReadToEndStream waits for the client's END_STREAM before responding, so
 	// an upload is not cut short by an early reply.
@@ -602,7 +604,7 @@ func (hc *h2Conn) respond(streamID uint32) {
 	n := hc.responded
 	hc.doneMu.Unlock()
 
-	if extra, ok := cfg.MidSettings[n]; ok {
+	for _, extra := range cfg.MidSettings[n] {
 		hc.writeSettings(extra, 0)
 	}
 }
