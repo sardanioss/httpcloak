@@ -65,6 +65,10 @@ type h2Frame struct {
 	StreamID uint32
 	Payload  []byte
 	At       time.Time
+	// Conn is the 1-based ordinal of the connection this arrived on. A retry
+	// opens a fresh connection and starts again at stream 1, so a stream ID
+	// alone does not identify an attempt.
+	Conn int
 }
 
 func (f h2Frame) name() string {
@@ -156,6 +160,12 @@ type h2Config struct {
 
 	// AckPings answers client PINGs. Default true; set NoPingAck to suppress.
 	NoPingAck bool
+
+	// ResetStreams maps a request ordinal (1-based, counted across every
+	// connection to this server) to an HTTP/2 error code. The server sends RST_STREAM with that code instead of
+	// a response, at the point it would otherwise have replied, so a request
+	// with a body has finished sending it first.
+	ResetStreams map[int]uint32
 }
 
 // ------------------------------------------------------------------- server
@@ -167,8 +177,47 @@ type h2Server struct {
 	mu       sync.Mutex
 	frames   []h2Frame
 	blocks   [][]byte
+	headers  []map[string]string // decoded, one entry per header block
 	conns    int
+	requests int
 	firstErr error
+}
+
+// decoded returns the decoded header list of each captured block, in order.
+func (s *h2Server) decoded() []map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]map[string]string, len(s.headers))
+	copy(out, s.headers)
+	return out
+}
+
+// attempt identifies one request arrival: which connection, which stream.
+type attempt struct {
+	Conn   int
+	Stream uint32
+}
+
+// dataBytes totals the DATA payload the client sent for one attempt.
+func (s *h2Server) dataBytes(a attempt) int {
+	n := 0
+	for _, f := range s.recorded() {
+		if f.Type == frData && f.Conn == a.Conn && f.StreamID == a.Stream {
+			n += len(f.Payload)
+		}
+	}
+	return n
+}
+
+// attempts lists every HEADERS arrival, in order.
+func (s *h2Server) attempts() []attempt {
+	var out []attempt
+	for _, f := range s.recorded() {
+		if f.Type == frHeaders {
+			out = append(out, attempt{Conn: f.Conn, Stream: f.StreamID})
+		}
+	}
+	return out
 }
 
 // recorded returns every frame the client has sent so far.
@@ -215,8 +264,8 @@ func (s *h2Server) dump() string {
 	}
 	base := frames[0].At
 	for _, f := range frames {
-		fmt.Fprintf(&b, "  %7.3fs %-13s stream=%d len=%d",
-			f.At.Sub(base).Seconds(), f.name(), f.StreamID, len(f.Payload))
+		fmt.Fprintf(&b, "  %7.3fs conn=%d %-13s stream=%d len=%d",
+			f.At.Sub(base).Seconds(), f.Conn, f.name(), f.StreamID, len(f.Payload))
 		if f.Type == frWindowUpdate {
 			fmt.Fprintf(&b, " increment=%d", f.increment())
 		}
@@ -269,8 +318,9 @@ func startH2Server(t *testing.T, cfg h2Config) *h2Server {
 			}
 			s.mu.Lock()
 			s.conns++
+			n := s.conns
 			s.mu.Unlock()
-			go s.serve(c)
+			go s.serve(c, n)
 		}
 	}()
 	return s
@@ -283,6 +333,7 @@ func (s *h2Server) url(path string) string { return "https://" + s.addr + path }
 type h2Conn struct {
 	s   *h2Server
 	c   net.Conn
+	id  int
 	wmu sync.Mutex
 
 	// Outbound flow control, from the client's point of view. connWin is the
@@ -301,6 +352,10 @@ type h2Conn struct {
 	// reports as "frame too large", which reads as an unrelated failure.
 	maxFrame int
 
+	// dec decodes client header blocks. HPACK is stateful, so it is per
+	// connection and every block has to go through it in arrival order.
+	dec *hpack.Decoder
+
 	// Inbound accounting for GrantCredit.
 	recvSinceUpdate map[uint32]int
 	connRecv        int
@@ -309,7 +364,7 @@ type h2Conn struct {
 	responded int
 }
 
-func (s *h2Server) serve(c net.Conn) {
+func (s *h2Server) serve(c net.Conn, connID int) {
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(120 * time.Second))
 
@@ -321,10 +376,12 @@ func (s *h2Server) serve(c net.Conn) {
 	hc := &h2Conn{
 		s:               s,
 		c:               c,
+		id:              connID,
 		connWin:         65535,
 		streamWin:       map[uint32]int64{},
 		initialWin:      65535,
 		maxFrame:        16384,
+		dec:             hpack.NewDecoder(4096, nil),
 		recvSinceUpdate: map[uint32]int{},
 	}
 	hc.fcCond = sync.NewCond(&hc.fcMu)
@@ -361,7 +418,7 @@ func (s *h2Server) serve(c net.Conn) {
 		s.mu.Lock()
 		s.frames = append(s.frames, h2Frame{
 			Type: typ, Flags: flags, StreamID: streamID,
-			Payload: payload, At: time.Now(),
+			Payload: payload, At: time.Now(), Conn: connID,
 		})
 		s.mu.Unlock()
 
@@ -400,8 +457,12 @@ func (s *h2Server) serve(c net.Conn) {
 			if flags&flPriority != 0 && len(block) >= 5 {
 				block = block[5:]
 			}
+			fields := map[string]string{}
+			hc.dec.SetEmitFunc(func(hf hpack.HeaderField) { fields[hf.Name] = hf.Value })
+			hc.dec.Write(block)
 			s.mu.Lock()
 			s.blocks = append(s.blocks, append([]byte(nil), block...))
+			s.headers = append(s.headers, fields)
 			s.mu.Unlock()
 
 			hc.fcMu.Lock()
@@ -542,6 +603,18 @@ func (hc *h2Conn) takeCredit(streamID uint32, want int) int {
 
 func (hc *h2Conn) respond(streamID uint32) {
 	cfg := hc.s.cfg
+
+	hc.s.mu.Lock()
+	hc.s.requests++
+	ordinal := hc.s.requests
+	hc.s.mu.Unlock()
+
+	if code, ok := cfg.ResetStreams[ordinal]; ok {
+		var p [4]byte
+		binary.BigEndian.PutUint32(p[:], code)
+		hc.writeFrame(frRSTStream, 0, streamID, p[:])
+		return
+	}
 
 	body := cfg.Body
 	if body == nil {

@@ -340,12 +340,35 @@ func (t *HTTP2Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		// fires it once the count reaches zero.
 		conn.release()
 
-		// Connection might be dead, remove it and retry once
+		// Connection might be dead, remove it before deciding anything.
 		t.removeConn(key)
 
 		// Don't retry if context is already done (e.g. timeout expired)
 		if req.Context().Err() != nil {
 			return nil, req.Context().Err()
+		}
+
+		// Ask whether this is a failure worth replaying, and get the request
+		// to replay with, rather than blindly re-sending the same one.
+		//
+		// Two things were wrong with re-sending it. The body: RoundTrip
+		// streams it out as it writes, so the first attempt has consumed it,
+		// and the replay went out carrying the content-length it had already
+		// computed with zero DATA behind it. That is malformed under RFC 9113
+		// 8.1.1, it is trivially visible to the server, and it is a silent
+		// correctness bug in its own right, because every retried request with
+		// a body lost the body. The H1 path next door has had this right, with
+		// a comment describing the same failure.
+		//
+		// And the classification: a browser replays a refused stream or a
+		// graceful GOAWAY, and gives up on RST_STREAM(INTERNAL_ERROR) before
+		// headers, and never makes a second HTTP/2 attempt after
+		// HTTP_1_1_REQUIRED. Retrying everything produced two HEADERS arrivals
+		// where a real client produces one, on exactly the errors a server
+		// chooses to send.
+		retryReq, retryErr := http2.ShouldRetryRequest(req, err)
+		if retryErr != nil || retryReq == nil {
+			return nil, err
 		}
 
 		conn, err = t.getOrCreateConn(req.Context(), host, port, key)
@@ -357,7 +380,7 @@ func (t *HTTP2Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		conn.inFlight++
 		conn.mu.Unlock()
 
-		resp, err = conn.h2Conn.RoundTrip(req)
+		resp, err = conn.h2Conn.RoundTrip(retryReq)
 		if err != nil {
 			conn.release()
 			t.removeConn(key)
