@@ -93,7 +93,12 @@ func TestBuildChromeTransportParams_ExactSet(t *testing.T) {
 }
 
 // version_information (0x11) is chosen_version followed by the available list,
-// and Chrome puts a GREASE version ahead of QUICv1 in that list.
+// which carries QUICv1 and one GREASE version.
+//
+// The ORDER of those two is not asserted here, and that is the point: upstream
+// inserts the GREASE label at a uniformly random index, so half of real
+// connections lead with it. TestGREASEVersionPositionVaries next door is what
+// holds that property; this one holds the shape.
 func TestBuildChromeTransportParams_VersionInformation(t *testing.T) {
 	params := BuildChromeTransportParams()
 
@@ -107,12 +112,17 @@ func TestBuildChromeTransportParams_VersionInformation(t *testing.T) {
 	if chosen := binary.BigEndian.Uint32(got[0:4]); chosen != 1 {
 		t.Errorf("chosen_version = %d, want 1 (QUICv1)", chosen)
 	}
+
+	first := binary.BigEndian.Uint32(got[4:8])
+	second := binary.BigEndian.Uint32(got[8:12])
 	// GREASE versions are of the form 0x?a?a?a?a.
-	if grease := binary.BigEndian.Uint32(got[4:8]); grease&0x0f0f0f0f != 0x0a0a0a0a {
-		t.Errorf("first available version = 0x%08x, want a GREASE version (0x?a?a?a?a)", grease)
-	}
-	if v1 := binary.BigEndian.Uint32(got[8:12]); v1 != 1 {
-		t.Errorf("second available version = %d, want 1 (QUICv1)", v1)
+	isGrease := func(v uint32) bool { return v&0x0f0f0f0f == 0x0a0a0a0a }
+	switch {
+	case isGrease(first) && second == 1:
+	case first == 1 && isGrease(second):
+	default:
+		t.Errorf("available_versions = 0x%08x, 0x%08x; want QUICv1 and one "+
+			"GREASE version in some order", first, second)
 	}
 }
 
