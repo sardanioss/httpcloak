@@ -12,6 +12,9 @@
 package h3build
 
 import (
+	"crypto/rand"
+	"encoding/binary"
+	mrand "math/rand"
 	"time"
 
 	"github.com/sardanioss/httpcloak/fingerprint"
@@ -153,6 +156,44 @@ func TransportParamOrder(mode string) quic.TransportParameterOrderMode {
 		return quic.TransportParameterOrderDefault
 	}
 	return quic.TransportParameterOrderChrome
+}
+
+// GREASESetting draws the reserved SETTINGS identifier and its value the way
+// quiche draws them.
+//
+// quiche, QuicSendControlStream::MaybeSendSettingsFrame:
+//
+//	uint32_t result;
+//	QuicRandom::GetInstance()->RandBytes(&result, sizeof(result));
+//	uint64_t setting_id = 0x1fULL * static_cast<uint64_t>(result) + 0x21ULL;
+//	QuicRandom::GetInstance()->RandBytes(&result, sizeof(result));
+//	settings.values[setting_id] = result;
+//
+// Two separate uint32 draws: one behind the identifier, one for the value.
+//
+// The identifier is the part that was wrong. Drawing N from [1e9, 1e10) puts
+// roughly 63 percent of identifiers above 0x1f*2^32 + 0x21, which quiche
+// cannot produce at all, and never produces the lower quarter of the range
+// that quiche reaches about 23 percent of the time. A server inverts the
+// identifier and checks that it fits a uint32. Measured against a live origin
+// before the fix: 2 of 5 connections carried an impossible identifier.
+//
+// The value is a plain uint32 and may be zero. A previous comment claimed
+// Chrome never sends zero and excluded it; the source above does not, though
+// at one draw in 2^32 that was never observable.
+//
+// It lives here because both the transport and the pool build SETTINGS through
+// Settings below, and each used to carry its own copy of the arithmetic.
+func GREASESetting() (id, value uint64) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Unpredictable is the requirement, not secret, and a client that
+		// cannot draw would otherwise advertise a fixed identifier.
+		binary.LittleEndian.PutUint32(b[0:4], mrand.Uint32())
+		binary.LittleEndian.PutUint32(b[4:8], mrand.Uint32())
+	}
+	id = 0x1f*uint64(binary.LittleEndian.Uint32(b[0:4])) + 0x21
+	return id, uint64(binary.LittleEndian.Uint32(b[4:8]))
 }
 
 // Settings builds the HTTP/3 SETTINGS map, including the GREASE entry.

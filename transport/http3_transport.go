@@ -1299,9 +1299,8 @@ func (t *HTTP3Transport) buildQUICConfig(clientHelloID *utls.ClientHelloID, quic
 
 // buildH3AdditionalSettings builds the HTTP/3 additional settings map from preset getters.
 func (t *HTTP3Transport) buildH3AdditionalSettings() map[uint64]uint64 {
-	return h3build.Settings(t.preset,
-		generateGREASESettingID(),
-		uint64(1+rand.Uint32()%(1<<32-1)))
+	greaseID, greaseValue := h3build.GREASESetting()
+	return h3build.Settings(t.preset, greaseID, greaseValue)
 }
 
 // recordHandshakeState wraps a dial function so the newest connection is
@@ -1363,15 +1362,6 @@ func (t *HTTP3Transport) buildHTTP3Transport(dialFunc func(ctx context.Context, 
 		MaxResponseHeaderBytes: int(t.preset.H3MaxResponseHeaderBytes()),
 		SendGreaseFrames:       t.preset.H3SendGreaseFrames(),
 	}
-}
-
-// generateGREASESettingID generates a valid GREASE setting ID
-// GREASE IDs are of the form 0x1f * N + 0x21 where N is random
-// Chrome uses very large N values, producing setting IDs like 57836956465
-func generateGREASESettingID() uint64 {
-	// Generate large N values similar to Chrome (produces 10-11 digit IDs)
-	n := uint64(1000000000 + rand.Int63n(9000000000))
-	return 0x1f*n + 0x21
 }
 
 // dialQUIC provides DNS resolution and ECH config fetching with Happy Eyeballs

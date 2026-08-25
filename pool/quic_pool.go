@@ -5,7 +5,6 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -588,14 +587,11 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	}
 	quicConfig.AdditionalTransportParameters = transport.AdditionalTransportParamsForPreset(p.preset, ctx, rttHost, port)
 
-	// Generate large GREASE setting ID like Chrome (0x1f * N + 0x21 where N is large)
-	greaseSettingN := uint64(1000000000 + rand.Int63n(9000000000))
-	greaseSettingID := 0x1f*greaseSettingN + 0x21
-	// Generate non-zero random 32-bit value (Chrome never sends 0)
-	greaseSettingValue := uint64(1 + rand.Uint32()%(1<<32-1))
-
 	// HTTP/3 additional settings, through the same builder as the transport
 	// path so the two cannot advertise different SETTINGS for one profile.
+	// The GREASE draw comes from there too; this path used to carry its own
+	// copy of the arithmetic.
+	greaseSettingID, greaseSettingValue := h3build.GREASESetting()
 	additionalSettings := h3build.Settings(p.preset, greaseSettingID, greaseSettingValue)
 
 	// Order IPs based on preference
