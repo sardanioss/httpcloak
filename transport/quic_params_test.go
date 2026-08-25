@@ -231,6 +231,15 @@ func TestConnectionOptionsReachTheWire(t *testing.T) {
 				t.Fatalf("reload described JSON: %v", err)
 			}
 
+			// describe emits the key only when the preset sets it. Emitting
+			// the resolved default would put ["ORIG"] into a Firefox preset's
+			// output, where the parameter is never sent at all, and a user who
+			// edited that and reloaded would watch the key vanish silently.
+			hasKey := strings.Contains(described, `"quic_connection_options"`)
+			if want := tc.json != ""; hasKey != want {
+				t.Errorf("describe emitted the key = %v, want %v", hasKey, want)
+			}
+
 			for label, preset := range map[string]*fingerprint.Preset{"direct": p, "round-tripped": rt} {
 				params := AdditionalTransportParamsForPreset(preset, nil, "", 0)
 				got, ok := params[tpGoogleConnectionOptions]
@@ -252,5 +261,28 @@ func TestConnectionOptionsReachTheWire(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A non-Chromium preset neither sends google_connection_options nor advertises
+// the key that would set it, so its describe output cannot teach a user to
+// configure something that is gated off one layer down.
+func TestConnectionOptionsAbsentFromNonChromePresets(t *testing.T) {
+	for _, name := range []string{"firefox-148", "safari-18", "chrome-151-ios"} {
+		p := fingerprint.Get(name)
+		if p == nil {
+			continue
+		}
+		if params := AdditionalTransportParamsForPreset(p, nil, "", 0); len(params) != 0 {
+			t.Errorf("%s carries %d Chrome QUIC transport parameters", name, len(params))
+		}
+		described, err := fingerprint.Describe(name)
+		if err != nil {
+			t.Fatalf("%s: describe: %v", name, err)
+		}
+		if strings.Contains(described, `"quic_connection_options"`) {
+			t.Errorf("%s advertises quic_connection_options in its describe output, "+
+				"but presetIsChromeQUIC gates the parameter off entirely for it", name)
+		}
 	}
 }

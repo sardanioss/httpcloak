@@ -436,6 +436,10 @@ type H3FingerprintConfig struct {
 	// nil means Chrome's unmodified default, ["ORIG"]. An explicitly empty
 	// list omits the parameter, which is what a non-Chromium profile wants.
 	//
+	// The parameter is sent only for Chromium QUIC identities; a Firefox or
+	// WebKit preset carries no google_connection_options at all whatever this
+	// says, which is why describe emits the key only when it is set.
+	//
 	// The value is not fixed by Chrome version. Chromium builds it from
 	// features::kQuicOptions, a Finch parameter parsed under kTryQuicByDefault
 	// whose shipped default is "ORIG", so a browser that has picked up a

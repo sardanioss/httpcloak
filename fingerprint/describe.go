@@ -311,10 +311,19 @@ func flattenHTTP3(p *Preset) *HTTP3Spec {
 	out.MaxResponseHeaderBytes = &maxRespHdr
 	grease := p.H3SendGreaseFrames()
 	out.SendGreaseFrames = &grease
-	srcOpts := p.H3QUICConnectionOptions()
-	connOpts := make([]string, len(srcOpts))
-	copy(connOpts, srcOpts)
-	out.QUICConnectionOptions = &connOpts
+
+	// Only emitted when set explicitly, for the same reason as the
+	// flow-control pair below, plus one specific to this key: the parameter it
+	// feeds is sent only for Chromium QUIC identities. Emitting the resolved
+	// default unconditionally would put ["ORIG"] in a Firefox preset's describe
+	// output, and a user who edited that and reloaded would see the key vanish
+	// with no error. That is the failure data_frame_max_size had.
+	if p.H3Config != nil && p.H3Config.QUICConnectionOptions != nil {
+		src := *p.H3Config.QUICConnectionOptions
+		v := make([]string, len(src))
+		copy(v, src)
+		out.QUICConnectionOptions = &v
+	}
 
 	// Optional flow-control overrides — only emit when set explicitly so
 	// presets that leave them at quic-go defaults (the vast majority) don't
