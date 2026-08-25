@@ -19,6 +19,7 @@ import (
 	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/internal/h3build"
 	"github.com/sardanioss/httpcloak/proxy"
 	"github.com/sardanioss/quic-go"
 	"github.com/sardanioss/quic-go/http3"
@@ -884,30 +885,21 @@ func (t *HTTP3Transport) dialQUICWithMASQUE(ctx context.Context, addr string, tl
 	if t.config != nil && t.config.QuicIdleTimeout > 0 {
 		quicIdleTimeout = t.config.QuicIdleTimeout
 	}
-	keepAlivePeriod := quicIdleTimeout / 2
-
-	cfgCopy := &quic.Config{
-		MaxIdleTimeout:                 quicIdleTimeout,
-		KeepAlivePeriod:                keepAlivePeriod,
-		MaxIncomingStreams:             t.preset.H3QUICMaxIncomingStreams(),
-		MaxIncomingUniStreams:          t.preset.H3QUICMaxIncomingUniStreams(),
-		Allow0RTT:                      t.preset.H3QUICAllow0RTT(),
-		EnableDatagrams:                true, // Always true at QUIC level
-		InitialPacketSize:              1200, // MASQUE inner constraint (not fingerprint)
-		DisablePathMTUDiscovery:        true, // MASQUE tunnel constraint
-		DisableClientHelloScrambling:   t.preset.H3QUICDisableHelloScramble(),
-		InitialStreamReceiveWindow:     512 * 1024,           // MASQUE flow control
-		MaxStreamReceiveWindow:         6 * 1024 * 1024,      // MASQUE flow control
-		InitialConnectionReceiveWindow: 15 * 1024 * 1024 / 2, // MASQUE flow control
-		MaxConnectionReceiveWindow:     15 * 1024 * 1024,     // MASQUE flow control
-		TransportParameterOrder:        resolveTransportParamOrder(t.preset.H3QUICTransportParamOrder()),
-		TransportParameterShuffleSeed:  t.shuffleSeed,
-		ClientHelloID:                  clientHelloID,
-		CachedClientHelloSpec:          innerSpec, // Separate spec for consistent JA4, uses PSK for resumed
-		ECHConfigList:                  echConfigList,
-		AdditionalTransportParameters:  AdditionalTransportParamsForPreset(t.preset, nil, "", 0),
-		MaxDatagramFrameSize:           t.preset.H3QUICMaxDatagramFrameSize(),
-	}
+	// Through the same builder as every other path, with the tunnel's own
+	// constraints. Nothing here is a fingerprint: an observer sees the OUTER
+	// connection, so the inner one takes the tunnel's packet size and flow
+	// control rather than the profile's.
+	cfgCopy := h3build.QUICConfig(h3build.QUICOptions{
+		Preset:                        t.preset,
+		IdleTimeout:                   quicIdleTimeout,
+		ShuffleSeed:                   t.shuffleSeed,
+		ClientHelloID:                 clientHelloID,
+		CachedSpec:                    innerSpec,
+		ECHConfigList:                 echConfigList,
+		AdditionalTransportParameters: AdditionalTransportParamsForPreset(t.preset, nil, "", 0),
+		InitialPacketSize:             1200,
+		Tunnelled:                     true,
+	})
 
 	// Dial QUIC over the MASQUE tunnel using quic.DialEarly for 0-RTT support
 	// This properly supports ECH, unlike quic.Transport.Dial
@@ -1217,77 +1209,25 @@ func (t *HTTP3Transport) dialFirstSuccessful(ctx context.Context, addrs []*net.U
 	return nil, lastErr
 }
 
-// resolveTransportParamOrder converts a string order to the quic constant.
-func resolveTransportParamOrder(order string) quic.TransportParameterOrderMode {
-	switch order {
-	case "chrome":
-		return quic.TransportParameterOrderChrome
-	case "random":
-		return quic.TransportParameterOrderDefault
-	default:
-		return quic.TransportParameterOrderChrome
-	}
-}
-
 // buildQUICConfig builds a QUIC config from preset getters.
 // initialPacketSizeOverride > 0 overrides the preset value (used for MASQUE's 1350 requirement).
 func (t *HTTP3Transport) buildQUICConfig(clientHelloID *utls.ClientHelloID, quicIdleTimeout time.Duration, initialPacketSizeOverride uint16) *quic.Config {
-	keepAlivePeriod := quicIdleTimeout / 2
-	initialPacketSize := t.preset.H3QUICInitialPacketSize()
-	if initialPacketSizeOverride > 0 {
-		initialPacketSize = initialPacketSizeOverride
-	}
-	cfg := &quic.Config{
-		MaxIdleTimeout:                quicIdleTimeout,
-		KeepAlivePeriod:               keepAlivePeriod,
-		MaxIncomingStreams:            t.preset.H3QUICMaxIncomingStreams(),
-		MaxIncomingUniStreams:         t.preset.H3QUICMaxIncomingUniStreams(),
-		Allow0RTT:                     t.preset.H3QUICAllow0RTT(),
-		EnableDatagrams:               true, // Always true at QUIC level (original behavior); H3 SETTINGS controls per-browser advertisement
-		InitialPacketSize:             initialPacketSize,
-		DisablePathMTUDiscovery:       false,
-		DisableClientHelloScrambling:  t.preset.H3QUICDisableHelloScramble(),
-		ChromeStyleInitialPackets:     t.preset.H3QUICChromeStyleInitial(),
+	return h3build.QUICConfig(h3build.QUICOptions{
+		Preset:                        t.preset,
+		IdleTimeout:                   quicIdleTimeout,
+		ShuffleSeed:                   t.shuffleSeed,
 		ClientHelloID:                 clientHelloID,
-		CachedClientHelloSpec:         t.cachedClientHelloSpec,
-		TransportParameterOrder:       resolveTransportParamOrder(t.preset.H3QUICTransportParamOrder()),
-		TransportParameterShuffleSeed: t.shuffleSeed,
+		CachedSpec:                    t.cachedClientHelloSpec,
 		AdditionalTransportParameters: AdditionalTransportParamsForPreset(t.preset, nil, "", 0),
-		MaxDatagramFrameSize:          t.preset.H3QUICMaxDatagramFrameSize(),
-	}
-	// Optional per-preset flow-control overrides. Zero means "leave at quic-go
-	// default" — required for Chrome-style presets that match quic-go defaults
-	// out of the box. Only Safari/iOS-Chrome-style presets set non-zero values.
-	if v := t.preset.H3QUICInitialStreamReceiveWindow(); v != 0 {
-		cfg.InitialStreamReceiveWindow = v
-	}
-	if v := t.preset.H3QUICInitialConnectionReceiveWindow(); v != 0 {
-		cfg.InitialConnectionReceiveWindow = v
-	}
-	return cfg
+		InitialPacketSize:             initialPacketSizeOverride,
+	})
 }
 
 // buildH3AdditionalSettings builds the HTTP/3 additional settings map from preset getters.
 func (t *HTTP3Transport) buildH3AdditionalSettings() map[uint64]uint64 {
-	// Generate GREASE setting
-	greaseSettingID := generateGREASESettingID()
-	greaseSettingValue := uint64(1 + rand.Uint32()%(1<<32-1))
-
-	settings := map[uint64]uint64{
-		settingQPACKMaxTableCapacity: t.preset.H3QPACKMaxTableCapacity(),
-		settingQPACKBlockedStreams:   t.preset.H3QPACKBlockedStreams(),
-		greaseSettingID:              greaseSettingValue,
-	}
-
-	// Conditionally add settings based on preset
-	if maxField := t.preset.H3MaxFieldSectionSize(); maxField > 0 {
-		settings[settingMaxFieldSectionSize] = maxField
-	}
-	if t.preset.H3EnableDatagrams() {
-		settings[settingH3Datagram] = 1
-	}
-
-	return settings
+	return h3build.Settings(t.preset,
+		generateGREASESettingID(),
+		uint64(1+rand.Uint32()%(1<<32-1)))
 }
 
 // recordHandshakeState wraps a dial function so the newest connection is

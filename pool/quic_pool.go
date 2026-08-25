@@ -16,6 +16,7 @@ import (
 	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/internal/h3build"
 	"github.com/sardanioss/httpcloak/transport"
 	"github.com/sardanioss/quic-go"
 	"github.com/sardanioss/quic-go/http3"
@@ -24,12 +25,7 @@ import (
 )
 
 // HTTP/3 SETTINGS identifiers (Chrome-like)
-const (
-	settingQPACKMaxTableCapacity = 0x1
-	settingMaxFieldSectionSize   = 0x6
-	settingQPACKBlockedStreams   = 0x7
-	settingH3Datagram            = 0x33
-)
+const ()
 
 // Note: Connection ID length, max datagram size, and additional transport params
 // are all set per-connection on quic.Config / quic.Transport based on the preset.
@@ -271,12 +267,12 @@ type QUICHostPool struct {
 	// response body that has produced no bytes.
 	abandonedBodyTimeout time.Duration
 	connectTimeout       time.Duration
-	echConfig          []byte // Custom ECH configuration
-	echConfigDomain    string // Domain to fetch ECH config from
-	disableECH         bool   // Disable automatic ECH fetching (Chrome doesn't always use ECH)
-	insecureSkipVerify bool   // Skip TLS certificate verification (for testing)
-	tlsVerify          *transport.TLSVerify // Caller-supplied cert verification hooks
-	localAddr          string // Local IP to bind outgoing connections
+	echConfig            []byte               // Custom ECH configuration
+	echConfigDomain      string               // Domain to fetch ECH config from
+	disableECH           bool                 // Disable automatic ECH fetching (Chrome doesn't always use ECH)
+	insecureSkipVerify   bool                 // Skip TLS certificate verification (for testing)
+	tlsVerify            *transport.TLSVerify // Caller-supplied cert verification hooks
+	localAddr            string               // Local IP to bind outgoing connections
 }
 
 // NewQUICHostPool creates a new QUIC pool for a specific host
@@ -548,23 +544,20 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 		}
 	}
 
-	// QUIC config from preset getters
-	quicConfig := &quic.Config{
-		MaxIdleTimeout:                30 * time.Second, // Chrome uses 30s
-		KeepAlivePeriod:               15 * time.Second, // Send keepalives before idle timeout
-		MaxIncomingStreams:            p.preset.H3QUICMaxIncomingStreams(),
-		MaxIncomingUniStreams:         p.preset.H3QUICMaxIncomingUniStreams(),
-		Allow0RTT:                     p.preset.H3QUICAllow0RTT(),
-		EnableDatagrams:               true, // Always true at QUIC level (original behavior); H3 SETTINGS controls per-browser advertisement
-		InitialPacketSize:             p.preset.H3QUICInitialPacketSize(),
-		DisableClientHelloScrambling:  p.preset.H3QUICDisableHelloScramble(),
-		ChromeStyleInitialPackets:     p.preset.H3QUICChromeStyleInitial(),
-		ClientHelloID:                 clientHelloID,
-		CachedClientHelloSpec:         selectedSpec,
-		TransportParameterOrder:       resolveTransportParamOrder(p.preset.H3QUICTransportParamOrder()),
-		TransportParameterShuffleSeed: p.shuffleSeed,
-		MaxDatagramFrameSize:          p.preset.H3QUICMaxDatagramFrameSize(),
-	}
+	// One builder for every entrypoint, so this path and the transport path
+	// cannot drift again. They had: this one applied neither
+	// QUICInitialStreamReceiveWindow nor QUICInitialConnectionReceiveWindow, so
+	// every profile that sets them, which is the whole Safari and iOS Chrome
+	// family, emitted quic-go's defaults here and its own values through the
+	// transport. Those two go on the wire as initial_max_stream_data_bidi_remote
+	// and initial_max_data, which the server reads straight off the handshake.
+	quicConfig := h3build.QUICConfig(h3build.QUICOptions{
+		Preset:        p.preset,
+		ShuffleSeed:   p.shuffleSeed,
+		ClientHelloID: clientHelloID,
+		CachedSpec:    selectedSpec,
+	})
+
 	// Only set ECHConfigList if we have a config - matches proxy path behavior
 	// Setting nil explicitly vs not setting at all triggers different behavior in quic-go
 	if len(echConfigList) > 0 {
@@ -602,20 +595,9 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	// Generate non-zero random 32-bit value (Chrome never sends 0)
 	greaseSettingValue := uint64(1 + rand.Uint32()%(1<<32-1))
 
-	// HTTP/3 additional settings from preset getters
-	additionalSettings := map[uint64]uint64{
-		settingQPACKMaxTableCapacity: p.preset.H3QPACKMaxTableCapacity(),
-		settingQPACKBlockedStreams:   p.preset.H3QPACKBlockedStreams(),
-		greaseSettingID:              greaseSettingValue,
-	}
-
-	// Conditionally add settings based on preset
-	if maxField := p.preset.H3MaxFieldSectionSize(); maxField > 0 {
-		additionalSettings[settingMaxFieldSectionSize] = maxField
-	}
-	if p.preset.H3EnableDatagrams() {
-		additionalSettings[settingH3Datagram] = 1
-	}
+	// HTTP/3 additional settings, through the same builder as the transport
+	// path so the two cannot advertise different SETTINGS for one profile.
+	additionalSettings := h3build.Settings(p.preset, greaseSettingID, greaseSettingValue)
 
 	// Order IPs based on preference
 	var preferredIPs, fallbackIPs []net.IP
@@ -787,14 +769,14 @@ type QUICManager struct {
 	closed   bool
 
 	// Configuration
-	maxConnsPerHost    int               // 0 = unlimited
-	connectTo          map[string]string // Domain fronting: request host -> connect host
-	echConfig          []byte            // Custom ECH configuration
-	echConfigDomain    string            // Domain to fetch ECH config from
-	disableECH         bool              // Disable automatic ECH fetching
-	insecureSkipVerify bool              // Skip TLS certificate verification
+	maxConnsPerHost    int                  // 0 = unlimited
+	connectTo          map[string]string    // Domain fronting: request host -> connect host
+	echConfig          []byte               // Custom ECH configuration
+	echConfigDomain    string               // Domain to fetch ECH config from
+	disableECH         bool                 // Disable automatic ECH fetching
+	insecureSkipVerify bool                 // Skip TLS certificate verification
 	tlsVerify          *transport.TLSVerify // Caller-supplied cert verification hooks
-	localAddr          string            // Local IP to bind outgoing connections
+	localAddr          string               // Local IP to bind outgoing connections
 
 	// Cached TLS specs - shared across all QUICHostPools for consistent fingerprint
 	// Chrome shuffles extension order once per session, not per connection
