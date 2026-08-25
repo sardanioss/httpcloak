@@ -14,6 +14,7 @@ import (
 //     its sig-algs override stays empty and the H3 JA4 tail stays 653d80c3fe9d.
 //   - UA -> Chrome/150 and a sec-ch-ua brand rotation (GREASE "Not;A=Brand" v="8",
 //     moved to first position).
+//
 // This guards the header overrides, the based_on chain, AND the per-protocol
 // sig-algs split so a future edit can't silently drop ML-DSA off TCP or leak it
 // onto QUIC.
@@ -66,9 +67,9 @@ func TestChrome150Presets(t *testing.T) {
 		}
 	}
 
-	// chrome-latest tracks the newest desktop preset, now 151.
-	if ua := Get("chrome-latest").UserAgent; !strings.Contains(ua, "Chrome/151.0.0.0") {
-		t.Errorf("chrome-latest UA = %q, want Chrome/151.0.0.0", ua)
+	// chrome-latest tracks the newest desktop preset, now 152.
+	if ua := Get("chrome-latest").UserAgent; !strings.Contains(ua, "Chrome/152.0.0.0") {
+		t.Errorf("chrome-latest UA = %q, want Chrome/152.0.0.0", ua)
 	}
 }
 
@@ -156,8 +157,8 @@ func TestChrome150AndroidPreset(t *testing.T) {
 	if len(p.QUICSignatureAlgorithms) != 0 {
 		t.Errorf("chrome-150-android: QUICSignatureAlgorithms must be empty, got %v", p.QUICSignatureAlgorithms)
 	}
-	if ua := Get("chrome-latest-android").UserAgent; !strings.Contains(ua, "Chrome/151.0.0.0") {
-		t.Errorf("chrome-latest-android UA = %q, want Chrome/151.0.0.0", ua)
+	if ua := Get("chrome-latest-android").UserAgent; !strings.Contains(ua, "Chrome/152.0.0.0") {
+		t.Errorf("chrome-latest-android UA = %q, want Chrome/152.0.0.0", ua)
 	}
 }
 

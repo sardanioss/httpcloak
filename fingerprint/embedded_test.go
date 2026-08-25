@@ -8,9 +8,9 @@ import (
 
 // TestEmbedded_AllJSONsParseAndBuild walks the embedded/ directory and
 // confirms every .json file:
-//   1. parses cleanly,
-//   2. builds via BuildPreset (so based_on chains resolve at init time),
-//   3. is registered after init (the Register call from embedded.go ran).
+//  1. parses cleanly,
+//  2. builds via BuildPreset (so based_on chains resolve at init time),
+//  3. is registered after init (the Register call from embedded.go ran).
 func TestEmbedded_AllJSONsParseAndBuild(t *testing.T) {
 	entries, err := fs.ReadDir(embeddedPresets, "embedded")
 	if err != nil {

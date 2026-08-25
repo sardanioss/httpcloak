@@ -64,19 +64,19 @@ func IsSpeculativeTLSError(err error) bool {
 //
 // Traditional proxy flow:
 //
-//	1. TCP connect to proxy
-//	2. Send CONNECT request
-//	3. Wait for 200 OK response (round-trip latency)
-//	4. Start TLS handshake (ClientHello)
-//	5. Wait for ServerHello (round-trip latency)
-//	6. Continue TLS handshake
+//  1. TCP connect to proxy
+//  2. Send CONNECT request
+//  3. Wait for 200 OK response (round-trip latency)
+//  4. Start TLS handshake (ClientHello)
+//  5. Wait for ServerHello (round-trip latency)
+//  6. Continue TLS handshake
 //
 // Speculative flow:
 //
-//	1. TCP connect to proxy
-//	2. On first Write (ClientHello): send CONNECT + ClientHello together
-//	3. On first Read: strip HTTP 200 OK, return TLS data (ServerHello)
-//	4. Continue TLS handshake
+//  1. TCP connect to proxy
+//  2. On first Write (ClientHello): send CONNECT + ClientHello together
+//  3. On first Read: strip HTTP 200 OK, return TLS data (ServerHello)
+//  4. Continue TLS handshake
 //
 // This saves one round-trip by overlapping the CONNECT wait with ClientHello transmission.
 // The proxy buffers the ClientHello until the tunnel is established, then forwards it.
@@ -256,4 +256,3 @@ func (c *SpeculativeConn) SetReadDeadline(t time.Time) error {
 func (c *SpeculativeConn) SetWriteDeadline(t time.Time) error {
 	return c.Conn.SetWriteDeadline(t)
 }
-

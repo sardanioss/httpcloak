@@ -441,12 +441,12 @@ func (t *HTTP3Transport) hasSessionForHost(host string) bool {
 // early_data on a fresh connection.
 func (t *HTTP3Transport) getSpecForHost(host string) *utls.ClientHelloSpec {
 	if t.preset.QUICPSKClientHelloID.Client != "" && t.hasSessionForHost(host) {
-		if spec, err := fingerprint.SpecFor(t.preset.QUICPSKClientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms); err == nil {
+		if spec, err := fingerprint.SpecForWithAnchors(t.preset.QUICPSKClientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms, t.preset.TrustAnchors); err == nil {
 			return spec
 		}
 	}
 	if t.clientHelloID != nil {
-		if spec, err := fingerprint.SpecFor(*t.clientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms); err == nil {
+		if spec, err := fingerprint.SpecForWithAnchors(*t.clientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms, t.preset.TrustAnchors); err == nil {
 			return spec
 		}
 	}
@@ -458,12 +458,12 @@ func (t *HTTP3Transport) getSpecForHost(host string) *utls.ClientHelloSpec {
 // kept a separate object from the outer connection for a consistent inner JA4.
 func (t *HTTP3Transport) getInnerSpecForHost(host string) *utls.ClientHelloSpec {
 	if t.preset.QUICPSKClientHelloID.Client != "" && t.hasSessionForHost(host) {
-		if spec, err := fingerprint.SpecFor(t.preset.QUICPSKClientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms); err == nil {
+		if spec, err := fingerprint.SpecForWithAnchors(t.preset.QUICPSKClientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms, t.preset.TrustAnchors); err == nil {
 			return spec
 		}
 	}
 	if t.clientHelloID != nil {
-		if spec, err := fingerprint.SpecFor(*t.clientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms); err == nil {
+		if spec, err := fingerprint.SpecForWithAnchors(*t.clientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms, t.preset.TrustAnchors); err == nil {
 			return spec
 		}
 	}
@@ -523,6 +523,7 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		spec, err := utls.UTLSIdToSpecWithSeed(*clientHelloID, shuffleSeed)
 		if err == nil {
 			fingerprint.ApplySignatureAlgorithms(spec.Extensions, preset.QUICSignatureAlgorithms)
+			fingerprint.ApplyTrustAnchors(&spec.Extensions, preset.TrustAnchors)
 			t.cachedClientHelloSpec = &spec
 		}
 	}
@@ -532,6 +533,7 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 	if preset.QUICPSKClientHelloID.Client != "" {
 		if pskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
 			fingerprint.ApplySignatureAlgorithms(pskSpec.Extensions, preset.QUICSignatureAlgorithms)
+			fingerprint.ApplyTrustAnchors(&pskSpec.Extensions, preset.TrustAnchors)
 			t.cachedClientHelloSpecPSK = &pskSpec
 		}
 	}
@@ -681,6 +683,7 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		spec, err := utls.UTLSIdToSpecWithSeed(*clientHelloID, shuffleSeed)
 		if err == nil {
 			fingerprint.ApplySignatureAlgorithms(spec.Extensions, preset.QUICSignatureAlgorithms)
+			fingerprint.ApplyTrustAnchors(&spec.Extensions, preset.TrustAnchors)
 			t.cachedClientHelloSpec = &spec
 		}
 	}
@@ -689,6 +692,7 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 	if preset.QUICPSKClientHelloID.Client != "" {
 		if pskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
 			fingerprint.ApplySignatureAlgorithms(pskSpec.Extensions, preset.QUICSignatureAlgorithms)
+			fingerprint.ApplyTrustAnchors(&pskSpec.Extensions, preset.TrustAnchors)
 			t.cachedClientHelloSpecPSK = &pskSpec
 		}
 	}
@@ -803,6 +807,7 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		spec, err := utls.UTLSIdToSpecWithSeed(*clientHelloID, shuffleSeed)
 		if err == nil {
 			fingerprint.ApplySignatureAlgorithms(spec.Extensions, preset.QUICSignatureAlgorithms)
+			fingerprint.ApplyTrustAnchors(&spec.Extensions, preset.TrustAnchors)
 			t.cachedClientHelloSpec = &spec
 		}
 		// Create separate cached spec for inner connections (not shared with outer)
@@ -810,6 +815,7 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		innerSpec, err := utls.UTLSIdToSpecWithSeed(*clientHelloID, shuffleSeed)
 		if err == nil {
 			fingerprint.ApplySignatureAlgorithms(innerSpec.Extensions, preset.QUICSignatureAlgorithms)
+			fingerprint.ApplyTrustAnchors(&innerSpec.Extensions, preset.TrustAnchors)
 			t.cachedClientHelloSpecInner = &innerSpec
 		}
 	}
@@ -819,11 +825,13 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		// Outer PSK spec
 		if pskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
 			fingerprint.ApplySignatureAlgorithms(pskSpec.Extensions, preset.QUICSignatureAlgorithms)
+			fingerprint.ApplyTrustAnchors(&pskSpec.Extensions, preset.TrustAnchors)
 			t.cachedClientHelloSpecPSK = &pskSpec
 		}
 		// Inner PSK spec for MASQUE connections
 		if innerPskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
 			fingerprint.ApplySignatureAlgorithms(innerPskSpec.Extensions, preset.QUICSignatureAlgorithms)
+			fingerprint.ApplyTrustAnchors(&innerPskSpec.Extensions, preset.TrustAnchors)
 			t.cachedClientHelloSpecInnerPSK = &innerPskSpec
 		}
 	}

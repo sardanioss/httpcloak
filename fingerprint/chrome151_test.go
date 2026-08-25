@@ -121,11 +121,11 @@ func TestChrome151IOSPreset(t *testing.T) {
 // flip this assertion.
 func TestChrome151LatestAliases(t *testing.T) {
 	for alias, want := range map[string]string{
-		"chrome-latest":         "Chrome/151.0.0.0",
-		"chrome-latest-windows": "Chrome/151.0.0.0",
-		"chrome-latest-linux":   "Chrome/151.0.0.0",
-		"chrome-latest-macos":   "Chrome/151.0.0.0",
-		"chrome-latest-android": "Chrome/151.0.0.0",
+		"chrome-latest":         "Chrome/152.0.0.0",
+		"chrome-latest-windows": "Chrome/152.0.0.0",
+		"chrome-latest-linux":   "Chrome/152.0.0.0",
+		"chrome-latest-macos":   "Chrome/152.0.0.0",
+		"chrome-latest-android": "Chrome/152.0.0.0",
 		"chrome-latest-ios":     "CriOS/150.",
 	} {
 		p := Get(alias)

@@ -120,6 +120,19 @@ type Preset struct {
 	// certificate chains impractical), and adds rsa_pkcs1_sha1 there instead.
 	// Empty = leave the QUIC base ClientHelloID untouched.
 	QUICSignatureAlgorithms []tls.SignatureScheme
+
+	// TrustAnchors are the identifiers carried in the trust_anchors extension
+	// (0xCA34, draft-ietf-tls-trust-anchor-ids), which Chrome ships from
+	// version 152. Each entry is an encoded relative object identifier.
+	//
+	// They live in the preset rather than in code because the list is a
+	// snapshot of a Chrome root store and moves independently of the browser
+	// version, so refreshing it should not need a release. Empty means the
+	// extension is not sent at all, which is every preset before Chrome 152.
+	//
+	// The ORDER here is canonical only. Chrome shuffles the list per
+	// connection, and so does the extension.
+	TrustAnchors [][]byte
 }
 
 // SpecFor generates the uTLS ClientHelloSpec for id at the given shuffle seed and
@@ -129,11 +142,19 @@ type Preset struct {
 // A drop-in replacement for tls.UTLSIdToSpecWithSeed so every transport spec path
 // (H2/H3, fresh and PSK) can share one override point.
 func SpecFor(id tls.ClientHelloID, seed int64, sigAlgs []tls.SignatureScheme) (*tls.ClientHelloSpec, error) {
+	return SpecForWithAnchors(id, seed, sigAlgs, nil)
+}
+
+// SpecForWithAnchors is SpecFor plus the trust_anchors list, which is an
+// insertion rather than an override and so cannot go through the same
+// slice-mutating helper.
+func SpecForWithAnchors(id tls.ClientHelloID, seed int64, sigAlgs []tls.SignatureScheme, anchors [][]byte) (*tls.ClientHelloSpec, error) {
 	spec, err := tls.UTLSIdToSpecWithSeed(id, seed)
 	if err != nil {
 		return nil, err
 	}
 	ApplySignatureAlgorithms(spec.Extensions, sigAlgs)
+	ApplyTrustAnchors(&spec.Extensions, anchors)
 	return &spec, nil
 }
 
@@ -151,6 +172,50 @@ func ApplySignatureAlgorithms(exts []tls.TLSExtension, algs []tls.SignatureSchem
 			return
 		}
 	}
+}
+
+// ApplyTrustAnchors puts the trust_anchors extension (0xCA34) into a spec,
+// carrying anchors, and is a no-op when anchors is empty.
+//
+// It replaces an existing one rather than adding a second, so a spec that
+// already carries the extension (a captured hello, say) takes the preset's
+// list. Otherwise it inserts ahead of the trailing run of extensions that may
+// not move: GREASE brackets the list, padding sizes the record, and RFC 8446
+// 4.2.11 requires pre_shared_key to be last. Landing after those would pin the
+// extension to the final slot, where BoringSSL marks it out_compressible and so
+// takes part in the ordinary permutation like any other.
+// It takes a pointer to the slice, unlike ApplySignatureAlgorithms, because
+// adding an extension changes the slice header rather than an element. That
+// also lets the H1 path pass &tlsConn.Extensions, where there is no spec.
+func ApplyTrustAnchors(exts *[]tls.TLSExtension, anchors [][]byte) {
+	if exts == nil || len(anchors) == 0 {
+		return
+	}
+	ext := &tls.TrustAnchorsExtension{
+		TrustAnchors: append([][]byte(nil), anchors...),
+		Shuffle:      true,
+	}
+	for i, e := range *exts {
+		if _, ok := e.(*tls.TrustAnchorsExtension); ok {
+			(*exts)[i] = ext
+			return
+		}
+	}
+
+	at := len(*exts)
+	for at > 0 {
+		switch (*exts)[at-1].(type) {
+		case *tls.UtlsGREASEExtension, *tls.UtlsPaddingExtension, tls.PreSharedKeyExtension:
+			at--
+			continue
+		}
+		break
+	}
+	out := make([]tls.TLSExtension, 0, len(*exts)+1)
+	out = append(out, (*exts)[:at]...)
+	out = append(out, ext)
+	out = append(out, (*exts)[at:]...)
+	*exts = out
 }
 
 // TCPFingerprint contains TCP/IP stack parameters that identify the OS.
@@ -2615,6 +2680,104 @@ func IOSChrome151() *Preset {
 	return IOSChrome150()
 }
 
+// Chrome152Windows returns Chrome 152 on Windows.
+//
+// The first Chrome release since 146 to change the ClientHello rather than just
+// the headers. Two wire changes, both confirmed against BoringSSL source and
+// four captures across two hosts and both transports.
+//
+// trust_anchors (0xCA34, draft-ietf-tls-trust-anchor-ids) carries 32 identifiers
+// across three issuer arcs. The list is a snapshot of the Chrome root store, so
+// it lives in the preset JSON and can be refreshed without a release. Every
+// capture carried the same SET in a different ORDER, so the extension shuffles
+// per connection.
+//
+// A GREASE signature algorithm leads signature_algorithms, on TCP only, per
+// ext_sigalgs_add_clienthello, which writes it before tls12_add_verify_sigalgs.
+// The preset carries the 0x0a0a placeholder and uTLS substitutes a real value
+// per connection. That matters more than it looks: the two TCP captures drew
+// 0x3a3a and 0x0a0a and are identical in every other ja4_r field, and hashing
+// peet's own string reproduces both published hashes, so Chrome 152 has sixteen
+// JA4 values on TCP rather than one. QUIC sends no GREASE and needs no override,
+// because the nine algorithms it advertises already match the base.
+//
+// Two header values move, and as with 151 the second is not what a naive bump
+// would give, because the greased brand list reseeds off the major version:
+//
+//	150: "Not;A=Brand";v="8",  "Chromium";v="150",      "Google Chrome";v="150"
+//	151: "Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"
+//	152: "Chromium";v="152",   "Not?A_Brand";v="24",    "Google Chrome";v="152"
+//
+// Falls back to Chrome151Windows if the JSON didn't load.
+func Chrome152Windows() *Preset {
+	if p := LookupCustom("chrome-152-windows"); p != nil {
+		return p
+	}
+	return Chrome151Windows()
+}
+
+// Chrome152Linux returns Chrome 152 on Linux. See Chrome152Windows.
+func Chrome152Linux() *Preset {
+	if p := LookupCustom("chrome-152-linux"); p != nil {
+		return p
+	}
+	return Chrome151Linux()
+}
+
+// Chrome152macOS returns Chrome 152 on macOS. See Chrome152Windows.
+func Chrome152macOS() *Preset {
+	if p := LookupCustom("chrome-152-macos"); p != nil {
+		return p
+	}
+	return Chrome151macOS()
+}
+
+// Chrome152 returns the Chrome 152 fingerprint preset auto-detected from the
+// running OS.
+func Chrome152() *Preset {
+	switch GetPlatformInfo().Platform {
+	case "Windows":
+		return Chrome152Windows()
+	case "macOS":
+		return Chrome152macOS()
+	default:
+		return Chrome152Linux()
+	}
+}
+
+// AndroidChrome152 returns Chrome 152 on Android. Carries both wire changes:
+// the Chrome root store ships in the browser binary and is the same list on
+// every platform, and the signature-algorithm GREASE is BoringSSL behaviour
+// rather than anything platform-specific. The captures behind them were taken
+// on Windows. Android uses the reduced UA, so there is no build number to
+// track. Falls back to AndroidChrome151.
+func AndroidChrome152() *Preset {
+	if p := LookupCustom("chrome-152-android"); p != nil {
+		return p
+	}
+	return AndroidChrome151()
+}
+
+// IOSChrome152 returns Chrome 152 on iOS. WebKit underneath, so NEITHER of the
+// two Chrome 152 wire changes applies: no trust_anchors, no signature-algorithm
+// GREASE, and no client hints at all. The User-Agent is the only thing that
+// moves between versions.
+//
+// PROVISIONAL, exactly as chrome-151-ios is. iOS Chrome spells its version out
+// in full (CriOS/152.0.8080.60) rather than using the reduced desktop form, and
+// that build number cannot be derived from the major version, so the value here
+// is a placeholder pending a real capture. "chrome-latest-ios" therefore still
+// resolves to IOSChrome150, so nobody gets an unverified fingerprint without
+// asking for it by name.
+//
+// Falls back to IOSChrome151.
+func IOSChrome152() *Preset {
+	if p := LookupCustom("chrome-152-ios"); p != nil {
+		return p
+	}
+	return IOSChrome151()
+}
+
 // IOSChrome143 returns Chrome 143 on iOS fingerprint preset
 // Note: iOS Chrome uses WebKit (Apple requirement), so it has Safari's TLS AND HTTP/2 fingerprint
 // WebKit doesn't support Client Hints, so no sec-ch-ua headers
@@ -3199,6 +3362,12 @@ var presets = map[string]func() *Preset{
 	"chrome-150-macos":    Chrome150macOS,
 	"chrome-150-ios":      IOSChrome150,
 	"chrome-150-android":  AndroidChrome150,
+	"chrome-152":          Chrome152,
+	"chrome-152-windows":  Chrome152Windows,
+	"chrome-152-linux":    Chrome152Linux,
+	"chrome-152-macos":    Chrome152macOS,
+	"chrome-152-ios":      IOSChrome152,
+	"chrome-152-android":  AndroidChrome152,
 	"chrome-151":          Chrome151,
 	"chrome-151-windows":  Chrome151Windows,
 	"chrome-151-linux":    Chrome151Linux,
@@ -3211,10 +3380,10 @@ var presets = map[string]func() *Preset{
 	// build number that cannot be derived from the major version, so
 	// chrome-151-ios is provisional until a real capture confirms it (see
 	// IOSChrome151).
-	"chrome-latest":          Chrome151,
-	"chrome-latest-windows":  Chrome151Windows,
-	"chrome-latest-linux":    Chrome151Linux,
-	"chrome-latest-macos":    Chrome151macOS,
+	"chrome-latest":          Chrome152,
+	"chrome-latest-windows":  Chrome152Windows,
+	"chrome-latest-linux":    Chrome152Linux,
+	"chrome-latest-macos":    Chrome152macOS,
 	"firefox-latest":         Firefox148,
 	"firefox-latest-windows": Firefox148Windows,
 	"firefox-latest-linux":   Firefox148Linux,
@@ -3222,7 +3391,7 @@ var presets = map[string]func() *Preset{
 	"safari-latest":          Safari18,
 	"chrome-latest-ios":      IOSChrome150,
 	"safari-latest-ios":      IOSSafari18,
-	"chrome-latest-android":  AndroidChrome151,
+	"chrome-latest-android":  AndroidChrome152,
 
 	// Backwards compatibility aliases (old naming convention)
 	"ios-chrome-143":        IOSChrome143,

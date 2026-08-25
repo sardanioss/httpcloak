@@ -89,9 +89,9 @@ func TestAvailableWithInfo(t *testing.T) {
 // --- H2 Getter Tests ---
 
 func boolPtr(v bool) *bool       { return &v }
-func uint64Ptr(v uint64) *uint64  { return &v }
-func uint16Ptr(v uint16) *uint16  { return &v }
-func int64Ptr(v int64) *int64     { return &v }
+func uint64Ptr(v uint64) *uint64 { return &v }
+func uint16Ptr(v uint16) *uint16 { return &v }
+func int64Ptr(v int64) *int64    { return &v }
 
 func TestH2HeaderOrderDefault(t *testing.T) {
 	p := Chrome146()

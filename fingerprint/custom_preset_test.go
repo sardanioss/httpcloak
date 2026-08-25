@@ -211,9 +211,9 @@ func TestBuildPresetWithClientHello(t *testing.T) {
 	spec := &PresetSpec{
 		Name: "ch-test",
 		TLS: &TLSSpec{
-			ClientHello:     "chrome-146-windows",
-			PSKClientHello:  "chrome-146-windows-psk",
-			QUICClientHello: "chrome-146-quic",
+			ClientHello:        "chrome-146-windows",
+			PSKClientHello:     "chrome-146-windows-psk",
+			QUICClientHello:    "chrome-146-quic",
 			QUICPSKClientHello: "chrome-146-quic-psk",
 		},
 	}
@@ -541,8 +541,8 @@ func TestClonePresetDeepCopy(t *testing.T) {
 
 func TestClonePresetDeepCopyHeaders(t *testing.T) {
 	src := &Preset{
-		Name:      "src",
-		Headers:   map[string]string{"a": "1", "b": "2"},
+		Name:        "src",
+		Headers:     map[string]string{"a": "1", "b": "2"},
 		HeaderOrder: []HeaderPair{{Key: "x", Value: "y"}},
 	}
 	dst := clonePreset(src)
@@ -744,11 +744,11 @@ func TestBuildPresetCertCompFromTopLevelTLS(t *testing.T) {
 	spec := &PresetSpec{
 		Name: "top-level-extras",
 		TLS: &TLSSpec{
-			JA3:             "771,4865-4866-4867,0-23-65281-10-11,29-23-24,0",
+			JA3:                 "771,4865-4866-4867,0-23-65281-10-11,29-23-24,0",
 			SignatureAlgorithms: []uint16{1027, 2052},
-			ALPN:            []string{"h2", "http/1.1"},
-			CertCompression: []string{"brotli"},
-			RecordSizeLimit: ptrUint16(0x4001),
+			ALPN:                []string{"h2", "http/1.1"},
+			CertCompression:     []string{"brotli"},
+			RecordSizeLimit:     ptrUint16(0x4001),
 		},
 	}
 	p, err := BuildPreset(spec)
@@ -1321,25 +1321,25 @@ func TestPresetSpecJSONRoundTrip(t *testing.T) {
 
 func ptrUint64(v uint64) *uint64 { return &v }
 func ptrInt64(v int64) *int64    { return &v }
-func ptrBool(v bool) *bool { return &v }
+func ptrBool(v bool) *bool       { return &v }
 
 func TestClonePresetH3ConfigDeepCopy(t *testing.T) {
 	src := &Preset{
 		Name: "h3-clone-src",
 		H3Config: &H3FingerprintConfig{
-			QPACKMaxTableCapacity:    ptrUint64(32768),
-			QPACKBlockedStreams:      ptrUint64(50),
-			MaxFieldSectionSize:      ptrUint64(262144),
-			EnableDatagrams:          ptrBool(true),
-			QUICInitialPacketSize:    ptrUint16(1250),
+			QPACKMaxTableCapacity:     ptrUint64(32768),
+			QPACKBlockedStreams:       ptrUint64(50),
+			MaxFieldSectionSize:       ptrUint64(262144),
+			EnableDatagrams:           ptrBool(true),
+			QUICInitialPacketSize:     ptrUint16(1250),
 			QUICMaxIncomingStreams:    ptrInt64(100),
 			QUICMaxIncomingUniStreams: ptrInt64(103),
-			QUICAllow0RTT:            ptrBool(true),
-			QUICChromeStyleInitial:   ptrBool(true),
-			QUICDisableHelloScramble: ptrBool(false),
-			QUICTransportParamOrder:  "chrome",
-			MaxResponseHeaderBytes:   ptrUint64(262144),
-			SendGreaseFrames:         ptrBool(true),
+			QUICAllow0RTT:             ptrBool(true),
+			QUICChromeStyleInitial:    ptrBool(true),
+			QUICDisableHelloScramble:  ptrBool(false),
+			QUICTransportParamOrder:   "chrome",
+			MaxResponseHeaderBytes:    ptrUint64(262144),
+			SendGreaseFrames:          ptrBool(true),
 		},
 	}
 	dst := clonePreset(src)
@@ -1417,19 +1417,19 @@ func TestApplyHTTP3AllFields(t *testing.T) {
 	spec := &PresetSpec{
 		Name: "h3-all",
 		HTTP3: &HTTP3Spec{
-			QPACKMaxTableCapacity:    ptrUint64(32768),
-			QPACKBlockedStreams:      ptrUint64(50),
-			MaxFieldSectionSize:      ptrUint64(262144),
-			EnableDatagrams:          ptrBool(true),
-			QUICInitialPacketSize:    ptrUint16(1350),
+			QPACKMaxTableCapacity:     ptrUint64(32768),
+			QPACKBlockedStreams:       ptrUint64(50),
+			MaxFieldSectionSize:       ptrUint64(262144),
+			EnableDatagrams:           ptrBool(true),
+			QUICInitialPacketSize:     ptrUint16(1350),
 			QUICMaxIncomingStreams:    ptrInt64(200),
 			QUICMaxIncomingUniStreams: ptrInt64(103),
-			QUICAllow0RTT:            ptrBool(false),
-			QUICChromeStyleInitial:   ptrBool(false),
-			QUICDisableHelloScramble: ptrBool(true),
-			QUICTransportParamOrder:  &order,
-			MaxResponseHeaderBytes:   ptrUint64(131072),
-			SendGreaseFrames:         ptrBool(false),
+			QUICAllow0RTT:             ptrBool(false),
+			QUICChromeStyleInitial:    ptrBool(false),
+			QUICDisableHelloScramble:  ptrBool(true),
+			QUICTransportParamOrder:   &order,
+			MaxResponseHeaderBytes:    ptrUint64(131072),
+			SendGreaseFrames:          ptrBool(false),
 		},
 	}
 	p, err := BuildPreset(spec)
@@ -1830,12 +1830,12 @@ func TestApplyHTTP2IndividualFieldsFull(t *testing.T) {
 	spec := &PresetSpec{
 		Name: "h2-all-individual",
 		HTTP2: &HTTP2Spec{
-			MaxConcurrentStreams:  &maxConc,
-			MaxHeaderListSize:    &maxHL,
-			NoRFC7540Priorities:  &noRFC,
+			MaxConcurrentStreams:   &maxConc,
+			MaxHeaderListSize:      &maxHL,
+			NoRFC7540Priorities:    &noRFC,
 			ConnectionWindowUpdate: &connWU,
-			StreamWeight:         &sw,
-			StreamExclusive:      &se,
+			StreamWeight:           &sw,
+			StreamExclusive:        &se,
 		},
 	}
 	p, err := BuildPreset(spec)

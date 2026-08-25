@@ -45,11 +45,11 @@ var (
 // ALPNMismatchError is returned when ALPN negotiates a different protocol than expected.
 // It carries the TLS connection so it can be reused for the negotiated protocol.
 type ALPNMismatchError struct {
-	Expected   string       // Expected protocol (e.g., "h2")
-	Negotiated string       // Actually negotiated protocol (e.g., "http/1.1")
-	TLSConn    *utls.UConn  // The TLS connection (caller should close if not reusing)
-	Host       string       // Target host
-	Port       string       // Target port
+	Expected   string      // Expected protocol (e.g., "h2")
+	Negotiated string      // Actually negotiated protocol (e.g., "http/1.1")
+	TLSConn    *utls.UConn // The TLS connection (caller should close if not reusing)
+	Host       string      // Target host
+	Port       string      // Target port
 }
 
 func (e *ALPNMismatchError) Error() string {
@@ -62,13 +62,13 @@ func (e *ALPNMismatchError) Unwrap() error {
 
 // TransportError provides detailed error information
 type TransportError struct {
-	Op       string // Operation that failed (e.g., "dial", "tls_handshake", "request")
-	Host     string // Target host
-	Port     string // Target port
-	Protocol string // Protocol (h1, h2, h3)
-	Cause    error  // Underlying error
-	Category error  // Error category (ErrConnection, ErrTLS, etc.)
-	Retryable bool  // Whether the operation can be retried
+	Op        string // Operation that failed (e.g., "dial", "tls_handshake", "request")
+	Host      string // Target host
+	Port      string // Target port
+	Protocol  string // Protocol (h1, h2, h3)
+	Cause     error  // Underlying error
+	Category  error  // Error category (ErrConnection, ErrTLS, etc.)
+	Retryable bool   // Whether the operation can be retried
 }
 
 // Error implements the error interface

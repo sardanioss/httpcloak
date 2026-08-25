@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -131,6 +132,13 @@ func flattenTLS(p *Preset) (*TLSSpec, error) {
 		out.QUICSignatureAlgorithms = make([]uint16, len(p.QUICSignatureAlgorithms))
 		for i, s := range p.QUICSignatureAlgorithms {
 			out.QUICSignatureAlgorithms[i] = uint16(s)
+		}
+	}
+
+	if len(p.TrustAnchors) > 0 {
+		out.TrustAnchors = make([]string, len(p.TrustAnchors))
+		for i, ta := range p.TrustAnchors {
+			out.TrustAnchors[i] = hex.EncodeToString(ta)
 		}
 	}
 

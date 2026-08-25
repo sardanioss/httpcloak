@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "preset": {
+    "name": "chrome-152-windows",
+    "based_on": "chrome-151-windows",
+    "tls": {
+      "signature_algorithms": [
+        2570,
+        2308,
+        2309,
+        2310,
+        1027,
+        2052,
+        1025,
+        1283,
+        2053,
+        1281,
+        2054,
+        1537
+      ],
+      "trust_anchors": [
+        "d6790901",
+        "d6790902",
+        "d6790903",
+        "d6790904",
+        "d6790905",
+        "d6790906",
+        "d6790907",
+        "d6790908",
+        "d6790909",
+        "d679090a",
+        "d679090b",
+        "d679090c",
+        "d679090d",
+        "d679090e",
+        "d679090f",
+        "839a648c9b2d0107",
+        "839a648c9b2d0108",
+        "839a648c9b2d0109",
+        "839a648c9b2d010a",
+        "839a648c9b2d010b",
+        "839a648c9b2d010c",
+        "839a648c9b2d010d",
+        "839a648c9b2d0112",
+        "839a648c9b2d0113",
+        "82df130201",
+        "82df130206",
+        "82df13020d",
+        "82df13020e",
+        "82df13020f",
+        "82df130212",
+        "82df130213",
+        "82df130214"
+      ]
+    },
+    "headers": {
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+      "values": {
+        "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\""
+      },
+      "order": [
+        {
+          "key": "sec-ch-ua",
+          "value": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\""
+        },
+        {
+          "key": "sec-ch-ua-mobile",
+          "value": "?0"
+        },
+        {
+          "key": "sec-ch-ua-platform",
+          "value": "\"Windows\""
+        },
+        {
+          "key": "upgrade-insecure-requests",
+          "value": "1"
+        },
+        {
+          "key": "user-agent",
+          "value": ""
+        },
+        {
+          "key": "accept",
+          "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+        },
+        {
+          "key": "sec-fetch-site",
+          "value": "none"
+        },
+        {
+          "key": "sec-fetch-mode",
+          "value": "navigate"
+        },
+        {
+          "key": "sec-fetch-user",
+          "value": "?1"
+        },
+        {
+          "key": "sec-fetch-dest",
+          "value": "document"
+        },
+        {
+          "key": "accept-encoding",
+          "value": "gzip, deflate, br, zstd"
+        },
+        {
+          "key": "accept-language",
+          "value": "en-US,en;q=0.9"
+        },
+        {
+          "key": "priority",
+          "value": "u=0, i"
+        }
+      ]
+    }
+  }
+}

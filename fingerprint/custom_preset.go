@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/sardanioss/net/http2/hpack"
@@ -95,9 +96,16 @@ type TLSSpec struct {
 	DelegatedCredentialAlgorithms []uint16 `json:"delegated_credential_algorithms,omitempty"`
 	ALPN                          []string `json:"alpn,omitempty"`
 	CertCompression               []string `json:"cert_compression,omitempty"` // "brotli", "zlib", "zstd"
-	PermuteExtensions             *bool    `json:"permute_extensions,omitempty"`
-	RecordSizeLimit               *uint16  `json:"record_size_limit,omitempty"`
-	KeyShareCurves                *int     `json:"key_share_curves,omitempty"` // number of curves to send key shares for; nil/0 = 1
+
+	// TrustAnchors are hex-encoded trust anchor identifiers for the
+	// trust_anchors extension (0xCA34), which Chrome ships from version 152.
+	// The list is a snapshot of a root store and moves independently of the
+	// browser version, so it lives here rather than in code. Empty means the
+	// extension is not sent.
+	TrustAnchors      []string `json:"trust_anchors,omitempty"`
+	PermuteExtensions *bool    `json:"permute_extensions,omitempty"`
+	RecordSizeLimit   *uint16  `json:"record_size_limit,omitempty"`
+	KeyShareCurves    *int     `json:"key_share_curves,omitempty"` // number of curves to send key shares for; nil/0 = 1
 }
 
 // JA3ExtrasSpec is the JSON representation of JA3Extras.
@@ -629,6 +637,12 @@ func clonePreset(src *Preset) *Preset {
 		dst.QUICSignatureAlgorithms = make([]tls.SignatureScheme, len(src.QUICSignatureAlgorithms))
 		copy(dst.QUICSignatureAlgorithms, src.QUICSignatureAlgorithms)
 	}
+	if src.TrustAnchors != nil {
+		dst.TrustAnchors = make([][]byte, len(src.TrustAnchors))
+		for i, ta := range src.TrustAnchors {
+			dst.TrustAnchors[i] = append([]byte(nil), ta...)
+		}
+	}
 
 	return &dst
 }
@@ -767,6 +781,21 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 		if len(spec.QUICSignatureAlgorithms) > 0 {
 			p.QUICSignatureAlgorithms = uint16sToSchemes(spec.QUICSignatureAlgorithms)
 		}
+	}
+	if spec.TrustAnchors != nil {
+		anchors := make([][]byte, 0, len(spec.TrustAnchors))
+		for _, h := range spec.TrustAnchors {
+			b, err := hex.DecodeString(h)
+			if err != nil {
+				return fmt.Errorf("trust_anchors: %q is not hex: %w", h, err)
+			}
+			if len(b) == 0 || len(b) > 255 {
+				return fmt.Errorf("trust_anchors: %q decodes to %d bytes; each "+
+					"identifier carries a one-byte length so it must be 1 to 255", h, len(b))
+			}
+			anchors = append(anchors, b)
+		}
+		p.TrustAnchors = anchors
 	}
 
 	return nil

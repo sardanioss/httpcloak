@@ -75,8 +75,8 @@ const TLSSessionCacheMaxSize = 32
 
 // TLSSessionState represents a serializable TLS session
 type TLSSessionState struct {
-	Ticket    string    `json:"ticket"`     // base64 encoded
-	State     string    `json:"state"`      // base64 encoded
+	Ticket    string    `json:"ticket"` // base64 encoded
+	State     string    `json:"state"`  // base64 encoded
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -152,9 +152,9 @@ type PersistableSessionCache struct {
 
 	// Optional distributed cache backend
 	backend       SessionCacheBackend
-	preset        string        // Preset name for cache key generation
-	protocol      string        // Protocol identifier (h1, h2, h3)
-	sessionId     string        // Optional session identifier for cache key isolation
+	preset        string                        // Preset name for cache key generation
+	protocol      string                        // Protocol identifier (h1, h2, h3)
+	sessionId     string                        // Optional session identifier for cache key isolation
 	errorCallback atomic.Pointer[ErrorCallback] // Optional callback for backend errors (lock-free)
 }
 

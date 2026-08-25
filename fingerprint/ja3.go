@@ -11,13 +11,13 @@ import (
 // JA3Extras provides extension data that JA3 cannot capture.
 // JA3 only encodes extension IDs, not the data within them.
 type JA3Extras struct {
-	SignatureAlgorithms            []tls.SignatureScheme
-	DelegatedCredentialAlgorithms  []tls.SignatureScheme // for ext 34; nil = Chrome defaults
-	ALPN                           []string
-	CertCompAlgs                   []tls.CertCompressionAlgo
-	PermuteExtensions              bool
-	RecordSizeLimit                uint16 // default: 0x4001
-	KeyShareCurves                 int    // number of curves to send key shares for; 0 = 1 (default)
+	SignatureAlgorithms           []tls.SignatureScheme
+	DelegatedCredentialAlgorithms []tls.SignatureScheme // for ext 34; nil = Chrome defaults
+	ALPN                          []string
+	CertCompAlgs                  []tls.CertCompressionAlgo
+	PermuteExtensions             bool
+	RecordSizeLimit               uint16 // default: 0x4001
+	KeyShareCurves                int    // number of curves to send key shares for; 0 = 1 (default)
 }
 
 // defaultJA3Extras returns sensible defaults matching modern Chrome.

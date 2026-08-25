@@ -760,6 +760,7 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 	// the client's real list, so overwriting it there would undo the capture.
 	if specSource == fingerprint.SourceClientHelloID {
 		fingerprint.ApplySignatureAlgorithms(specToUse.Extensions, t.preset.SignatureAlgorithms)
+		fingerprint.ApplyTrustAnchors(&specToUse.Extensions, t.preset.TrustAnchors)
 	}
 
 	// Fetch ECH config if needed. skipECH forces a no-ECH handshake, used by the
@@ -891,6 +892,7 @@ func (t *HTTP2Transport) establishConn(ctx context.Context, host, port string, s
 			// Keep the same TCP signature_algorithms override on the fallback spec.
 			if fallbackJA3 == "" && fallbackSpec != nil {
 				fingerprint.ApplySignatureAlgorithms(fallbackSpec.Extensions, t.preset.SignatureAlgorithms)
+				fingerprint.ApplyTrustAnchors(&fallbackSpec.Extensions, t.preset.TrustAnchors)
 			}
 
 			// Redo TLS handshake on the clean connection

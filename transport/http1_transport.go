@@ -831,6 +831,14 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			// Apply the preset's TCP signature_algorithms override (e.g. Chrome 150
 			// ML-DSA) on the materialised extensions, same mechanism as the ALPN edit.
 			fingerprint.ApplySignatureAlgorithms(tlsConn.Extensions, t.preset.SignatureAlgorithms)
+			// Same mechanism, same caveat: like the ALPN edit and the sig-algs
+			// override above, this only reaches the wire when something later
+			// forces a re-marshal of the hello. A preset whose selected
+			// ClientHelloID carries a pre_shared_key extension re-marshals to
+			// compute the binder and so picks it up; one without silently does
+			// not. That is a known defect of this whole code region, not of
+			// trust_anchors, and it is filed separately.
+			fingerprint.ApplyTrustAnchors(&tlsConn.Extensions, t.preset.TrustAnchors)
 		}
 		if useSessionCache {
 			tlsConn.SetSessionCache(t.sessionCache)
@@ -891,6 +899,14 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 				// client's real list.
 				if specSource == fingerprint.SourceClientHelloID {
 					fingerprint.ApplySignatureAlgorithms(tlsConn.Extensions, t.preset.SignatureAlgorithms)
+					// Same mechanism, same caveat: like the ALPN edit and the sig-algs
+					// override above, this only reaches the wire when something later
+					// forces a re-marshal of the hello. A preset whose selected
+					// ClientHelloID carries a pre_shared_key extension re-marshals to
+					// compute the binder and so picks it up; one without silently does
+					// not. That is a known defect of this whole code region, not of
+					// trust_anchors, and it is filed separately.
+					fingerprint.ApplyTrustAnchors(&tlsConn.Extensions, t.preset.TrustAnchors)
 				}
 				if useSessionCache {
 					tlsConn.SetSessionCache(t.sessionCache)

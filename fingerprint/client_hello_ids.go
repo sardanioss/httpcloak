@@ -13,10 +13,10 @@ import (
 // Examples: "chrome-146-windows", "chrome-146-windows-psk", "chrome-146-quic", "firefox-120"
 var clientHelloIDs = map[string]tls.ClientHelloID{
 	// Special types
-	"golang":           tls.HelloGolang,
-	"custom":           tls.HelloCustom,
-	"randomized":       tls.HelloRandomized,
-	"randomized-alpn":  tls.HelloRandomizedALPN,
+	"golang":            tls.HelloGolang,
+	"custom":            tls.HelloCustom,
+	"randomized":        tls.HelloRandomized,
+	"randomized-alpn":   tls.HelloRandomizedALPN,
 	"randomized-noalpn": tls.HelloRandomizedNoALPN,
 
 	// Firefox
@@ -48,12 +48,12 @@ var clientHelloIDs = map[string]tls.ClientHelloID{
 	"chrome-133":         tls.HelloChrome_133,
 
 	// Chrome PSK (legacy, no platform split)
-	"chrome-100-psk":     tls.HelloChrome_100_PSK,
-	"chrome-112-psk":     tls.HelloChrome_112_PSK_Shuf,
-	"chrome-114-psk":     tls.HelloChrome_114_Padding_PSK_Shuf,
-	"chrome-115-pq":      tls.HelloChrome_115_PQ,
-	"chrome-115-pq-psk":  tls.HelloChrome_115_PQ_PSK,
-	"chrome-133-psk":     tls.HelloChrome_133_PSK,
+	"chrome-100-psk":    tls.HelloChrome_100_PSK,
+	"chrome-112-psk":    tls.HelloChrome_112_PSK_Shuf,
+	"chrome-114-psk":    tls.HelloChrome_114_Padding_PSK_Shuf,
+	"chrome-115-pq":     tls.HelloChrome_115_PQ,
+	"chrome-115-pq-psk": tls.HelloChrome_115_PQ_PSK,
+	"chrome-133-psk":    tls.HelloChrome_133_PSK,
 
 	// Chrome 143 (per-platform)
 	"chrome-143-windows":     tls.HelloChrome_143_Windows,
@@ -96,13 +96,13 @@ var clientHelloIDs = map[string]tls.ClientHelloID{
 	"chrome-146-quic-psk":    tls.HelloChrome_146_QUIC_PSK,
 
 	// iOS
-	"ios-auto":     tls.HelloIOS_Auto,
-	"ios-11-1":     tls.HelloIOS_11_1,
-	"ios-12-1":     tls.HelloIOS_12_1,
-	"ios-13":       tls.HelloIOS_13,
-	"ios-14":       tls.HelloIOS_14,
-	"ios-18":       tls.HelloIOS_18,
-	"ios-18-quic":  tls.HelloIOS_18_QUIC,
+	"ios-auto":    tls.HelloIOS_Auto,
+	"ios-11-1":    tls.HelloIOS_11_1,
+	"ios-12-1":    tls.HelloIOS_12_1,
+	"ios-13":      tls.HelloIOS_13,
+	"ios-14":      tls.HelloIOS_14,
+	"ios-18":      tls.HelloIOS_18,
+	"ios-18-quic": tls.HelloIOS_18_QUIC,
 
 	// Android
 	"android-11-okhttp": tls.HelloAndroid_11_OkHttp,

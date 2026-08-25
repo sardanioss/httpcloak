@@ -26,20 +26,20 @@ const (
 type FetchDest string
 
 const (
-	FetchDestDocument     FetchDest = "document"
-	FetchDestEmbed        FetchDest = "embed"
-	FetchDestFont         FetchDest = "font"
-	FetchDestImage        FetchDest = "image"
-	FetchDestManifest     FetchDest = "manifest"
-	FetchDestMedia        FetchDest = "media"
-	FetchDestObject       FetchDest = "object"
-	FetchDestReport       FetchDest = "report"
-	FetchDestScript       FetchDest = "script"
+	FetchDestDocument      FetchDest = "document"
+	FetchDestEmbed         FetchDest = "embed"
+	FetchDestFont          FetchDest = "font"
+	FetchDestImage         FetchDest = "image"
+	FetchDestManifest      FetchDest = "manifest"
+	FetchDestMedia         FetchDest = "media"
+	FetchDestObject        FetchDest = "object"
+	FetchDestReport        FetchDest = "report"
+	FetchDestScript        FetchDest = "script"
 	FetchDestServiceWorker FetchDest = "serviceworker"
 	FetchDestSharedWorker  FetchDest = "sharedworker"
-	FetchDestStyle        FetchDest = "style"
-	FetchDestWorker       FetchDest = "worker"
-	FetchDestXHR          FetchDest = "empty" // XHR/fetch uses "empty"
+	FetchDestStyle         FetchDest = "style"
+	FetchDestWorker        FetchDest = "worker"
+	FetchDestXHR           FetchDest = "empty" // XHR/fetch uses "empty"
 )
 
 // FetchSite represents the Sec-Fetch-Site header value
@@ -222,12 +222,12 @@ type ClientHints struct {
 	UAPlatform string // Sec-Ch-Ua-Platform
 
 	// High-entropy hints (only sent after Accept-CH)
-	UAArch           string // Sec-Ch-Ua-Arch
-	UABitness        string // Sec-Ch-Ua-Bitness
+	UAArch            string // Sec-Ch-Ua-Arch
+	UABitness         string // Sec-Ch-Ua-Bitness
 	UAFullVersionList string // Sec-Ch-Ua-Full-Version-List
-	UAModel          string // Sec-Ch-Ua-Model
+	UAModel           string // Sec-Ch-Ua-Model
 	UAPlatformVersion string // Sec-Ch-Ua-Platform-Version
-	UAWow64          string // Sec-Ch-Ua-Wow64
+	UAWow64           string // Sec-Ch-Ua-Wow64
 }
 
 // GenerateClientHints generates client hint headers for Chrome.
@@ -300,9 +300,13 @@ func (p *Preset) ResolveClientHints() ClientHints {
 // sec-ch-ua-full-version-list by expanding each brand's major version to a
 // 4-part version. Brand names, ordering and the GREASE token are preserved
 // exactly, so the derived list always matches the trio. For example:
-//   "Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"
+//
+//	"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"
+//
 // becomes
-//   "Google Chrome";v="149.0.0.0", "Chromium";v="149.0.0.0", "Not)A;Brand";v="24.0.0.0"
+//
+//	"Google Chrome";v="149.0.0.0", "Chromium";v="149.0.0.0", "Not)A;Brand";v="24.0.0.0"
+//
 // A real capture (set as ClientHints.FullVersionList) carries the exact build
 // number; this derivation is the coherent fallback when none is provided.
 func expandSecChUaVersions(secChUa string) string {
