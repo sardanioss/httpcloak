@@ -1315,12 +1315,21 @@ func validatePreset(p *Preset, spec *PresetSpec) error {
 		if spec.TLS.JA3ExtrasSpec != nil && spec.TLS.JA3 == "" {
 			return fmt.Errorf("ja3_extras requires ja3 to be set")
 		}
-		// TLS extension fields (sig algs, ALPN, cert comp, etc.) only apply in ja3 mode
-		hasExtFields := len(spec.TLS.SignatureAlgorithms) > 0 || len(spec.TLS.ALPN) > 0 ||
+		// TLS extension fields only apply in ja3 mode, with one exception.
+		//
+		// signature_algorithms is NOT one of them. applyTLS honours it on the
+		// client_hello path precisely so a preset can add codepoints to a
+		// byte-exact base without re-declaring the hello, which is how Chrome
+		// 150 carries its ML-DSA set. Rejecting the pair here contradicted
+		// that: describe emits the resolved client_hello alongside the
+		// override, so describing any Chrome 150 or later preset produced JSON
+		// the loader then refused. Its QUIC counterpart was never listed and
+		// has always been allowed.
+		hasExtFields := len(spec.TLS.ALPN) > 0 ||
 			len(spec.TLS.CertCompression) > 0 || spec.TLS.PermuteExtensions != nil ||
 			spec.TLS.RecordSizeLimit != nil
 		if hasExtFields && spec.TLS.JA3 == "" && spec.TLS.ClientHello != "" {
-			return fmt.Errorf("tls extension fields (signature_algorithms, alpn, cert_compression, permute_extensions, record_size_limit) only apply with ja3, not client_hello")
+			return fmt.Errorf("tls extension fields (alpn, cert_compression, permute_extensions, record_size_limit) only apply with ja3, not client_hello")
 		}
 	}
 

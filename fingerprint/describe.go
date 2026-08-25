@@ -112,6 +112,28 @@ func flattenTLS(p *Preset) (*TLSSpec, error) {
 		out.QUICPSKClientHello = name
 	}
 
+	// The per-protocol signature_algorithms overrides. These were missing, so a
+	// describe of any Chrome 150 or later preset dropped its ML-DSA codepoints
+	// and a reload produced a Chrome 149 shaped sig-algs list: 11 algorithms
+	// became 0. The documented round-trip check did not catch it, because both
+	// describes omit the key and so JSON1 == JSON2 holds vacuously while the
+	// two PRESETS differ.
+	//
+	// The JA3 path carries its own inside JA3Extras and returns above, so this
+	// is reached only for the ClientHelloID path, which is where these apply.
+	if len(p.SignatureAlgorithms) > 0 {
+		out.SignatureAlgorithms = make([]uint16, len(p.SignatureAlgorithms))
+		for i, s := range p.SignatureAlgorithms {
+			out.SignatureAlgorithms[i] = uint16(s)
+		}
+	}
+	if len(p.QUICSignatureAlgorithms) > 0 {
+		out.QUICSignatureAlgorithms = make([]uint16, len(p.QUICSignatureAlgorithms))
+		for i, s := range p.QUICSignatureAlgorithms {
+			out.QUICSignatureAlgorithms[i] = uint16(s)
+		}
+	}
+
 	if out.ClientHello == "" && out.JA3 == "" {
 		// Preset has no TLS configuration at all. Drop the TLS section.
 		return nil, nil

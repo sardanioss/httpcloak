@@ -533,3 +533,71 @@ func TestDescribe_CustomRegistryRoundTrip(t *testing.T) {
 		t.Errorf("SupportHTTP3: got %v, want %v", rt.SupportHTTP3, base.SupportHTTP3)
 	}
 }
+
+// The signature_algorithms override survives describe.
+//
+// It did not. flattenTLS emitted neither the TCP list nor the QUIC one, so
+// describing any Chrome 150 or later preset and loading the result produced a
+// preset with an EMPTY sig-algs override: 11 algorithms became 0, and the
+// hello reverted to the Chrome 149 shaped base it was layered on. The ML-DSA
+// codepoints simply disappeared.
+//
+// The documented round-trip contract did not catch this. Both describes omit
+// the key, so JSON1 == JSON2 holds while the two PRESETS differ, which is why
+// this asserts on the rebuilt preset rather than on the JSON.
+func TestDescribeKeepsSignatureAlgorithms(t *testing.T) {
+	for _, name := range []string{"chrome-150-windows", "chrome-151-windows", "chrome-151-android"} {
+		p := Get(name)
+		if p == nil {
+			continue
+		}
+		if len(p.SignatureAlgorithms) == 0 {
+			t.Fatalf("%s carries no TCP sig-algs override, so this proves nothing; "+
+				"pick a preset that does", name)
+		}
+
+		described, err := Describe(name)
+		if err != nil {
+			t.Fatalf("%s: describe: %v", name, err)
+		}
+		rt, err := LoadAndBuildPresetFromJSON([]byte(described))
+		if err != nil {
+			t.Fatalf("%s: reload: %v", name, err)
+		}
+
+		if len(rt.SignatureAlgorithms) != len(p.SignatureAlgorithms) {
+			t.Errorf("%s: round-trip left %d TCP signature algorithms, want %d",
+				name, len(rt.SignatureAlgorithms), len(p.SignatureAlgorithms))
+			continue
+		}
+		for i := range p.SignatureAlgorithms {
+			if rt.SignatureAlgorithms[i] != p.SignatureAlgorithms[i] {
+				t.Errorf("%s: TCP signature algorithm %d is %#04x after round-trip, want %#04x",
+					name, i, rt.SignatureAlgorithms[i], p.SignatureAlgorithms[i])
+			}
+		}
+		if len(rt.QUICSignatureAlgorithms) != len(p.QUICSignatureAlgorithms) {
+			t.Errorf("%s: round-trip left %d QUIC signature algorithms, want %d",
+				name, len(rt.QUICSignatureAlgorithms), len(p.QUICSignatureAlgorithms))
+		}
+	}
+}
+
+// And a preset may name both a client_hello and a signature_algorithms
+// override in one file. applyTLS has always honoured that pair; the validator
+// rejected it, which is what made the describe output above unloadable.
+func TestSignatureAlgorithmsAllowedWithClientHello(t *testing.T) {
+	p, err := LoadAndBuildPresetFromJSON([]byte(`{"version":1,"preset":{
+		"name":"sigalg-with-hello","based_on":"chrome-151-windows",
+		"tls":{"client_hello":"chrome-146-windows","signature_algorithms":[2570,1027,1025]}}}`))
+	if err != nil {
+		t.Fatalf("a preset naming client_hello and signature_algorithms together "+
+			"was rejected: %v", err)
+	}
+	if len(p.SignatureAlgorithms) != 3 {
+		t.Fatalf("got %d signature algorithms, want the 3 the file listed", len(p.SignatureAlgorithms))
+	}
+	if p.SignatureAlgorithms[0] != 2570 {
+		t.Errorf("first algorithm is %#04x, want 0x0a0a", p.SignatureAlgorithms[0])
+	}
+}
