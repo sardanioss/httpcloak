@@ -99,7 +99,7 @@ func greaseCounts(spec *utls.ClientHelloSpec) (ciphers, exts int, first, last bo
 
 // The assertion that catches a regression: position, not just count.
 func TestRawClientHelloPreservesGREASEInPosition(t *testing.T) {
-	spec, err := SpecFromRawClientHello(mustDecode(t, rawChromeHello), false)
+	spec, err := SpecFromRawClientHello(mustDecode(t, rawChromeHello), false, false)
 	if err != nil {
 		t.Fatalf("chrome hello did not round-trip: %v", err)
 	}

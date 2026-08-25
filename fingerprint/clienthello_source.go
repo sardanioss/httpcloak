@@ -76,10 +76,12 @@ func ResolveClientHelloSpec(
 
 	if len(p.RawClientHello) > 0 {
 		raw := p.RawClientHello
+		realPSK := false
 		if wantPSK && len(p.RawPSKClientHello) > 0 {
 			raw = p.RawPSKClientHello
+			realPSK = true
 		}
-		spec, err := SpecFromRawClientHello(raw, p.RawBluntMimicry)
+		spec, err := SpecFromRawClientHello(raw, p.RawBluntMimicry, realPSK)
 		if err != nil {
 			return nil, SourceRaw, err
 		}
@@ -134,11 +136,23 @@ func HasPSKVariant(p *Preset, customJA3 string) bool {
 // blunt passes unknown extensions through verbatim. Without it uTLS rejects
 // anything it does not model, which is how a curl hello fails: "unsupported
 // extension 22".
-func SpecFromRawClientHello(raw []byte, blunt bool) (*utls.ClientHelloSpec, error) {
+func SpecFromRawClientHello(raw []byte, blunt bool, realPSK bool) (*utls.ClientHelloSpec, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty client hello")
 	}
-	fp := &utls.Fingerprinter{AllowBluntMimicry: blunt}
+	// realPSK must be true whenever this spec is actually going to resume.
+	// Parsed with realPSK false, a captured hello carrying a pre_shared_key
+	// extension yields a FakePreSharedKeyExtension, which is a shape-only
+	// placeholder: uTLS refuses to drive it and panics outright, in
+	// u_pre_shared_key.go, the moment a session ticket exists for the host.
+	//
+	//	panic("InitializeByUtls failed: don't let utls initialize
+	//	       FakePreSharedKeyExtension; provide your own identities and
+	//	       binders or use UtlsPreSharedKeyExtension")
+	//
+	// It stays false on the validation path, where the spec is parsed to check
+	// that it round-trips and is then discarded.
+	fp := &utls.Fingerprinter{AllowBluntMimicry: blunt, RealPSKResumption: realPSK}
 	spec, err := fp.RawClientHello(raw)
 	if err != nil {
 		return nil, err
@@ -160,7 +174,7 @@ func DecodeRawClientHello(field, b64 string, blunt bool) ([]byte, error) {
 		return nil, fmt.Errorf("%s does not look like a TLS record: want a 0x16 handshake record, "+
 			"got %d bytes starting 0x%02x", field, len(raw), firstByte(raw))
 	}
-	if _, err := SpecFromRawClientHello(raw, blunt); err != nil {
+	if _, err := SpecFromRawClientHello(raw, blunt, false); err != nil {
 		if !blunt && strings.Contains(err.Error(), "unsupported extension") {
 			return nil, fmt.Errorf("%s: %w. Set tls.allow_blunt_mimicry=true to pass unknown "+
 				"extensions through verbatim; some clients (curl among them) need it", field, err)
