@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"fmt"
+	"github.com/sardanioss/httpcloak/fingerprint"
 	"io"
 	"mime/multipart"
 	"net/textproto"
@@ -87,6 +88,12 @@ func (f *FormData) AddFilePath(fieldName, filePath string) error {
 func (f *FormData) Encode() ([]byte, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
+	// Chrome-shaped boundary. Without this, Go emits 60 lowercase hex
+	// characters with no leading dashes, which no browser produces and which
+	// travels in cleartext in the content-type request header.
+	if err := writer.SetBoundary(fingerprint.MultipartBoundary()); err != nil {
+		return nil, "", err
+	}
 
 	// Add regular fields
 	for name, value := range f.Fields {
@@ -147,22 +154,22 @@ func detectMIMEType(filename string) string {
 		".ico":  "image/x-icon",
 		".bmp":  "image/bmp",
 
-		".mp3":  "audio/mpeg",
-		".wav":  "audio/wav",
-		".ogg":  "audio/ogg",
-		".m4a":  "audio/mp4",
+		".mp3": "audio/mpeg",
+		".wav": "audio/wav",
+		".ogg": "audio/ogg",
+		".m4a": "audio/mp4",
 
 		".mp4":  "video/mp4",
 		".webm": "video/webm",
 		".avi":  "video/x-msvideo",
 		".mov":  "video/quicktime",
 
-		".pdf":  "application/pdf",
-		".zip":  "application/zip",
-		".gz":   "application/gzip",
-		".tar":  "application/x-tar",
-		".rar":  "application/vnd.rar",
-		".7z":   "application/x-7z-compressed",
+		".pdf": "application/pdf",
+		".zip": "application/zip",
+		".gz":  "application/gzip",
+		".tar": "application/x-tar",
+		".rar": "application/vnd.rar",
+		".7z":  "application/x-7z-compressed",
 
 		".doc":  "application/msword",
 		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

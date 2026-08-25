@@ -136,6 +136,12 @@ type MultipartField struct {
 func BuildMultipart(fields []MultipartField) ([]byte, string, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
+	// Chrome-shaped boundary. Without this, Go emits 60 lowercase hex
+	// characters with no leading dashes, which no browser produces and which
+	// travels in cleartext in the content-type request header.
+	if err := w.SetBoundary(fingerprint.MultipartBoundary()); err != nil {
+		return nil, "", err
+	}
 	for _, f := range fields {
 		if f.Filename != "" {
 			ct := f.ContentType

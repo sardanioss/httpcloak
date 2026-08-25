@@ -1322,7 +1322,20 @@ function detectMimeType(filename) {
  * @returns {{ body: Buffer, contentType: string }}
  */
 function encodeMultipart(data, files) {
-  const boundary = `----HTTPCloakBoundary${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+  // Chrome's boundary, exactly: the literal prefix plus 16 characters drawn
+  // through a 6-bit mask over Blink's 64-entry table (A-Z, a-z, 0-9, then A and
+  // B again, which makes those two twice as likely). Source:
+  // third_party/blink/renderer/platform/network/form_data_encoder.cc,
+  // GenerateUniqueBoundaryString.
+  //
+  // This used to read "----HTTPCloakBoundary" plus a timestamp and Math.random,
+  // which named the product in a cleartext request header on every multipart
+  // upload, and varied in LENGTH because toString(16) trims trailing zeros.
+  const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789AB';
+  const rnd = require('crypto').randomBytes(16);
+  let suffix = '';
+  for (let i = 0; i < 16; i++) suffix += ALPHA[rnd[i] & 0x3f];
+  const boundary = `----WebKitFormBoundary${suffix}`;
   const parts = [];
 
   // Add form fields

@@ -543,7 +543,7 @@ public sealed class Session : IDisposable
     /// <param name="timeout">Request timeout in seconds</param>
     public Response PostMultipart(string url, Dictionary<string, string>? fields = null, Dictionary<string, MultipartFile>? files = null, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string Username, string Password)? auth = null, int? timeout = null, string? fetchMode = null)
     {
-        var boundary = "----HttpCloakBoundary" + Guid.NewGuid().ToString("N");
+        var boundary = ChromeMultipartBoundary();
         var ms = new MemoryStream();
         var encoding = new System.Text.UTF8Encoding(false);
         void WriteStr(string s) { var b = encoding.GetBytes(s); ms.Write(b, 0, b.Length); }
@@ -1177,7 +1177,7 @@ public sealed class Session : IDisposable
     /// </summary>
     public Task<Response> PostMultipartAsync(string url, Dictionary<string, string>? fields = null, Dictionary<string, MultipartFile>? files = null, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string Username, string Password)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false)
     {
-        var boundary = "----HttpCloakBoundary" + Guid.NewGuid().ToString("N");
+        var boundary = ChromeMultipartBoundary();
         var ms = new MemoryStream();
         var encoding = new System.Text.UTF8Encoding(false);
         void WriteStr(string s) { var b = encoding.GetBytes(s); ms.Write(b, 0, b.Length); }
@@ -3969,6 +3969,25 @@ public sealed class SessionStats
     /// <summary>Idle time as a <see cref="TimeSpan"/>.</summary>
     [JsonIgnore]
     public TimeSpan IdleTimeSpan => TimeSpan.FromTicks(IdleTimeNs / 100);
+    // Chrome's boundary, exactly: the literal prefix plus 16 characters drawn
+    // through a 6-bit mask over Blink's 64-entry table (A-Z, a-z, 0-9, then A
+    // and B again, which makes those two twice as likely). Source:
+    // third_party/blink/renderer/platform/network/form_data_encoder.cc,
+    // GenerateUniqueBoundaryString.
+    //
+    // This used to read "----HttpCloakBoundary" plus a GUID, which named the
+    // product in a cleartext request header on every multipart upload. The
+    // casing even differed from the other bindings, so it said which one sent it.
+    private static string ChromeMultipartBoundary()
+    {
+        const string alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789AB";
+        var raw = new byte[16];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(raw);
+        var sb = new System.Text.StringBuilder("----WebKitFormBoundary", 38);
+        foreach (var b in raw) sb.Append(alpha[b & 0x3F]);
+        return sb.ToString();
+    }
+
 }
 
 [JsonSerializable(typeof(SessionConfig))]

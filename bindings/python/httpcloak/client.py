@@ -60,7 +60,18 @@ def _encode_multipart(
     Returns:
         Tuple of (body_bytes, content_type_with_boundary)
     """
-    boundary = f"----HTTPCloakBoundary{uuid.uuid4().hex}"
+    # Chrome's boundary, exactly: the literal prefix plus 16 characters drawn
+    # through a 6-bit mask over Blink's 64-entry table (A-Z, a-z, 0-9, then A
+    # and B again, which makes those two twice as likely). Source:
+    # third_party/blink/renderer/platform/network/form_data_encoder.cc,
+    # GenerateUniqueBoundaryString.
+    #
+    # This used to read "----HTTPCloakBoundary" + a uuid, which named the
+    # product in a cleartext request header on every multipart upload.
+    _ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789AB"
+    boundary = "----WebKitFormBoundary" + "".join(
+        _ALPHA[b & 0x3F] for b in os.urandom(16)
+    )
     lines: List[bytes] = []
 
     # Add form fields
