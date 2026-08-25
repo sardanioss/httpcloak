@@ -145,6 +145,23 @@ type HTTP2Spec struct {
 	StreamPriorityMode *string  `json:"stream_priority_mode,omitempty"` // "chrome","default"
 	DisableCookieSplit *bool    `json:"disable_cookie_split,omitempty"`
 
+	// DataFrameMaxSize caps the DATA frame payload. Omitted means derive it
+	// from the client family: 16375 for Chrome, the peer's advertised size
+	// otherwise.
+	DataFrameMaxSize *uint32 `json:"data_frame_max_size,omitempty"`
+
+	// PrefacePingIdleMs is how long the peer must have been silent before a
+	// request on that connection carries a PING alongside it. Omitted or 0
+	// sends none. Chrome uses 10000.
+	PrefacePingIdleMs *uint32 `json:"preface_ping_idle_ms,omitempty"`
+	// PrefacePingHangMs is how long to tolerate silence while that ping is
+	// outstanding before closing the connection. Omitted falls back to
+	// PrefacePingIdleMs.
+	PrefacePingHangMs *uint32 `json:"preface_ping_hang_ms,omitempty"`
+	// IdlePingMs enables the periodic health-check PING, which no browser
+	// sends. Omitted or 0 means off, which is what a browser profile wants.
+	IdlePingMs *uint32 `json:"idle_ping_ms,omitempty"`
+
 	// PriorityTable maps sec-fetch-dest values to per-resource priority
 	// settings. When populated, the transport emits a per-request RFC 7540
 	// stream weight (derived from urgency) and RFC 9218 priority: header
@@ -470,6 +487,22 @@ func clonePreset(src *Preset) *Preset {
 		if src.H2Config.PseudoHeaderOrder != nil {
 			h2.PseudoHeaderOrder = make([]string, len(src.H2Config.PseudoHeaderOrder))
 			copy(h2.PseudoHeaderOrder, src.H2Config.PseudoHeaderOrder)
+		}
+		if src.H2Config.DataFrameMaxSize != nil {
+			v := *src.H2Config.DataFrameMaxSize
+			h2.DataFrameMaxSize = &v
+		}
+		if src.H2Config.PrefacePingIdleMs != nil {
+			v := *src.H2Config.PrefacePingIdleMs
+			h2.PrefacePingIdleMs = &v
+		}
+		if src.H2Config.PrefacePingHangMs != nil {
+			v := *src.H2Config.PrefacePingHangMs
+			h2.PrefacePingHangMs = &v
+		}
+		if src.H2Config.IdlePingMs != nil {
+			v := *src.H2Config.IdlePingMs
+			h2.IdlePingMs = &v
 		}
 		if src.H2Config.DisableCookieSplit != nil {
 			v := *src.H2Config.DisableCookieSplit
@@ -959,7 +992,9 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 		spec.HPACKHeaderOrder != nil || spec.HPACKIndexingPolicy != nil ||
 		spec.HPACKNeverIndex != nil || spec.HPACKRepresentation != nil ||
 		spec.StreamPriorityMode != nil ||
-		spec.DisableCookieSplit != nil || spec.PriorityTable != nil {
+		spec.DisableCookieSplit != nil || spec.PriorityTable != nil ||
+		spec.DataFrameMaxSize != nil || spec.PrefacePingIdleMs != nil ||
+		spec.PrefacePingHangMs != nil || spec.IdlePingMs != nil {
 		if p.H2Config == nil {
 			p.H2Config = &H2FingerprintConfig{}
 		}
@@ -996,6 +1031,22 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 		if spec.DisableCookieSplit != nil {
 			v := *spec.DisableCookieSplit
 			p.H2Config.DisableCookieSplit = &v
+		}
+		if spec.DataFrameMaxSize != nil {
+			v := *spec.DataFrameMaxSize
+			p.H2Config.DataFrameMaxSize = &v
+		}
+		if spec.PrefacePingIdleMs != nil {
+			v := *spec.PrefacePingIdleMs
+			p.H2Config.PrefacePingIdleMs = &v
+		}
+		if spec.PrefacePingHangMs != nil {
+			v := *spec.PrefacePingHangMs
+			p.H2Config.PrefacePingHangMs = &v
+		}
+		if spec.IdlePingMs != nil {
+			v := *spec.IdlePingMs
+			p.H2Config.IdlePingMs = &v
 		}
 		if spec.PriorityTable != nil {
 			p.H2Config.PriorityTable = make(map[string]ResourcePriority, len(spec.PriorityTable))

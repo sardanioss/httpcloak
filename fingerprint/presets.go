@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"runtime"
+	"time"
 
 	tls "github.com/sardanioss/utls"
 )
@@ -236,6 +237,31 @@ type H2FingerprintConfig struct {
 
 	HPACKNeverIndex    []string // Headers never HPACK-indexed. nil = Chrome default.
 	StreamPriorityMode string   // "chrome"/"default". "" = "chrome".
+
+	// PrefacePingIdleMs is how long a connection's peer must have been silent
+	// before a request on that connection carries a PING alongside it.
+	//
+	// Chromium calls this a preface ping and sets the threshold with
+	// kSpdyDefaultConnectionAtRiskOfLossSeconds, which is 10 seconds. nil and 0
+	// both mean "send none". The default is deliberately off rather than
+	// Chrome's 10 seconds: a nil-means-10s default would switch the ping on for
+	// every preset that does not name the key, including mirror profiles of
+	// clients that send no such ping, which is louder than sending nothing.
+	// The Chrome presets set it explicitly in chromeH2Config.
+	PrefacePingIdleMs *uint32
+
+	// PrefacePingHangMs is how long to tolerate silence from the peer while a
+	// preface ping is outstanding before closing the connection. nil falls back
+	// to PrefacePingIdleMs, matching Chromium, where both intervals are 10
+	// seconds. Ignored when PrefacePingIdleMs is 0.
+	PrefacePingHangMs *uint32
+
+	// IdlePingMs enables the periodic health-check PING, which is a Go
+	// construct with no browser counterpart: it is a PING with no frame behind
+	// it, on a timer, and Chromium's only pings are attached to a frame it is
+	// about to send. nil and 0 mean off, which is what every shipped preset
+	// wants.
+	IdlePingMs         *uint32
 	DisableCookieSplit *bool    // nil = true (single field). Chrome+Firefox crumble (false); Safari single (true).
 	SettingsOrder      []uint16 // H2 SETTINGS frame ID order. nil = dynamic from HTTP2Settings.
 	PseudoHeaderOrder  []string // Pseudo-header order. nil = heuristic (Chrome m,a,s,p / Safari m,s,p,a).
@@ -498,6 +524,33 @@ func (p *Preset) H2DataFrameMaxSize() uint32 {
 // H2HPACKRepresentation returns the per-name representation overrides, or nil
 // when the preset relies entirely on its base policy, which every shipped
 // browser profile does.
+// H2PrefacePingIdle is how long the peer must have been silent before a
+// request on that connection carries a PING alongside it. Zero means none.
+func (p *Preset) H2PrefacePingIdle() time.Duration {
+	if p.H2Config != nil && p.H2Config.PrefacePingIdleMs != nil {
+		return time.Duration(*p.H2Config.PrefacePingIdleMs) * time.Millisecond
+	}
+	return 0
+}
+
+// H2PrefacePingHang is how long to tolerate silence while a preface ping is
+// outstanding. Falls back to the idle threshold, as Chromium does.
+func (p *Preset) H2PrefacePingHang() time.Duration {
+	if p.H2Config != nil && p.H2Config.PrefacePingHangMs != nil {
+		return time.Duration(*p.H2Config.PrefacePingHangMs) * time.Millisecond
+	}
+	return p.H2PrefacePingIdle()
+}
+
+// H2IdlePing is the interval of the periodic health-check PING. Zero, for every
+// shipped preset, because no browser sends one.
+func (p *Preset) H2IdlePing() time.Duration {
+	if p.H2Config != nil && p.H2Config.IdlePingMs != nil {
+		return time.Duration(*p.H2Config.IdlePingMs) * time.Millisecond
+	}
+	return 0
+}
+
 func (p *Preset) H2HPACKRepresentation() map[string]string {
 	if p.H2Config != nil && len(p.H2Config.HPACKRepresentation) > 0 {
 		return p.H2Config.HPACKRepresentation
@@ -809,8 +862,19 @@ func chromeH2Config() *H2FingerprintConfig {
 		DisableCookieSplit: &f,
 		SettingsOrder:      []uint16{1, 2, 4, 6},
 		PseudoHeaderOrder:  []string{":method", ":authority", ":scheme", ":path"},
+		// kSpdyDefaultConnectionAtRiskOfLossSeconds and kHungIntervalSeconds,
+		// both 10 seconds in Chromium. Set here rather than defaulted from the
+		// client family so that a mirror profile, an example JSON preset or a
+		// user preset that does not name the key sends nothing.
+		PrefacePingIdleMs: &chromePrefacePingIdleMs,
+		PrefacePingHangMs: &chromePrefacePingHangMs,
 	}
 }
+
+var (
+	chromePrefacePingIdleMs = uint32(10000)
+	chromePrefacePingHangMs = uint32(10000)
+)
 
 // firefoxH2Config returns the explicit H2 fingerprint config for Firefox presets.
 func firefoxH2Config() *H2FingerprintConfig {

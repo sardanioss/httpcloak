@@ -17,9 +17,9 @@ import (
 	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/internal/h2build"
 	"github.com/sardanioss/httpcloak/transport"
 	"github.com/sardanioss/net/http2"
-	"github.com/sardanioss/net/http2/hpack"
 	tls "github.com/sardanioss/utls"
 	utls "github.com/sardanioss/utls"
 )
@@ -723,54 +723,11 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 		return nil, fmt.Errorf("TLS handshake failed: %w", err)
 	}
 
-	// Build HTTP/2 settings from preset
-	settings := p.preset.HTTP2Settings
-
-	// Create HTTP/2 transport with native fingerprinting (no frame interception needed)
-	h2Transport := &http2.Transport{
-		AllowHTTP:                  false,
-		DisableCompression:         false,
-		StrictMaxConcurrentStreams: false,
-		MaxHeaderListSize:          settings.MaxHeaderListSize,
-		MaxReadFrameSize:           settings.MaxFrameSize,
-		MaxDecoderHeaderTableSize:  settings.HeaderTableSize,
-		MaxEncoderHeaderTableSize:  settings.HeaderTableSize,
-
-		// Native fingerprinting via sardanioss/net
-		ConnectionFlow: settings.ConnectionWindowUpdate,
-		Settings:       buildHTTP2Settings(settings),
-		SettingsOrder:  buildHTTP2SettingsOrder(settings, p.preset),
-		PseudoHeaderOrder: func() []string {
-			// Preset H2Config > Safari/Chrome heuristic
-			if order := p.preset.H2PseudoHeaderOrder(); order != nil {
-				return order
-			}
-			if settings.NoRFC7540Priorities {
-				return []string{":method", ":scheme", ":path", ":authority"} // Safari order (m,s,p,a)
-			}
-			return []string{":method", ":authority", ":scheme", ":path"} // Chrome order (m,a,s,p)
-		}(),
-		HeaderPriority: func() *http2.PriorityParam {
-			// Chrome 120+ uses RFC 9218 extensible priorities (priority: header)
-			// instead of RFC 7540 PRIORITY frames. StreamWeight=0 means no PRIORITY data.
-			if settings.StreamWeight > 0 {
-				return &http2.PriorityParam{
-					Weight:    uint8(settings.StreamWeight - 1), // Wire format is weight-1
-					Exclusive: settings.StreamExclusive,
-					StreamDep: 0,
-				}
-			}
-			return nil
-		}(),
-		HeaderOrder:          p.preset.H2HeaderOrder(),
-		UserAgent:            p.preset.UserAgent,
-		StreamPriorityMode:   resolveStreamPriorityMode(p.preset.H2StreamPriorityMode()),
-		HPACKIndexingPolicy:  resolveHPACKIndexingPolicy(p.preset.H2HPACKIndexingPolicy()),
-		DataFrameMaxSize:     p.preset.H2DataFrameMaxSize(),
-		HPACKRepresentations: hpackRepresentations(p.preset.H2HPACKRepresentation()),
-		HPACKNeverIndex:      p.preset.H2HPACKNeverIndex(),
-		DisableCookieSplit:   p.preset.H2DisableCookieSplit(),
-	}
+	// One builder for both entrypoints. This literal and the one in
+	// transport/http2_transport.go used to be maintained separately and had
+	// drifted: this side set no HeaderPriorityFunc, so a Session never emitted
+	// the per-resource stream weights that Chrome 147+ desktop does.
+	h2Transport := h2build.Transport(h2build.Options{Preset: p.preset})
 
 	h2Conn, err := h2Transport.NewClientConn(tlsConn)
 	if err != nil {
@@ -1713,126 +1670,4 @@ func (m *Manager) Stats() map[string]struct {
 	}
 
 	return stats
-}
-
-// resolveStreamPriorityMode converts a string mode to the http2 constant.
-func resolveStreamPriorityMode(mode string) http2.StreamPriorityMode {
-	switch mode {
-	case "chrome":
-		return http2.StreamPriorityChrome
-	case "default":
-		return http2.StreamPriorityDefault
-	default:
-		return http2.StreamPriorityChrome
-	}
-}
-
-// resolveHPACKIndexingPolicy converts a string policy to the hpack constant.
-func resolveHPACKIndexingPolicy(policy string) hpack.IndexingPolicy {
-	switch policy {
-	case "chrome":
-		return hpack.IndexingChrome
-	case "never":
-		return hpack.IndexingNever
-	case "always":
-		return hpack.IndexingAlways
-	case "default":
-		return hpack.IndexingDefault
-	default:
-		return hpack.IndexingChrome
-	}
-}
-
-// uint16sToSettingIDs converts uint16 slice to http2.SettingID slice.
-func uint16sToSettingIDs(ids []uint16) []http2.SettingID {
-	result := make([]http2.SettingID, len(ids))
-	for i, id := range ids {
-		result[i] = http2.SettingID(id)
-	}
-	return result
-}
-
-// boolToUint32 converts a bool to uint32 (for HTTP/2 SETTINGS)
-func boolToUint32(b bool) uint32 {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-// buildHTTP2Settings creates the settings map dynamically based on preset configuration.
-// Mirrors http2_transport.go's approach: base settings + conditional additions.
-func buildHTTP2Settings(settings fingerprint.HTTP2Settings) map[http2.SettingID]uint32 {
-	h2Settings := map[http2.SettingID]uint32{
-		http2.SettingHeaderTableSize:   settings.HeaderTableSize,
-		http2.SettingEnablePush:        boolToUint32(settings.EnablePush),
-		http2.SettingInitialWindowSize: settings.InitialWindowSize,
-		http2.SettingMaxHeaderListSize: settings.MaxHeaderListSize,
-	}
-	if settings.MaxConcurrentStreams > 0 {
-		h2Settings[http2.SettingMaxConcurrentStreams] = settings.MaxConcurrentStreams
-	}
-	if settings.MaxFrameSize > 0 {
-		h2Settings[http2.SettingMaxFrameSize] = settings.MaxFrameSize
-	}
-	if settings.NoRFC7540Priorities {
-		h2Settings[http2.SettingNoRFC7540Priorities] = 1
-	}
-	return h2Settings
-}
-
-// buildHTTP2SettingsOrder creates the settings order based on preset configuration.
-// If the preset has an explicit SettingsOrder, it takes precedence over the heuristic.
-// The fallback dynamically appends conditional settings to match buildHTTP2Settings().
-func buildHTTP2SettingsOrder(settings fingerprint.HTTP2Settings, preset *fingerprint.Preset) []http2.SettingID {
-	if order := preset.H2SettingsOrder(); order != nil {
-		return uint16sToSettingIDs(order)
-	}
-	// Build order dynamically to stay consistent with buildHTTP2Settings() map.
-	// Base order depends on browser type, then conditional settings are appended.
-	var order []http2.SettingID
-	if settings.NoRFC7540Priorities {
-		// Safari/iOS base order: 2, 4
-		order = []http2.SettingID{
-			http2.SettingEnablePush,
-			http2.SettingInitialWindowSize,
-		}
-	} else {
-		// Chrome base order: 1, 2, 4, 6
-		order = []http2.SettingID{
-			http2.SettingHeaderTableSize,
-			http2.SettingEnablePush,
-			http2.SettingInitialWindowSize,
-			http2.SettingMaxHeaderListSize,
-		}
-	}
-	if settings.MaxConcurrentStreams > 0 {
-		order = append(order, http2.SettingMaxConcurrentStreams)
-	}
-	if settings.MaxFrameSize > 0 {
-		order = append(order, http2.SettingMaxFrameSize)
-	}
-	if settings.NoRFC7540Priorities {
-		order = append(order, http2.SettingNoRFC7540Priorities)
-	}
-	return order
-}
-
-// hpackRepresentations mirrors the transport helper: preset representation
-// overrides in their typed form, with anything unparseable dropped rather than
-// guessed at. Names are validated when the preset is loaded.
-func hpackRepresentations(m map[string]string) map[string]hpack.Representation {
-	if len(m) == 0 {
-		return nil
-	}
-	out := make(map[string]hpack.Representation, len(m))
-	for name, rep := range m {
-		if r, ok := hpack.ParseRepresentation(rep); ok && r != hpack.RepresentationDefault {
-			out[name] = r
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }

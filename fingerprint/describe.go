@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	tls "github.com/sardanioss/utls"
 )
@@ -217,6 +218,20 @@ func flattenHTTP2(p *Preset) *HTTP2Spec {
 	out.StreamPriorityMode = &priorityMode
 	disableCookie := p.H2DisableCookieSplit()
 	out.DisableCookieSplit = &disableCookie
+
+	// Emit the RESOLVED values, not just the explicit ones. A Chrome preset
+	// carries 16375 and a 10 second preface ping by family or by factory; if
+	// describe skipped them, an export-and-reload would silently lose both and
+	// the strict round-trip test would stay green, because both describes would
+	// omit the key symmetrically.
+	dataFrameMax := p.H2DataFrameMaxSize()
+	out.DataFrameMaxSize = &dataFrameMax
+	prefaceIdle := uint32(p.H2PrefacePingIdle() / time.Millisecond)
+	out.PrefacePingIdleMs = &prefaceIdle
+	prefaceHang := uint32(p.H2PrefacePingHang() / time.Millisecond)
+	out.PrefacePingHangMs = &prefaceHang
+	idlePing := uint32(p.H2IdlePing() / time.Millisecond)
+	out.IdlePingMs = &idlePing
 
 	if so := p.H2SettingsOrder(); so != nil {
 		out.SettingsOrder = append([]uint16(nil), so...)
