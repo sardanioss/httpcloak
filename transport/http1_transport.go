@@ -753,6 +753,17 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 			fingerprint.SpecHasPSKExtension(resolvedSpec)
 
 		tlsConfig := &utls.Config{
+			// Go ramps its TLS record sizes (1186*N until 128KB) to trade latency for
+			// throughput. No browser does that, and the ramp is arithmetic, so a
+			// server reading the cleartext record lengths can identify the TLS stack
+			// lineage rather than merely noting "not a browser". Disable it so every
+			// record is full-size, as BoringSSL's are.
+			//
+			// This MUST ship with the DATA frame cap. On its own, measured, it makes
+			// the profile worse: the short trailing records go from four to nine over
+			// eight frames and land in a clean alternating pattern instead of hiding
+			// inside the ramp.
+			DynamicRecordSizingDisabled:        true,
 			ServerName:                         host,
 			InsecureSkipVerify:                 t.insecureSkipVerify,
 			MinVersion:                         tls.VersionTLS12,

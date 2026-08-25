@@ -213,6 +213,10 @@ type HTTP2Settings struct {
 type H2FingerprintConfig struct {
 	HPACKHeaderOrder    []string // HPACK wire encoding order. nil = Chrome 143 default.
 	HPACKIndexingPolicy string   // "chrome"/"never"/"always"/"default". "" = "chrome".
+	// DataFrameMaxSize caps the payload of a DATA frame this profile will send.
+	// nil means derive it from the client family; see H2DataFrameMaxSize.
+	DataFrameMaxSize *uint32
+
 	// HPACKRepresentation pins the HPACK representation of individual header
 	// names: "incremental", "without", "never", or "default". It is an OVERRIDE
 	// LAYER, expected to be empty for a browser profile whose base policy is
@@ -459,6 +463,38 @@ func (p *Preset) H2HPACKIndexingPolicy() string {
 // ~880-byte header block against Chrome's ~35.
 //
 // Set H2Config.HPACKNeverIndex explicitly to opt in for a non-browser profile.
+// H2DataFrameMaxSize is the largest DATA frame payload this profile will send,
+// or 0 for no cap beyond whatever the peer advertised.
+//
+// Chromium uses 16384 minus the 9-byte frame header, deliberately, so that the
+// header and the payload land inside exactly one 16KB TLS record. Writing the
+// full 16384 instead makes every DATA frame 16393 bytes on the wire, which the
+// record layer splits into a 16401-byte record followed by a 26-byte one. That
+// little tail repeats on every frame forever and no browser produces it.
+//
+// Chromium also IGNORES the peer's SETTINGS_MAX_FRAME_SIZE for this: the chunk
+// size is a compile-time constant. A server that advertises 1 MiB and receives
+// one enormous DATA frame has learned something in a single request.
+//
+// Firefox and the WebKit family do NOT do this; they use the full 16384. So the
+// value is derived from the client family rather than applied everywhere, or
+// fixing Chrome's tell would hand Chrome's DATA sizing to every Firefox and
+// Safari profile and create a new one.
+//
+// Derived from ClientHelloID rather than the preset name so a renamed preset
+// still gets the right answer. A JA3-only or captured-hello profile has no
+// ClientHelloID and gets 0, which is correct: a mirror of some other client
+// should not inherit Chrome's framing. Such a profile can set it explicitly.
+func (p *Preset) H2DataFrameMaxSize() uint32 {
+	if p.H2Config != nil && p.H2Config.DataFrameMaxSize != nil {
+		return *p.H2Config.DataFrameMaxSize
+	}
+	if p.ClientHelloID.Client == "Chrome" {
+		return 16375
+	}
+	return 0
+}
+
 // H2HPACKRepresentation returns the per-name representation overrides, or nil
 // when the preset relies entirely on its base policy, which every shipped
 // browser profile does.

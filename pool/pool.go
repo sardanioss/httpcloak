@@ -644,6 +644,17 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 	}
 
 	tlsConfig := &utls.Config{
+		// Go ramps its TLS record sizes (1186*N until 128KB) to trade latency for
+		// throughput. No browser does that, and the ramp is arithmetic, so a
+		// server reading the cleartext record lengths can identify the TLS stack
+		// lineage rather than merely noting "not a browser". Disable it so every
+		// record is full-size, as BoringSSL's are.
+		//
+		// This MUST ship with the DATA frame cap. On its own, measured, it makes
+		// the profile worse: the short trailing records go from four to nine over
+		// eight frames and land in a clean alternating pattern instead of hiding
+		// inside the ramp.
+		DynamicRecordSizingDisabled:        true,
 		ServerName:                         p.sniHost,
 		InsecureSkipVerify:                 p.insecureSkipVerify,
 		MinVersion:                         minVersion,
@@ -755,6 +766,7 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 		UserAgent:            p.preset.UserAgent,
 		StreamPriorityMode:   resolveStreamPriorityMode(p.preset.H2StreamPriorityMode()),
 		HPACKIndexingPolicy:  resolveHPACKIndexingPolicy(p.preset.H2HPACKIndexingPolicy()),
+		DataFrameMaxSize:     p.preset.H2DataFrameMaxSize(),
 		HPACKRepresentations: hpackRepresentations(p.preset.H2HPACKRepresentation()),
 		HPACKNeverIndex:      p.preset.H2HPACKNeverIndex(),
 		DisableCookieSplit:   p.preset.H2DisableCookieSplit(),
