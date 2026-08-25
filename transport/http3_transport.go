@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"math/rand"
 	"net"
 	"net/url"
@@ -59,11 +60,22 @@ func BuildChromeTransportParams() map[uint64][]byte {
 	versionInfo := make([]byte, 0, 12)
 	// Chosen version: QUICv1 (0x00000001)
 	versionInfo = binary.BigEndian.AppendUint32(versionInfo, 0x00000001)
-	// Available versions: GREASE first (Chrome puts GREASE before QUICv1)
+
+	// Available versions: the GREASE label goes in at a RANDOM index of the
+	// one-entry list, not always ahead of it. Upstream inserts it at a
+	// uniformly chosen position, so half of real connections carry
+	// [QUICv1, GREASE] and half carry [GREASE, QUICv1]. Always emitting one of
+	// those orders is a coin flip a server wins on every connection, and it
+	// compounds with the other version-information checks on the same frame.
+	available := []uint32{0x00000001}
 	greaseVersion := generateGREASEVersion()
-	versionInfo = binary.BigEndian.AppendUint32(versionInfo, greaseVersion)
-	// Available versions: QUICv1
-	versionInfo = binary.BigEndian.AppendUint32(versionInfo, 0x00000001)
+	at := greaseInsertIndex(len(available) + 1)
+	available = append(available, 0)
+	copy(available[at+1:], available[at:])
+	available[at] = greaseVersion
+	for _, v := range available {
+		versionInfo = binary.BigEndian.AppendUint32(versionInfo, v)
+	}
 	params[tpVersionInformation] = versionInfo
 
 	// google_connection_options (0x3128 / 12584) - 4-byte QUIC tag(s).
@@ -163,14 +175,46 @@ func presetIsChromeQUIC(preset *fingerprint.Preset) bool {
 	return preset.ClientHelloID.Client == "Chrome"
 }
 
-// generateGREASEVersion generates a GREASE version of form 0x?a?a?a?a
+// generateGREASEVersion generates a GREASE version label of form 0x?a?a?a?a,
+// with the four high nibbles drawn INDEPENDENTLY.
+//
+// quiche, CreateRandomVersionLabelForNegotiation:
+//
+//	QuicRandom::GetInstance()->RandBytes(&result, sizeof(result));
+//	result &= 0xf0f0f0f0;
+//	result |= 0x0a0a0a0a;
+//
+// Four independent bytes masked down to four independent nibbles: 65536
+// possible labels. Drawing one nibble and repeating it produces 16, and every
+// one of those has all four nibbles equal, which a real client manages only
+// about once in 4096 connections. It is readable from a single connection with
+// no requests, and the flag that could pin it upstream
+// (quic_disable_version_negotiation_grease_randomness) defaults false and is
+// not overridden in the browser tree.
 func generateGREASEVersion() uint32 {
-	// GREASE versions are of form 0x?a?a?a?a where ? is random nibble
-	nibble := byte(rand.Intn(16))
-	return uint32(nibble)<<28 | 0x0a000000 |
-		uint32(nibble)<<20 | 0x000a0000 |
-		uint32(nibble)<<12 | 0x00000a00 |
-		uint32(nibble)<<4 | 0x0000000a
+	var b [4]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		// The label only has to be unpredictable, not secret. Falling back
+		// keeps the four nibbles independent, which is the property that
+		// matters here.
+		for i := range b {
+			b[i] = byte(rand.Intn(256))
+		}
+	}
+	return (binary.BigEndian.Uint32(b[:]) & 0xf0f0f0f0) | 0x0a0a0a0a
+}
+
+// greaseInsertIndex picks a uniform insertion position in [0, n) for the GREASE
+// version label.
+func greaseInsertIndex(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	i, err := crand.Int(crand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return rand.Intn(n)
+	}
+	return int(i.Int64())
 }
 
 // proxyQUICConn bundles an udpbara connection with its per-connection quic.Transport.
@@ -892,7 +936,6 @@ func (t *HTTP3Transport) dialQUICWithMASQUE(ctx context.Context, addr string, tl
 	cfgCopy := h3build.QUICConfig(h3build.QUICOptions{
 		Preset:                        t.preset,
 		IdleTimeout:                   quicIdleTimeout,
-		ShuffleSeed:                   t.shuffleSeed,
 		ClientHelloID:                 clientHelloID,
 		CachedSpec:                    innerSpec,
 		ECHConfigList:                 echConfigList,
@@ -1215,7 +1258,6 @@ func (t *HTTP3Transport) buildQUICConfig(clientHelloID *utls.ClientHelloID, quic
 	return h3build.QUICConfig(h3build.QUICOptions{
 		Preset:                        t.preset,
 		IdleTimeout:                   quicIdleTimeout,
-		ShuffleSeed:                   t.shuffleSeed,
 		ClientHelloID:                 clientHelloID,
 		CachedSpec:                    t.cachedClientHelloSpec,
 		AdditionalTransportParameters: AdditionalTransportParamsForPreset(t.preset, nil, "", 0),

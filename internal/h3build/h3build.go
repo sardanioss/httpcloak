@@ -38,8 +38,17 @@ type QUICOptions struct {
 	// IdleTimeout is the QUIC max_idle_timeout. Zero means DefaultIdleTimeout.
 	IdleTimeout time.Duration
 
-	// ShuffleSeed pins the transport-parameter order for a session.
-	ShuffleSeed int64
+	// TransportParameterShuffleSeed pins the transport-parameter order, and
+	// production leaves it at zero so the order is reshuffled per connection.
+	//
+	// It is NOT the session's ClientHello shuffle seed, and the two must not be
+	// conflated. Chrome permutes its TLS extensions once per profile, so one
+	// session holding one extension order is right; it reshuffles transport
+	// parameters on every serialization, so a session holding one parameter
+	// order means every connection that session opens carries a byte-identical
+	// ID sequence. That is detectable with no probability argument at all:
+	// strip the GREASE id, length and payload from two connections and compare.
+	TransportParameterShuffleSeed int64
 
 	ClientHelloID *utls.ClientHelloID
 	CachedSpec    *utls.ClientHelloSpec
@@ -106,7 +115,7 @@ func QUICConfig(o QUICOptions) *quic.Config {
 		ClientHelloID:                 o.ClientHelloID,
 		CachedClientHelloSpec:         o.CachedSpec,
 		TransportParameterOrder:       TransportParamOrder(p.H3QUICTransportParamOrder()),
-		TransportParameterShuffleSeed: o.ShuffleSeed,
+		TransportParameterShuffleSeed: o.TransportParameterShuffleSeed,
 		AdditionalTransportParameters: o.AdditionalTransportParameters,
 		MaxDatagramFrameSize:          p.H3QUICMaxDatagramFrameSize(),
 	}

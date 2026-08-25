@@ -553,7 +553,6 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	// and initial_max_data, which the server reads straight off the handshake.
 	quicConfig := h3build.QUICConfig(h3build.QUICOptions{
 		Preset:        p.preset,
-		ShuffleSeed:   p.shuffleSeed,
 		ClientHelloID: clientHelloID,
 		CachedSpec:    selectedSpec,
 	})
