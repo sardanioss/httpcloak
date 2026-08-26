@@ -729,28 +729,25 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 		}
 		wantPSK := fingerprint.HasPSKVariant(t.preset, customJA3)
 		specSource := fingerprint.ClientHelloSourceOf(t.preset, customJA3)
-		// Only the HelloCustom branch needs a spec; the ClientHelloID branch
-		// hands the ID straight to UClient. Resolving unconditionally would
-		// build one on every connection just to throw it away.
-		var resolvedSpec *utls.ClientHelloSpec
-		if specSource != fingerprint.SourceClientHelloID {
-			var specErr error
-			// The seed only feeds UTLSIdToSpecWithSeed, which this branch never
-			// reaches, so H1 needs no shuffle seed of its own.
-			resolvedSpec, _, specErr = fingerprint.ResolveClientHelloSpec(
-				t.preset, customJA3, customJA3Extras, wantPSK, 0)
-			if specErr != nil {
-				rawConn.Close()
-				return nil, NewTLSError("resolve_client_hello", host, port, "h1", specErr)
-			}
+		// Every source resolves a spec, the ClientHelloID one included. It
+		// used to hand the ID straight to UClient and edit uconn.Extensions
+		// afterwards; see applyH1Spec for why that could not work.
+		//
+		// The seed is 0 because it no longer decides anything here: a Chromium
+		// parrot reshuffles its literal with fresh randomness on every call,
+		// and a non-Chromium one does not permute at all.
+		resolvedSpec, _, specErr := fingerprint.ResolveClientHelloSpec(
+			t.preset, customJA3, customJA3Extras, wantPSK, 0)
+		if specErr != nil {
+			rawConn.Close()
+			return nil, NewTLSError("resolve_client_hello", host, port, "h1", specErr)
 		}
 		// Attaching a session cache to a spec with no pre_shared_key extension
 		// can break the handshake. This used to ask whether the JA3 string
 		// carried extension 41, which only worked for one of the three sources;
 		// inspecting the resolved spec answers it for all of them, and answers
 		// it about what actually goes on the wire.
-		useSessionCache := specSource == fingerprint.SourceClientHelloID ||
-			fingerprint.SpecHasPSKExtension(resolvedSpec)
+		useSessionCache := fingerprint.SpecHasPSKExtension(resolvedSpec)
 
 		tlsConfig := &utls.Config{
 			// Go ramps its TLS record sizes (1186*N until 128KB) to trade latency for
@@ -779,72 +776,10 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 		}
 
 		// Create TLS connection with appropriate fingerprint
-		var tlsConn *utls.UConn
-		if specSource != fingerprint.SourceClientHelloID {
-			// JA3 or a captured raw hello: both give us a spec, so both go
-			// through HelloCustom rather than a named ClientHelloID.
-			spec := resolvedSpec
-			// Force HTTP/1.1 ALPN in the spec
-			for _, ext := range spec.Extensions {
-				if alpn, ok := ext.(*utls.ALPNExtension); ok {
-					alpn.AlpnProtocols = []string{"http/1.1"}
-					break
-				}
-			}
-			tlsConn = utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
-			if err := tlsConn.ApplyPreset(spec); err != nil {
-				rawConn.Close()
-				return nil, NewTLSError("apply_"+specSource.String()+"_preset", host, port, "h1", err)
-			}
-		} else {
-			// Use preset's ClientHelloID directly
-			// Note: ClientHelloID includes ALPN with [h2, http/1.1], so we must modify it
-			//
-			// The PSK variant is chosen the same way H2 chooses it. H1 used to
-			// hardcode the plain ClientHelloID, whose spec carries no
-			// pre_shared_key extension, so no ticket was ever offered and H1
-			// never resumed a session. Measured before this: four refreshes on
-			// a chrome-latest session, SessionResumed false every time, while
-			// H2 and H3 both resumed on the first refresh.
-			helloID := t.preset.ClientHelloID
-			if wantPSK && t.preset.PSKClientHelloID.Client != "" {
-				helloID = t.preset.PSKClientHelloID
-			}
-			tlsConn = utls.UClient(rawConn, tlsConfig, helloID)
-			tlsConn.SetSessionCache(t.sessionCache)
-
-			// Build handshake state first - this populates Extensions from ClientHelloID
-			if err := tlsConn.BuildHandshakeState(); err != nil {
-				rawConn.Close()
-				return nil, NewTLSError("build_handshake", host, port, "h1", err)
-			}
-
-			// Force HTTP/1.1 only ALPN to prevent h2 negotiation
-			// Must be done AFTER BuildHandshakeState() which generates the extensions
-			for _, ext := range tlsConn.Extensions {
-				if alpn, ok := ext.(*utls.ALPNExtension); ok {
-					alpn.AlpnProtocols = []string{"http/1.1"}
-					break
-				}
-			}
-
-			// Apply the preset's TCP signature_algorithms override (e.g. Chrome 150
-			// ML-DSA) on the materialised extensions, same mechanism as the ALPN edit.
-			fingerprint.ApplySignatureAlgorithms(tlsConn.Extensions, t.preset.SignatureAlgorithms)
-			// Same mechanism, same caveat: like the ALPN edit and the sig-algs
-			// override above, this only reaches the wire when something later
-			// forces a re-marshal of the hello. A preset whose selected
-			// ClientHelloID carries a pre_shared_key extension re-marshals to
-			// compute the binder and so picks it up; one without silently does
-			// not. That is a known defect of this whole code region, not of
-			// trust_anchors, and it is filed separately.
-			fingerprint.ApplyTrustAnchors(&tlsConn.Extensions, t.preset.TrustAnchors)
-			// The overrides above may introduce a GREASE placeholder, and
-			// ApplyPreset already regreased inside BuildHandshakeState, so
-			// nothing would replace it. Left alone, a Chrome 152 preset forced
-			// onto HTTP/1.1 emits the literal 0x0a0a on every connection: a
-			// constant where the browser draws one of sixteen.
-			tlsConn.RegreaseSignatureAlgorithms()
+		tlsConn, tlsErr := t.applyH1Spec(rawConn, tlsConfig, resolvedSpec, specSource)
+		if tlsErr != nil {
+			rawConn.Close()
+			return nil, NewTLSError("apply_"+specSource.String()+"_preset", host, port, "h1", tlsErr)
 		}
 		if useSessionCache {
 			tlsConn.SetSessionCache(t.sessionCache)
@@ -865,60 +800,17 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 
 				// Redo TLS setup on the clean connection. The spec is resolved
 				// again rather than reused: ApplyPreset mutated the first one.
-				if specSource != fingerprint.SourceClientHelloID {
-					spec, _, parseErr := fingerprint.ResolveClientHelloSpec(
-						t.preset, customJA3, customJA3Extras, wantPSK, 0)
-					if parseErr != nil {
-						rawConn.Close()
-						return nil, NewTLSError("resolve_client_hello", host, port, "h1", parseErr)
-					}
-					for _, ext := range spec.Extensions {
-						if alpn, ok := ext.(*utls.ALPNExtension); ok {
-							alpn.AlpnProtocols = []string{"http/1.1"}
-							break
-						}
-					}
-					tlsConn = utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
-					if applyErr := tlsConn.ApplyPreset(spec); applyErr != nil {
-						rawConn.Close()
-						return nil, NewTLSError("apply_"+specSource.String()+"_preset", host, port, "h1", applyErr)
-					}
-				} else {
-					helloID := t.preset.ClientHelloID
-					if wantPSK && t.preset.PSKClientHelloID.Client != "" {
-						helloID = t.preset.PSKClientHelloID
-					}
-					tlsConn = utls.UClient(rawConn, tlsConfig, helloID)
-					if buildErr := tlsConn.BuildHandshakeState(); buildErr != nil {
-						rawConn.Close()
-						return nil, NewTLSError("build_handshake", host, port, "h1", buildErr)
-					}
-					for _, ext := range tlsConn.Extensions {
-						if alpn, ok := ext.(*utls.ALPNExtension); ok {
-							alpn.AlpnProtocols = []string{"http/1.1"}
-							break
-						}
-					}
+				retrySpec, _, retryErr := fingerprint.ResolveClientHelloSpec(
+					t.preset, customJA3, customJA3Extras, wantPSK, 0)
+				if retryErr != nil {
+					rawConn.Close()
+					return nil, NewTLSError("resolve_client_hello", host, port, "h1", retryErr)
 				}
-				// The sig-algs override layers on a ClientHelloID base only. JA3
-				// carries its own, and a captured raw hello already has the
-				// client's real list.
-				if specSource == fingerprint.SourceClientHelloID {
-					fingerprint.ApplySignatureAlgorithms(tlsConn.Extensions, t.preset.SignatureAlgorithms)
-					// Same mechanism, same caveat: like the ALPN edit and the sig-algs
-					// override above, this only reaches the wire when something later
-					// forces a re-marshal of the hello. A preset whose selected
-					// ClientHelloID carries a pre_shared_key extension re-marshals to
-					// compute the binder and so picks it up; one without silently does
-					// not. That is a known defect of this whole code region, not of
-					// trust_anchors, and it is filed separately.
-					fingerprint.ApplyTrustAnchors(&tlsConn.Extensions, t.preset.TrustAnchors)
-			// The overrides above may introduce a GREASE placeholder, and
-			// ApplyPreset already regreased inside BuildHandshakeState, so
-			// nothing would replace it. Left alone, a Chrome 152 preset forced
-			// onto HTTP/1.1 emits the literal 0x0a0a on every connection: a
-			// constant where the browser draws one of sixteen.
-			tlsConn.RegreaseSignatureAlgorithms()
+				var applyErr error
+				tlsConn, applyErr = t.applyH1Spec(rawConn, tlsConfig, retrySpec, specSource)
+				if applyErr != nil {
+					rawConn.Close()
+					return nil, NewTLSError("apply_"+specSource.String()+"_preset", host, port, "h1", applyErr)
 				}
 				if useSessionCache {
 					tlsConn.SetSessionCache(t.sessionCache)
@@ -1774,4 +1666,101 @@ type HTTP1ConnStats struct {
 // GetDNSCache returns the DNS cache
 func (t *HTTP1Transport) GetDNSCache() *dns.Cache {
 	return t.dnsCache
+}
+
+// applyH1Spec builds the uTLS connection for a forced HTTP/1.1 handshake,
+// editing the spec BEFORE handing it to ApplyPreset.
+//
+// Every source goes through a resolved spec and HelloCustom, the ClientHelloID
+// one included. That branch used to pass the ID straight to UClient, call
+// BuildHandshakeState, and then edit uconn.Extensions. Edits made there only
+// reach the wire if something LATER forces a re-marshal of the hello: a spec
+// whose selected ClientHelloID carries a pre_shared_key extension re-marshals
+// to compute the binder and so picked them up, and one without silently did
+// not.
+//
+// That was not a fingerprint tell but a total handshake failure. The ALPN
+// rewrite was lost, the client advertised [h2, http/1.1] while its config said
+// [http/1.1], the server picked h2, and uTLS rejected its own peer's choice:
+//
+//	tls: server selected unadvertised ALPN protocol
+//
+// Measured against a live origin, forced HTTP/1.1 failed on every WebKit
+// preset, which is every Safari and iOS Chrome profile, and succeeded on
+// Chrome and Firefox. The two branches also carried the same four edits
+// twice, so the fix and the deduplication are the same change.
+//
+// Editing before ApplyPreset makes the ordering explicit: it marshals once,
+// after every override is in place, and regreases as it goes.
+func (t *HTTP1Transport) applyH1Spec(
+	rawConn net.Conn,
+	tlsConfig *utls.Config,
+	spec *utls.ClientHelloSpec,
+	source fingerprint.ClientHelloSource,
+) (*utls.UConn, error) {
+	// Force HTTP/1.1 so the server cannot negotiate h2 underneath us.
+	const only = "http/1.1"
+	for _, ext := range spec.Extensions {
+		if alpn, ok := ext.(*utls.ALPNExtension); ok {
+			alpn.AlpnProtocols = []string{only}
+			break
+		}
+	}
+
+	// And keep ALPS consistent with it. The rewrite above is ours, so the
+	// contradiction it creates is ours to clear: the hello was advertising
+	// application_settings for h2 while ALPN offered only http/1.1, which no
+	// browser produces. Chromium registers ALPS by walking the ALPN list,
+	// net/socket/ssl_client_socket_impl.cc:
+	//
+	//	for (NextProto proto : ssl_config_.alpn_protos) {
+	//	  auto iter = ssl_config_.application_settings.find(proto);
+	//	  if (iter != ssl_config_.application_settings.end()) {
+	//	    ... SSL_add_application_settings(...)
+	//
+	// so a socket offering only http/1.1 registers none, and BoringSSL then
+	// omits the extension. Applied to every source, because the ALPN rewrite
+	// that causes the mismatch is applied to every source too.
+	kept := spec.Extensions[:0]
+	for _, ext := range spec.Extensions {
+		var protos *[]string
+		switch alps := ext.(type) {
+		case *utls.ApplicationSettingsExtension:
+			protos = &alps.SupportedProtocols
+		case *utls.ApplicationSettingsExtensionNew:
+			protos = &alps.SupportedProtocols
+		}
+		if protos == nil {
+			kept = append(kept, ext)
+			continue
+		}
+		var offered []string
+		for _, p := range *protos {
+			if p == only {
+				offered = append(offered, p)
+			}
+		}
+		if len(offered) == 0 {
+			// Nothing left to negotiate settings for, so drop it entirely.
+			continue
+		}
+		*protos = offered
+		kept = append(kept, ext)
+	}
+	spec.Extensions = kept
+
+	// The preset's overrides layer on a ClientHelloID base only. JA3 carries
+	// its own signature algorithms through JA3Extras, and a captured raw hello
+	// already holds the client's real list, so applying them to either would
+	// undo the capture.
+	if source == fingerprint.SourceClientHelloID {
+		fingerprint.ApplySignatureAlgorithms(spec.Extensions, t.preset.SignatureAlgorithms)
+		fingerprint.ApplyTrustAnchors(&spec.Extensions, t.preset.TrustAnchors)
+	}
+
+	conn := utls.UClient(rawConn, tlsConfig, utls.HelloCustom)
+	if err := conn.ApplyPreset(spec); err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
