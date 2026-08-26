@@ -70,9 +70,11 @@ func TestChrome152Desktop(t *testing.T) {
 				"already correct in the base. Got %v", name, p.QUICSignatureAlgorithms)
 		}
 
-		// 32 trust anchors across three issuer arcs, 15 / 9 / 8.
-		if len(p.TrustAnchors) != 32 {
-			t.Errorf("%s: %d trust anchors, want 32", name, len(p.TrustAnchors))
+		// 28 trust anchors across three issuer arcs, 11 / 9 / 8. It was 32
+		// when 152 shipped; the Chrome Root Store is component-updated, so the
+		// set moves without a browser version bump.
+		if len(p.TrustAnchors) != 28 {
+			t.Errorf("%s: %d trust anchors, want 28", name, len(p.TrustAnchors))
 			continue
 		}
 		arcs := map[string]int{}
@@ -94,7 +96,7 @@ func TestChrome152Desktop(t *testing.T) {
 				t.Errorf("%s: trust anchor %s is under no known issuer arc", name, h)
 			}
 		}
-		for arc, want := range map[string]int{"d67909": 15, "839a648c9b2d01": 9, "82df1302": 8} {
+		for arc, want := range map[string]int{"d67909": 11, "839a648c9b2d01": 9, "82df1302": 8} {
 			if arcs[arc] != want {
 				t.Errorf("%s: arc %s has %d identifiers, want %d", name, arc, arcs[arc], want)
 			}

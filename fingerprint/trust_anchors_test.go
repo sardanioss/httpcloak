@@ -8,17 +8,24 @@ import (
 	tls "github.com/sardanioss/utls"
 )
 
-// chrome152Anchors is the set from four Chrome 152 captures, two hosts and both
-// transports. The order below is canonical only; every capture shuffled it.
+// chrome152Anchors is the set from six Chrome 152 captures across two hosts and
+// both transports, taken in one browser session.
+//
+// It was 32 when Chrome 152 shipped and is 28 now. The Chrome Root Store is
+// component-updated, so the set moves without a browser version bump, which is
+// why this list lives in preset JSON rather than in code. Four Google Trust
+// Services IDs were dropped and none added: d6790902, d6790903, d6790909 and
+// d679090e.
+//
+// The order below is canonical only; every capture carried a different one.
 var chrome152Anchors = []string{
-	"d6790901", "d6790902", "d6790903", "d6790904", "d6790905", "d6790906",
-	"d6790907", "d6790908", "d6790909", "d679090a", "d679090b", "d679090c",
-	"d679090d", "d679090e", "d679090f",
+	"82df130201", "82df130206", "82df13020d", "82df13020e", "82df13020f",
+	"82df130212", "82df130213", "82df130214",
 	"839a648c9b2d0107", "839a648c9b2d0108", "839a648c9b2d0109",
 	"839a648c9b2d010a", "839a648c9b2d010b", "839a648c9b2d010c",
 	"839a648c9b2d010d", "839a648c9b2d0112", "839a648c9b2d0113",
-	"82df130201", "82df130206", "82df13020d", "82df13020e", "82df13020f",
-	"82df130212", "82df130213", "82df130214",
+	"d6790901", "d6790904", "d6790905", "d6790906", "d6790907",
+	"d6790908", "d679090a", "d679090b", "d679090c", "d679090d", "d679090f",
 }
 
 func anchorBytes(t *testing.T) [][]byte {
@@ -100,8 +107,8 @@ func TestApplyTrustAnchorsReplacesRatherThanDuplicating(t *testing.T) {
 	for _, e := range exts {
 		if ta, ok := e.(*tls.TrustAnchorsExtension); ok {
 			found++
-			if len(ta.TrustAnchors) != 32 {
-				t.Errorf("the extension carries %d identifiers, want the preset's 32",
+			if len(ta.TrustAnchors) != 28 {
+				t.Errorf("the extension carries %d identifiers, want the preset's 28",
 					len(ta.TrustAnchors))
 			}
 		}
@@ -130,8 +137,8 @@ func TestTrustAnchorsJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if len(p.TrustAnchors) != 32 {
-		t.Fatalf("loaded %d identifiers, want 32", len(p.TrustAnchors))
+	if len(p.TrustAnchors) != 28 {
+		t.Fatalf("loaded %d identifiers, want 28", len(p.TrustAnchors))
 	}
 	if err := RegisterStrict(p.Name, p); err != nil {
 		t.Fatalf("register: %v", err)
@@ -173,8 +180,8 @@ func TestTrustAnchorsJSONRoundTrip(t *testing.T) {
 // error rather than a truncated extension on the wire.
 func TestTrustAnchorsRejectsUnusableIdentifiers(t *testing.T) {
 	for name, list := range map[string]string{
-		"not hex": `["zz"]`,
-		"empty":   `[""]`,
+		"not hex":  `["zz"]`,
+		"empty":    `[""]`,
 		"too long": `["` + strings.Repeat("ab", 256) + `"]`,
 	} {
 		t.Run(name, func(t *testing.T) {
