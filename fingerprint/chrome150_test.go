@@ -103,10 +103,11 @@ func TestChrome150IOSPreset(t *testing.T) {
 	if len(p.HeaderOrder) == 0 || p.HeaderOrder[0].Key != "sec-fetch-dest" {
 		t.Errorf("chrome-150-ios: header order should lead with sec-fetch-dest, got %+v", p.HeaderOrder)
 	}
-	// chrome-latest-ios moved to 151 once a real CriOS/151 capture landed.
-	// It sat on 150 while the 151 User-Agent was invented.
-	if ua := Get("chrome-latest-ios").UserAgent; !strings.Contains(ua, "CriOS/151.0.7922.112") {
-		t.Errorf("chrome-latest-ios UA = %q, want the captured CriOS/151.0.7922.112", ua)
+	// chrome-latest-ios tracks the newest CAPTURED iOS preset, now 152. It sat
+	// on 150 for a while because the 151 User-Agent was invented, and moved
+	// only once real captures landed for 151 and then 152.
+	if ua := Get("chrome-latest-ios").UserAgent; !strings.Contains(ua, "CriOS/152.0.7977.64") {
+		t.Errorf("chrome-latest-ios UA = %q, want the captured CriOS/152.0.7977.64", ua)
 	}
 }
 

@@ -74,11 +74,19 @@ func TestIOSChromeUserAgentIsCaptured(t *testing.T) {
 		t.Error("chrome-151-ios still carries the invented build number 7990.44")
 	}
 
-	// And no iOS preset claims a Chrome version we have never captured.
-	if q := Get("chrome-152-ios"); q != nil && strings.Contains(q.UserAgent, "CriOS/152.") {
-		t.Errorf("chrome-152-ios claims %q; there is no Chrome 152 iOS capture, "+
-			"so it must fall back to the measured 151 rather than invent one",
-			q.UserAgent)
+	// 152 is captured too, and its build number is not derivable from 151's:
+	// 7922.112 -> 7977.64, with the patch component going DOWN.
+	q := Get("chrome-152-ios")
+	if q == nil {
+		t.Fatal("chrome-152-ios not registered")
+	}
+	if !strings.Contains(q.UserAgent, "CriOS/152.0.7977.64") {
+		t.Errorf("chrome-152-ios UA = %q, want the captured CriOS/152.0.7977.64", q.UserAgent)
+	}
+	for _, guess := range []string{"8080.60", "7990.44"} {
+		if strings.Contains(q.UserAgent, guess) || strings.Contains(p.UserAgent, guess) {
+			t.Errorf("an iOS preset still carries the invented build number %s", guess)
+		}
 	}
 }
 

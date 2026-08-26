@@ -2761,12 +2761,15 @@ func AndroidChrome152() *Preset {
 // GREASE, and no client hints at all. The User-Agent is the only thing that
 // moves between versions.
 //
-// There is deliberately no chrome-152-ios file, so this resolves to the
-// captured 151. iOS Chrome spells its version out in full rather than using the
-// reduced desktop form, and the build number cannot be derived: a real CriOS/151
-// is 151.0.7922.112, which no scheme would have guessed. Shipping an invented
-// one is worse than resolving to a fingerprint that was actually measured.
-// Give it a file once a 152 capture lands.
+// CAPTURED. Two CriOS/152 captures agree with the two CriOS/151 ones on every
+// fingerprint: same ja3_hash ecdf4f49dd59effc439639da29186671, same ja4
+// t13d2013h2_a09f3c656075_7f0f34a4126d, same peetprint, same Akamai hash, same
+// extension order and the same eight headers. Only the User-Agent moves, which
+// is what WebKit underneath predicts.
+//
+// The build number is measured, never derived. 151 was 151.0.7922.112 and 152
+// is 152.0.7977.64, so even the patch component fell rather than rose; an
+// earlier placeholder had guessed 152.0.8080.60.
 func IOSChrome152() *Preset {
 	if p := LookupCustom("chrome-152-ios"); p != nil {
 		return p
@@ -3385,7 +3388,7 @@ var presets = map[string]func() *Preset{
 	"firefox-latest-linux":   Firefox148Linux,
 	"firefox-latest-macos":   Firefox148macOS,
 	"safari-latest":          Safari18,
-	"chrome-latest-ios":      IOSChrome151,
+	"chrome-latest-ios":      IOSChrome152,
 	"safari-latest-ios":      IOSSafari18,
 	"chrome-latest-android":  AndroidChrome152,
 
