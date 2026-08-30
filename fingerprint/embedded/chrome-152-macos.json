@@ -5,7 +5,6 @@
     "based_on": "chrome-151-macos",
     "tls": {
       "signature_algorithms": [
-        2570,
         2308,
         2309,
         2310,

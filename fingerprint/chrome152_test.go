@@ -44,21 +44,44 @@ func TestChrome152Desktop(t *testing.T) {
 			t.Errorf("%s: sec-ch-ua = %q, want %q", name, got, wantSecCHUA)
 		}
 
-		// A GREASE placeholder leads signature_algorithms, and the eleven
-		// behind it are Chrome 151's, unchanged.
-		if len(p.SignatureAlgorithms) != 12 {
-			t.Errorf("%s: %d TCP signature algorithms, want 12 (one GREASE plus eleven)",
+		// signature_algorithms carries NO GREASE by default, and the eleven
+		// entries are Chrome 151's, unchanged.
+		//
+		// Chrome 152 can go either way here. BoringSSL prepends a GREASE
+		// sigalg from ext_sigalgs_add_clienthello, but only when
+		// grease_sigalgs_enabled is set, and Chromium sets it behind a Finch
+		// flag:
+		//
+		//	SSL_CTX_set_grease_enabled(ssl_ctx_.get(), 1);
+		//	if (base::FeatureList::IsEnabled(features::kTlsGreaseSigalgs)) {
+		//	  SSL_CTX_set_grease_sigalgs_enabled(ssl_ctx_.get(), 1);
+		//	}
+		//
+		// BoringSSL's own header calls it staged ("fold this into
+		// SSL_CTX_set_grease_enabled once deployed safely"), so both cohorts
+		// are genuine Chrome 152 and flag-off is the larger one for now.
+		//
+		// We default to flag-off because the exposure is asymmetric. JA4 says
+		// to ignore GREASE "anywhere it sees them", so a compliant scorer
+		// hashes both cohorts to one stable value and the choice is free. A
+		// non-compliant scorer folds the GREASE into JA4_c, and then flag-on
+		// yields sixteen identities from one profile while flag-off yields
+		// one. Measured against tls.peet.ws, which is non-compliant here:
+		// twenty connections gave twelve distinct JA4_c, a clean 1:1 map from
+		// GREASE value to hash.
+		//
+		// Flag-on stays reachable: put 2570 back at the head of
+		// signature_algorithms in the preset JSON. TestChrome152SigalgGrease
+		// below locks that it still works.
+		if len(p.SignatureAlgorithms) != 11 {
+			t.Errorf("%s: %d TCP signature algorithms, want 11 (Chrome 151's list, no GREASE)",
 				name, len(p.SignatureAlgorithms))
 			continue
 		}
-		if got := uint16(p.SignatureAlgorithms[0]); got != 0x0a0a {
-			t.Errorf("%s: first signature algorithm is %#04x, want the 0x0a0a "+
-				"placeholder; uTLS substitutes a real GREASE value per connection", name, got)
-		}
-		for i, sa := range p.SignatureAlgorithms[1:] {
+		for i, sa := range p.SignatureAlgorithms {
 			if uint16(sa)&0x0f0f == 0x0a0a {
-				t.Errorf("%s: algorithm %d is a second GREASE value %#04x; "+
-					"ext_sigalgs_add_clienthello adds exactly one", name, i+1, sa)
+				t.Errorf("%s: algorithm %d is a GREASE value %#04x; the default "+
+					"cohort is flag-off, so nothing here may be GREASE", name, i, sa)
 			}
 		}
 
@@ -155,5 +178,60 @@ func TestChrome151StillCarriesNeitherWireChange(t *testing.T) {
 			t.Errorf("%s has %d signature algorithms, want 11 with no GREASE",
 				name, len(p.SignatureAlgorithms))
 		}
+	}
+}
+
+// The flag-on cohort has to stay reachable. Chrome 152 with
+// features::kTlsGreaseSigalgs enabled prepends a GREASE signature algorithm,
+// and a caller who wants to sit in that cohort puts 2570 (0x0a0a) back at the
+// head of signature_algorithms in the preset JSON.
+//
+// Without this, "switchable" is a claim in a comment rather than a property of
+// the code, and the next edit to the sigalg path could quietly remove the
+// ability to express the other cohort at all.
+func TestChrome152SigalgGreaseStaysReachable(t *testing.T) {
+	const spec = `{
+	  "preset": {
+	    "name": "chrome-152-greased-sigalgs",
+	    "based_on": "chrome-152-windows",
+	    "tls": {
+	      "signature_algorithms": [2570, 2308, 2309, 2310, 1027, 2052,
+	                               1025, 1283, 2053, 1281, 2054, 1537]
+	    }
+	  }
+	}`
+
+	pf, err := LoadPresetFromJSON([]byte(spec))
+	if err != nil {
+		t.Fatalf("loading the flag-on variant failed: %v", err)
+	}
+	p, err := BuildPreset(pf.Preset)
+	if err != nil {
+		t.Fatalf("building the flag-on variant failed: %v", err)
+	}
+
+	if len(p.SignatureAlgorithms) != 12 {
+		t.Fatalf("%d signature algorithms, want 12 (one GREASE plus eleven)",
+			len(p.SignatureAlgorithms))
+	}
+	if got := uint16(p.SignatureAlgorithms[0]); got != 0x0a0a {
+		t.Errorf("first signature algorithm is %#04x, want the 0x0a0a placeholder "+
+			"that uTLS substitutes a real GREASE value for per connection", got)
+	}
+	for i, sa := range p.SignatureAlgorithms[1:] {
+		if uint16(sa)&0x0f0f == 0x0a0a {
+			t.Errorf("algorithm %d is a second GREASE value %#04x; "+
+				"ext_sigalgs_add_clienthello adds exactly one", i+1, sa)
+		}
+	}
+
+	// And the default really is the other cohort, so the two are distinguishable.
+	base := Get("chrome-152-windows")
+	if base == nil {
+		t.Fatal("chrome-152-windows not registered")
+	}
+	if len(base.SignatureAlgorithms) == len(p.SignatureAlgorithms) {
+		t.Errorf("the default and the flag-on variant both have %d signature "+
+			"algorithms; the override did nothing", len(p.SignatureAlgorithms))
 	}
 }

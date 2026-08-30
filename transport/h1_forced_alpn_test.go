@@ -161,31 +161,48 @@ func TestForcedH1KeepsThePresetOverrides(t *testing.T) {
 	}
 	conn := helloOf(t, "chrome-152-windows")
 
-	var anchors, sigalgs int
-	var firstSigalg uint16
+	var anchors int
+	var got []uint16
 	for _, ext := range conn.Extensions {
 		switch e := ext.(type) {
 		case *utls.TrustAnchorsExtension:
 			anchors = len(e.TrustAnchors)
 		case *utls.SignatureAlgorithmsExtension:
-			sigalgs = len(e.SupportedSignatureAlgorithms)
-			if sigalgs > 0 {
-				firstSigalg = uint16(e.SupportedSignatureAlgorithms[0])
+			for _, sa := range e.SupportedSignatureAlgorithms {
+				got = append(got, uint16(sa))
 			}
 		}
 	}
 	if anchors != len(p.TrustAnchors) {
 		t.Errorf("forced H1 carries %d trust anchors, want %d", anchors, len(p.TrustAnchors))
 	}
-	if sigalgs != len(p.SignatureAlgorithms) {
-		t.Errorf("forced H1 carries %d signature algorithms, want %d", sigalgs, len(p.SignatureAlgorithms))
+
+	// Compare against the preset element by element rather than asserting a
+	// particular shape. Chrome 152 has two genuine sigalg cohorts (see the
+	// kTlsGreaseSigalgs note on Chrome152Windows), we default to the one
+	// without GREASE, and either is a legitimate configuration. What forced H1
+	// must never do is drop or reorder whatever the preset asked for, and this
+	// holds for both cohorts.
+	if len(got) != len(p.SignatureAlgorithms) {
+		t.Fatalf("forced H1 carries %d signature algorithms, want %d",
+			len(got), len(p.SignatureAlgorithms))
 	}
-	// The placeholder must have been replaced by a real per-connection value.
-	if firstSigalg == 0x0a0a {
-		t.Error("forced H1 emits the literal 0x0a0a GREASE placeholder; every " +
-			"connection would advertise the same fake algorithm")
-	}
-	if firstSigalg&0x0f0f != 0x0a0a {
-		t.Errorf("the first signature algorithm is %#04x, which is not a GREASE value", firstSigalg)
+	for i, want := range p.SignatureAlgorithms {
+		w := uint16(want)
+		if w == 0x0a0a {
+			// A GREASE placeholder is substituted per connection, so the only
+			// thing to assert is that it became some real GREASE value.
+			if got[i] == 0x0a0a {
+				t.Errorf("algorithm %d is still the literal 0x0a0a placeholder; "+
+					"every connection would advertise the same fake algorithm", i)
+			} else if got[i]&0x0f0f != 0x0a0a {
+				t.Errorf("algorithm %d is %#04x, want a GREASE value in place of "+
+					"the placeholder", i, got[i])
+			}
+			continue
+		}
+		if got[i] != w {
+			t.Errorf("algorithm %d is %#04x, want %#04x from the preset", i, got[i], w)
+		}
 	}
 }

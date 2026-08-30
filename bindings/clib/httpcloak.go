@@ -2630,10 +2630,16 @@ func httpcloak_free_string(str *C.char) {
 	}
 }
 
+// libVersion is the one place the C ABI reports a version from. It has to be
+// bumped with the nine binding version files and the five optionalDependencies
+// pins; it was missed for 1.7.0-beta.2, so every binding reported 1.6.11 off a
+// 1.7.0b2 wheel.
+const libVersion = "1.7.0-beta.3"
+
 //export httpcloak_version
 func httpcloak_version() (hcRet *C.char) {
 	defer guardCharP("httpcloak_version", &hcRet)
-	return C.CString("1.6.11")
+	return C.CString(libVersion)
 }
 
 //export httpcloak_available_presets

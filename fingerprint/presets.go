@@ -2690,14 +2690,36 @@ func IOSChrome151() *Preset {
 // capture carried the same SET in a different ORDER, so the extension shuffles
 // per connection.
 //
-// A GREASE signature algorithm leads signature_algorithms, on TCP only, per
-// ext_sigalgs_add_clienthello, which writes it before tls12_add_verify_sigalgs.
-// The preset carries the 0x0a0a placeholder and uTLS substitutes a real value
-// per connection. That matters more than it looks: the two TCP captures drew
-// 0x3a3a and 0x0a0a and are identical in every other ja4_r field, and hashing
-// peet's own string reproduces both published hashes, so Chrome 152 has sixteen
-// JA4 values on TCP rather than one. QUIC sends no GREASE and needs no override,
-// because the nine algorithms it advertises already match the base.
+// signature_algorithms carries no GREASE, which is a deliberate choice between
+// two real Chrome 152 populations rather than a claim that Chrome never greases
+// sigalgs. It does: ext_sigalgs_add_clienthello writes a GREASE value before
+// tls12_add_verify_sigalgs, and both TCP captures we built this preset from
+// carried one, drawing 0x3a3a and 0x0a0a. But BoringSSL gates it on a dedicated
+// grease_sigalgs_enabled flag and Chromium only sets that behind Finch:
+//
+//	SSL_CTX_set_grease_enabled(ssl_ctx_.get(), 1);
+//	if (base::FeatureList::IsEnabled(features::kTlsGreaseSigalgs)) {
+//	  SSL_CTX_set_grease_sigalgs_enabled(ssl_ctx_.get(), 1);
+//	}
+//
+// BoringSSL's header calls the rollout staged, so flag-off is equally genuine
+// Chrome 152 and is the larger share while it deploys.
+//
+// The exposure is what decides it. JA4 says to ignore GREASE "anywhere it sees
+// them", so a compliant scorer hashes both cohorts to one stable value and the
+// choice costs nothing. A non-compliant scorer folds the GREASE into JA4_c, and
+// then flag-on emits sixteen identities from one profile while flag-off emits
+// one. Measured against tls.peet.ws, which is non-compliant here: twenty
+// connections produced twelve distinct JA4_c, a clean 1:1 map from GREASE value
+// to hash, and recomputing with the GREASE left in reproduced peet on all
+// twenty. So the churn is invisible to correct implementations and total against
+// the rest, which is the wrong way round for a fingerprint to fail.
+//
+// Flag-on stays one JSON field away: put 2570 back at the head of
+// signature_algorithms. TestChrome152SigalgGreaseStaysReachable locks it.
+//
+// QUIC never greases sigalgs and needs no override either way, because the nine
+// algorithms it advertises already match the base.
 //
 // Two header values move, and as with 151 the second is not what a naive bump
 // would give, because the greased brand list reseeds off the major version:
