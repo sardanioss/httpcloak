@@ -1239,6 +1239,42 @@ func h1WireHeaderName(canonicalKey string) string {
 	return canonicalKey
 }
 
+// resolveHeaderKey returns the key under which h actually stores the header
+// named by key.
+//
+// The ordered pass used to look up canonicalHeaderKey(key) directly, which is
+// correct for the preset path because applyPresetHeaders goes through
+// Header.Set and Go canonicalises there. It is wrong for ExactHeaders, which
+// stores the caller's key verbatim so their casing survives to the wire. A
+// lowercase "user-agent" therefore missed the ordered pass entirely and fell
+// into the sorted remainder below, so a caller who asked for
+// user-agent, accept, x-mirror got accept, user-agent, x-mirror: alphabetical,
+// which is exactly what a byte-exact mirror cannot have.
+//
+// Exact matches are tried first so the common path stays a single map lookup,
+// and the case-insensitive scan only runs for a name that is not stored
+// canonically.
+func resolveHeaderKey(h http.Header, key string) (string, bool) {
+	if canonical := canonicalHeaderKey(key); canonical == key {
+		if _, ok := h[canonical]; ok {
+			return canonical, true
+		}
+	} else {
+		if _, ok := h[canonical]; ok {
+			return canonical, true
+		}
+		if _, ok := h[key]; ok {
+			return key, true
+		}
+	}
+	for k := range h {
+		if strings.EqualFold(k, key) {
+			return k, true
+		}
+	}
+	return canonicalHeaderKey(key), false
+}
+
 // writeHeadersInOrder writes headers in a browser-like order
 func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request, useChunked bool) {
 	// Check if custom header order is specified (from preset or user)
@@ -1331,12 +1367,21 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 			continue
 		}
 
-		// Look up header using canonical key
-		if values, ok := req.Header[canonicalKey]; ok {
-			for _, v := range values {
-				fmt.Fprintf(w, "%s: %s\r\n", h1WireHeaderName(canonicalKey), v)
+		// Resolve the key the way the header map actually stores it, so
+		// ExactHeaders (which keeps the caller's casing) is found here rather
+		// than falling through to the sorted remainder.
+		if mapKey, ok := resolveHeaderKey(req.Header, key); ok {
+			// A key that is not in canonical form was supplied verbatim by the
+			// caller, so it goes on the wire verbatim. Anything canonical keeps
+			// the existing treatment, which lowercases the sec-ch-* cluster.
+			wire := h1WireHeaderName(mapKey)
+			if mapKey != canonicalHeaderKey(mapKey) {
+				wire = mapKey
 			}
-			written[canonicalKey] = true
+			for _, v := range req.Header[mapKey] {
+				fmt.Fprintf(w, "%s: %s\r\n", wire, v)
+			}
+			written[mapKey] = true
 		}
 	}
 

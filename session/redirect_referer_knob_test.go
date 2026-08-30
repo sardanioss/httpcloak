@@ -115,15 +115,20 @@ func TestExactHeadersSurviveARedirect(t *testing.T) {
 		t.Fatalf("server saw %d hops, want 2", len(srv.hops))
 	}
 
-	// Assert the hop matches the FIRST request rather than a literal order.
-	// Whatever shape the caller's exact headers produce, the redirect hop has to
-	// reproduce it; that is the fix. Pinning a literal order here would also
-	// pin an unrelated HTTP/1.1 write-path behaviour that reorders these
-	// alphabetically, which hop 1 shows too and which this change does not touch.
+	// Both hops must carry exactly the given names, in the given order. The
+	// order half is not incidental: these are deliberately not alphabetical
+	// (user-agent before accept), so a writer that sorts its output fails here.
+	want := []string{"user-agent", "accept", "x-mirror"}
 	hop1, hop2 := srv.hops[0].headers, srv.hops[1].headers
 	if len(hop1) != len(exact) {
 		t.Fatalf("hop 1 sent %d headers %v, want exactly the %d given; the preset "+
 			"pipeline leaked into the original request", len(hop1), hop1, len(exact))
+	}
+	for i := range want {
+		if hop1[i] != want[i] {
+			t.Errorf("hop 1 header %d is %q, want %q; ExactHeaders puts the pairs "+
+				"on the wire in the order given", i, hop1[i], want[i])
+		}
 	}
 	if len(hop2) != len(hop1) {
 		t.Fatalf("hop 1 sent %v but hop 2 sent %v; ExactHeaders did not survive "+
