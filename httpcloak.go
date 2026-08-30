@@ -243,6 +243,18 @@ type Request struct {
 	// platform-version, bitness, model, wow64) for this single request.
 	DisableHighEntropyClientHints bool
 
+	// DisableRedirectReferer, when true, stops a Referer being added on redirect
+	// hops. By default httpcloak synthesises one per Chrome's default
+	// strict-origin-when-cross-origin policy: the full previous URL same-origin,
+	// the origin alone cross-origin, and nothing at all on an https to http
+	// downgrade. That is what a browser does, so leave this off unless you are
+	// mirroring a client that sends no Referer.
+	//
+	// When set, no Referer reaches the next hop at all, including one you set on
+	// the original request, since forwarding that would leak the pre-redirect URL
+	// to the new host.
+	DisableRedirectReferer bool
+
 	// HeaderOrder, when non-empty, sets the header order for this single request
 	// and overrides whatever SetHeaderOrder installed on the session. Nothing is
 	// stored on the session and no lock is taken, so concurrent requests can each
@@ -1199,6 +1211,7 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
 		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
@@ -1232,6 +1245,7 @@ func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Re
 		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
 		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
@@ -1600,6 +1614,7 @@ func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, 
 		DisableConditionalCache:       req.DisableConditionalCache,
 		DisableClientHints:            req.DisableClientHints,
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
 		Timeout:                       req.Timeout,
 	}

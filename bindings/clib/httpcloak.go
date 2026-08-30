@@ -280,6 +280,12 @@ type RequestConfig struct {
 	// high-entropy hints. Default false leaves the session behaviour intact.
 	DisableClientHints            bool `json:"disable_client_hints,omitempty"`
 	DisableHighEntropyClientHints bool `json:"disable_high_entropy_client_hints,omitempty"`
+
+	// DisableRedirectReferer stops a Referer being added on redirect hops. By
+	// default one is synthesised per Chrome's strict-origin-when-cross-origin
+	// policy, which is what a browser does. When set, no Referer reaches the
+	// next hop at all, including one the caller set on the original request.
+	DisableRedirectReferer bool `json:"disable_redirect_referer,omitempty"`
 }
 
 // Cookie represents a parsed cookie from Set-Cookie header
@@ -951,6 +957,7 @@ func httpcloak_get_raw(handle C.int64_t, url *C.char, optionsJSON *C.char) (hcRe
 		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        options.DisableRedirectReferer,
 	}
 
 	resp, err := session.Do(ctx, req)
@@ -1032,6 +1039,7 @@ func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.i
 		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        options.DisableRedirectReferer,
 	}
 
 	resp, err := session.Do(ctx, req)
@@ -1109,6 +1117,7 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 		DisableConditionalCache:       config.DisableConditionalCache,
 		DisableClientHints:            config.DisableClientHints,
 		DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        config.DisableRedirectReferer,
 	}
 
 	resp, err := session.Do(ctx, req)
@@ -1531,6 +1540,12 @@ type RequestOptions struct {
 	// high-entropy hints. Default false leaves the session behaviour intact.
 	DisableClientHints            bool `json:"disable_client_hints,omitempty"`
 	DisableHighEntropyClientHints bool `json:"disable_high_entropy_client_hints,omitempty"`
+
+	// DisableRedirectReferer stops a Referer being added on redirect hops. By
+	// default one is synthesised per Chrome's strict-origin-when-cross-origin
+	// policy, which is what a browser does. When set, no Referer reaches the
+	// next hop at all, including one the caller set on the original request.
+	DisableRedirectReferer bool `json:"disable_redirect_referer,omitempty"`
 	// BodyEncoding controls how the request body string is interpreted by
 	// post_async / get_async style entry points where the body is passed as
 	// a separate C string. "" (default) treats the body as UTF-8 text.
@@ -1579,6 +1594,7 @@ func httpcloak_get(handle C.int64_t, url *C.char, optionsJSON *C.char) (hcRet *C
 		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        options.DisableRedirectReferer,
 	}
 
 	resp, err := session.Do(ctx, req)
@@ -1645,6 +1661,7 @@ func httpcloak_post(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.
 		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        options.DisableRedirectReferer,
 	}
 
 	resp, err := session.Do(ctx, req)
@@ -1705,6 +1722,7 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) (hcRet *C.char) {
 		DisableConditionalCache:       config.DisableConditionalCache,
 		DisableClientHints:            config.DisableClientHints,
 		DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        config.DisableRedirectReferer,
 	}
 
 	resp, err := session.Do(ctx, req)
@@ -1834,6 +1852,7 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 			DisableConditionalCache:       options.DisableConditionalCache,
 			DisableClientHints:            options.DisableClientHints,
 			DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+			DisableRedirectReferer:        options.DisableRedirectReferer,
 		}
 
 		resp, err := session.Do(ctx, req)
@@ -1951,6 +1970,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 			DisableConditionalCache:       options.DisableConditionalCache,
 			DisableClientHints:            options.DisableClientHints,
 			DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+			DisableRedirectReferer:        options.DisableRedirectReferer,
 		}
 
 		resp, err := session.Do(ctx, req)
@@ -2058,6 +2078,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 			DisableConditionalCache:       config.DisableConditionalCache,
 			DisableClientHints:            config.DisableClientHints,
 			DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
+			DisableRedirectReferer:        config.DisableRedirectReferer,
 		}
 
 		resp, err := session.Do(ctx, req)
@@ -3589,6 +3610,7 @@ func httpcloak_stream_get(sessionHandle C.int64_t, url *C.char, optionsJSON *C.c
 		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        options.DisableRedirectReferer,
 	}
 
 	resp, err := session.DoStream(ctx, req)
@@ -3654,6 +3676,7 @@ func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, o
 		DisableConditionalCache:       options.DisableConditionalCache,
 		DisableClientHints:            options.DisableClientHints,
 		DisableHighEntropyClientHints: options.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        options.DisableRedirectReferer,
 	}
 
 	resp, err := session.DoStream(ctx, req)
@@ -3722,6 +3745,7 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 		DisableConditionalCache:       config.DisableConditionalCache,
 		DisableClientHints:            config.DisableClientHints,
 		DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
+		DisableRedirectReferer:        config.DisableRedirectReferer,
 	}
 
 	resp, err := session.DoStream(ctx, req)

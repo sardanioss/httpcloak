@@ -263,6 +263,21 @@ type Request struct {
 	// request. Session-layer concept; the transport does not consult this field.
 	DisableHighEntropyClientHints bool
 
+	// DisableRedirectReferer, when true, stops the session layer synthesising a
+	// Referer on each redirect hop. Session-layer concept; the transport does
+	// not consult this field.
+	//
+	// The synthesised value follows Chrome's default
+	// strict-origin-when-cross-origin policy, so leaving this off is what a
+	// browser does and is almost always what you want. It exists for callers
+	// mirroring a client that sends no Referer at all, or reproducing a captured
+	// chain verbatim, where a policy-correct header is still the wrong bytes.
+	//
+	// Setting it does not merely skip the synthesis: no Referer is sent on the
+	// hop at all, including one the caller set on the original request, because
+	// carrying that one forward would leak the pre-redirect URL to the new host.
+	DisableRedirectReferer bool
+
 	// HeaderOrder, when non-empty, is the header order for THIS request only and
 	// fully replaces any order installed session-wide with SetHeaderOrder. It is
 	// read from the request, never from shared state, so concurrent requests can

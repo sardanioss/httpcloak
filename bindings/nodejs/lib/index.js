@@ -1778,7 +1778,7 @@ class Session {
    * @returns {Response} Response object
    */
   getSync(url, options = {}) {
-    const { headers = null, params = null, cookies = null, auth = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false } = options;
+    const { headers = null, params = null, cookies = null, auth = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1797,6 +1797,9 @@ class Session {
     }
     if (allowRedirects !== null && allowRedirects !== undefined) {
       reqOptions.follow_redirects = !!allowRedirects;
+    }
+    if (disableRedirectReferer) {
+      reqOptions.disable_redirect_referer = true;
     }
     if (disableConditionalCache) {
       reqOptions.disable_conditional_cache = true;
@@ -1836,7 +1839,7 @@ class Session {
    * @returns {Response} Response object
    */
   postSync(url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1884,6 +1887,9 @@ class Session {
     if (allowRedirects !== null && allowRedirects !== undefined) {
       reqOptions.follow_redirects = !!allowRedirects;
     }
+    if (disableRedirectReferer) {
+      reqOptions.disable_redirect_referer = true;
+    }
     if (disableConditionalCache) {
       reqOptions.disable_conditional_cache = true;
     }
@@ -1917,7 +1923,7 @@ class Session {
    * @returns {Response} Response object
    */
   requestSync(method, url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -2020,6 +2026,9 @@ class Session {
     if (allowRedirects !== null && allowRedirects !== undefined) {
       reqOptions.follow_redirects = !!allowRedirects;
     }
+    if (disableRedirectReferer) {
+      reqOptions.disable_redirect_referer = true;
+    }
     if (disableConditionalCache) {
       reqOptions.disable_conditional_cache = true;
     }
@@ -2111,6 +2120,9 @@ class Session {
     }
     if (allowRedirects !== null && allowRedirects !== undefined) {
       reqOptions.follow_redirects = !!allowRedirects;
+    }
+    if (disableRedirectReferer) {
+      reqOptions.disable_redirect_referer = true;
     }
     if (disableConditionalCache) {
       reqOptions.disable_conditional_cache = true;
@@ -2806,7 +2818,7 @@ class Session {
    *   stream.close();
    */
   getStream(url, options = {}) {
-    const { params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false } = options;
+    const { params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
 
     // Add params to URL
     if (params) {
@@ -2835,6 +2847,9 @@ class Session {
     }
     if (allowRedirects !== null && allowRedirects !== undefined) {
       reqOptions.follow_redirects = !!allowRedirects;
+    }
+    if (disableRedirectReferer) {
+      reqOptions.disable_redirect_referer = true;
     }
     if (disableConditionalCache) {
       reqOptions.disable_conditional_cache = true;
@@ -2884,7 +2899,7 @@ class Session {
    * @returns {StreamResponse} - Streaming response for chunked reading
    */
   postStream(url, options = {}) {
-    const { body: bodyOpt, json: jsonBody, form, params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false } = options;
+    const { body: bodyOpt, json: jsonBody, form, params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
 
     // Add params to URL
     if (params) {
@@ -2926,6 +2941,9 @@ class Session {
     }
     if (allowRedirects !== null && allowRedirects !== undefined) {
       reqOptions.follow_redirects = !!allowRedirects;
+    }
+    if (disableRedirectReferer) {
+      reqOptions.disable_redirect_referer = true;
     }
     if (disableConditionalCache) {
       reqOptions.disable_conditional_cache = true;
@@ -2974,7 +2992,7 @@ class Session {
    * @returns {StreamResponse} - Streaming response for chunked reading
    */
   requestStream(method, url, options = {}) {
-    const { body, params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false } = options;
+    const { body, params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
 
     // Add params to URL
     if (params) {

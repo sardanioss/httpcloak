@@ -29,6 +29,7 @@ type hopRecord struct {
 	transferEncoding string
 	contentType      string
 	headers          []string
+	values           map[string]string // lowercased name -> value, for tests that assert content
 	body             []byte
 }
 
@@ -73,7 +74,7 @@ func (s *bodyCapture) serve(conn net.Conn) {
 	if err != nil {
 		return
 	}
-	rec := hopRecord{method: strings.Fields(strings.TrimSpace(line))[0]}
+	rec := hopRecord{method: strings.Fields(strings.TrimSpace(line))[0], values: map[string]string{}}
 
 	for {
 		line, err := br.ReadString('\n')
@@ -100,6 +101,7 @@ func (s *bodyCapture) serve(conn net.Conn) {
 		}
 		if name != "host" && name != "connection" {
 			rec.headers = append(rec.headers, name)
+			rec.values[name] = value
 		}
 	}
 

@@ -629,7 +629,16 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 				DisableConditionalCache:       req.DisableConditionalCache,
 				DisableClientHints:            req.DisableClientHints,
 				DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
+				DisableRedirectReferer:        req.DisableRedirectReferer,
 				OnRedirect:                    req.OnRedirect,
+
+				// ExactHeaders has to survive the hop. Its whole contract is that
+				// nothing else is added, and dropping it here meant a caller
+				// mirroring a captured request got their exact bytes on the first
+				// request and the full preset pipeline on every hop after it,
+				// silently. Referer is the one thing the redirect path may still
+				// add on top, and DisableRedirectReferer turns that off.
+				ExactHeaders: req.ExactHeaders,
 			}
 
 			// Copy safe headers
@@ -659,10 +668,17 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			// server inspecting the redirect chain can use to fingerprint it.
 			// Drop any copied Referer (either casing) first so we don't emit a
 			// duplicate, then set the policy-correct value.
+			//
+			// DisableRedirectReferer suppresses the synthesis but NOT the two
+			// deletes: a Referer the caller put on the original request names the
+			// pre-redirect URL, and carrying it to the new host would leak exactly
+			// what the caller asked us not to send.
 			delete(newReq.Headers, "Referer")
 			delete(newReq.Headers, "referer")
-			if ref := redirectReferer(req.URL, schemeDowngrade, crossOrigin); ref != "" {
-				newReq.Headers["Referer"] = []string{ref}
+			if !req.DisableRedirectReferer {
+				if ref := redirectReferer(req.URL, schemeDowngrade, crossOrigin); ref != "" {
+					newReq.Headers["Referer"] = []string{ref}
+				}
 			}
 
 			// 307/308 preserve the method and the body. Precedence matches the
