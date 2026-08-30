@@ -264,7 +264,17 @@ jobs:
       - name: Publish platform package
         run: |
           cd bindings/nodejs/npm/${{ matrix.npm_platform }}
-          npm publish --access public
+          # npm has no notion of a prerelease version: `npm publish` claims the
+          # `latest` dist-tag whatever the version says, so a beta would land on
+          # every `npm install httpcloak`. PyPI and NuGet skip prereleases on
+          # their own; npm has to be told.
+          VERSION=$(node -p "require('./package.json').version")
+          case "$VERSION" in
+            *-*) NPM_TAG=beta ;;
+            *)   NPM_TAG=latest ;;
+          esac
+          echo "publishing $VERSION with dist-tag $NPM_TAG"
+          npm publish --access public --tag "$NPM_TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -287,7 +297,14 @@ jobs:
       - name: Publish main package
         run: |
           cd bindings/nodejs
-          npm publish --access public
+          # See the platform-package step: a prerelease must not take `latest`.
+          VERSION=$(node -p "require('./package.json').version")
+          case "$VERSION" in
+            *-*) NPM_TAG=beta ;;
+            *)   NPM_TAG=latest ;;
+          esac
+          echo "publishing $VERSION with dist-tag $NPM_TAG"
+          npm publish --access public --tag "$NPM_TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
