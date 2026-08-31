@@ -3,7 +3,6 @@ package transport
 import (
 	"bufio"
 	"bytes"
-	"compress/flate"
 	"context"
 	"errors"
 	"io"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/flate"
 	"github.com/klauspost/compress/zstd"
 	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/internal/gunzip"

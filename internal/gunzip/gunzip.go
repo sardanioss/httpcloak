@@ -12,9 +12,10 @@ package gunzip
 
 import (
 	"bytes"
-	"compress/gzip"
 	"io"
 	"sync"
+
+	"github.com/klauspost/compress/gzip"
 )
 
 var readerPool sync.Pool

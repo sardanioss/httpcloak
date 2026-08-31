@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	mathrand "math/rand/v2"
+	"strings"
 	"sync"
 	"testing"
 	"testing/iotest"
@@ -248,8 +249,24 @@ func stdlibStream(data []byte) ([]byte, error) {
 
 func sameResult(t *testing.T, what string, i int, input []byte, got []byte, gotErr error, want []byte, wantErr error) {
 	t.Helper()
-	if (gotErr == nil) != (wantErr == nil) || (gotErr != nil && gotErr.Error() != wantErr.Error()) {
+	if reservedGzipFlags(input) && errors.Is(gotErr, gzip.ErrHeader) {
+		// RFC 1952 reserves FLG bits 5-7 and requires them to be zero. klauspost
+		// rejects such a header; the standard library ignores the bits and
+		// parses on, usually failing inside the deflate stream, occasionally
+		// decoding the member. This is the one documented disagreement.
+		return
+	}
+	if (gotErr == nil) != (wantErr == nil) || (gotErr != nil && errorClass(gotErr) != errorClass(wantErr)) {
 		t.Fatalf("%s case %d (%d input bytes): error = %v, stdlib = %v", what, i, len(input), gotErr, wantErr)
+	}
+	if gotErr != nil {
+		// On a damaged stream the inflater may report the error before it has
+		// flushed its last window, so the partial output can be shorter than
+		// the standard library's; it must still be a prefix of it.
+		if !bytes.HasPrefix(want, got) {
+			t.Fatalf("%s case %d (%d input bytes): partial output is not a prefix of stdlib's (%d vs %d bytes)", what, i, len(input), len(got), len(want))
+		}
+		return
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("%s case %d (%d input bytes): output %d bytes, stdlib %d bytes", what, i, len(input), len(got), len(want))
@@ -330,6 +347,11 @@ func TestStreamMatchesStdlib(t *testing.T) {
 		stream, gotErr := NewStream(bytes.NewReader(input))
 		_, wantCtorErr := gzip.NewReader(bytes.NewReader(input))
 		if (gotErr == nil) != (wantCtorErr == nil) {
+			if reservedGzipFlags(input) && errors.Is(gotErr, gzip.ErrHeader) {
+				// Rejected at the header here, tolerated by the standard
+				// library; see sameResult.
+				continue
+			}
 			t.Fatalf("Stream case %d: NewStream error = %v, gzip.NewReader error = %v", i, gotErr, wantCtorErr)
 		}
 		if gotErr == nil {
@@ -414,4 +436,17 @@ func BenchmarkBytes(b *testing.B) {
 		b.Run(fmt.Sprintf("%dKiB/stdlib", size>>10), func(b *testing.B) { benchmarkBytes(b, size, stdlibBytes) })
 		b.Run(fmt.Sprintf("%dKiB/pooled", size>>10), func(b *testing.B) { benchmarkBytes(b, size, Bytes) })
 	}
+}
+
+// errorClass is an error's message without a trailing byte offset: a corrupt
+// stream is reported as "flate: corrupt input before offset N", and inflaters
+// legitimately disagree by a byte on where they noticed.
+func errorClass(err error) string {
+	return strings.TrimRight(err.Error(), "0123456789")
+}
+
+// reservedGzipFlags reports whether a gzip header sets any of the FLG bits
+// RFC 1952 section 2.3.1 reserves (must be zero).
+func reservedGzipFlags(input []byte) bool {
+	return len(input) > 3 && input[3]&0xe0 != 0
 }
