@@ -42,7 +42,6 @@ package client
 import (
 	"bytes"
 	"compress/flate"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -64,6 +63,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/internal/gunzip"
 	"github.com/sardanioss/httpcloak/pool"
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/transport"
@@ -2347,12 +2347,7 @@ func applyOrganicJitter(req *http.Request) {
 func decompress(data []byte, encoding string) ([]byte, error) {
 	switch strings.ToLower(encoding) {
 	case "gzip":
-		reader, err := gzip.NewReader(bytes.NewReader(data))
-		if err != nil {
-			return nil, err
-		}
-		defer reader.Close()
-		return io.ReadAll(reader)
+		return gunzip.Bytes(data)
 
 	case "br":
 		reader := brotli.NewReader(bytes.NewReader(data))

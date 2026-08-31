@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/flate"
-	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
 	http "github.com/sardanioss/http"
+	"github.com/sardanioss/httpcloak/internal/gunzip"
 	"github.com/sardanioss/httpcloak/protocol"
 )
 
@@ -662,11 +662,13 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 func setupStreamDecompressor(body io.ReadCloser, encoding string) (io.ReadCloser, io.Closer) {
 	switch strings.ToLower(encoding) {
 	case "gzip":
-		reader, err := gzip.NewReader(body)
+		// The header is read here, before the stream is handed out, so a body
+		// whose header cannot be read still falls back to the raw bytes.
+		stream, err := gunzip.NewStream(body)
 		if err != nil {
 			return body, nil
 		}
-		return reader, reader
+		return stream, nil
 	case "br":
 		return &brotliStreamReader{brotli.NewReader(body)}, nil
 	case "deflate":
