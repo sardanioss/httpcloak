@@ -2690,36 +2690,39 @@ func IOSChrome151() *Preset {
 // capture carried the same SET in a different ORDER, so the extension shuffles
 // per connection.
 //
-// signature_algorithms carries no GREASE, which is a deliberate choice between
-// two real Chrome 152 populations rather than a claim that Chrome never greases
-// sigalgs. It does: ext_sigalgs_add_clienthello writes a GREASE value before
-// tls12_add_verify_sigalgs, and both TCP captures we built this preset from
-// carried one, drawing 0x3a3a and 0x0a0a. But BoringSSL gates it on a dedicated
-// grease_sigalgs_enabled flag and Chromium only sets that behind Finch:
+// A GREASE signature algorithm leads signature_algorithms on TCP, because that
+// is what Chrome 152 shipped. From the 152.0.7977.64 release tag,
+// net/base/features.cc:965:
 //
-//	SSL_CTX_set_grease_enabled(ssl_ctx_.get(), 1);
-//	if (base::FeatureList::IsEnabled(features::kTlsGreaseSigalgs)) {
-//	  SSL_CTX_set_grease_sigalgs_enabled(ssl_ctx_.get(), 1);
-//	}
+//	BASE_FEATURE(kTlsGreaseSigalgs, base::FEATURE_ENABLED_BY_DEFAULT);
 //
-// BoringSSL's header calls the rollout staged, so flag-off is equally genuine
-// Chrome 152 and is the larger share while it deploys.
+// with features.h describing it as "a killswitch for behavior that is enabled by
+// default", so the flag exists to switch the behaviour OFF remotely rather than
+// to roll it out gradually. ssl_client_socket_impl.cc:211 calls
+// SSL_CTX_set_grease_sigalgs_enabled behind it, and BoringSSL's
+// ext_sigalgs_add_clienthello writes the GREASE value before
+// tls12_add_verify_sigalgs. Both captures this preset was built from carried one.
 //
-// The exposure is what decides it. JA4 says to ignore GREASE "anywhere it sees
-// them", so a compliant scorer hashes both cohorts to one stable value and the
-// choice costs nothing. A non-compliant scorer folds the GREASE into JA4_c, and
-// then flag-on emits sixteen identities from one profile while flag-off emits
-// one. Measured against tls.peet.ws, which is non-compliant here: twenty
-// connections produced twelve distinct JA4_c, a clean 1:1 map from GREASE value
-// to hash, and recomputing with the GREASE left in reproduced peet on all
-// twenty. So the churn is invisible to correct implementations and total against
-// the rest, which is the wrong way round for a fingerprint to fail.
+// v1.7.0-beta.3 shipped without it, reasoning that a JA4 implementation which
+// fails to strip GREASE from the sigalg list would read one profile as many
+// clients. It does: twenty connections to such a scorer gave twelve distinct
+// JA4_c, a clean 1:1 map from GREASE value to hash. The reasoning was still
+// wrong, because that churn is what every Chrome 152 produces, so it is the
+// population rather than an anomaly, and a profile with one stable JA4 was the
+// only thing on the wire not behaving like Chrome.
 //
-// Flag-on stays one JSON field away: put 2570 back at the head of
-// signature_algorithms. TestChrome152SigalgGreaseStaysReachable locks it.
+// The error underneath was checking main instead of the release branch. When the
+// question is what a Chrome version actually shipped, ask the tag:
 //
-// QUIC never greases sigalgs and needs no override either way, because the nine
-// algorithms it advertises already match the base.
+//	chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Windows
+//	chromium.googlesource.com/chromium/src/+/refs/tags/<version>/<path>?format=TEXT
+//
+// The second returns the file base64-encoded, as shipped.
+//
+// If the killswitch is ever pushed, drop 2570 from the head of
+// signature_algorithms; TestChrome152SigalgGreaseCanBeTurnedOff locks that the
+// override still works. QUIC never greases sigalgs and needs no override either
+// way, because the nine algorithms it advertises already match the base.
 //
 // Two header values move, and as with 151 the second is not what a naive bump
 // would give, because the greased brand list reseeds off the major version:
