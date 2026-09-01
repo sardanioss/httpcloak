@@ -101,6 +101,23 @@ type Preset struct {
 	RawClientHello    []byte
 	RawPSKClientHello []byte
 	RawBluntMimicry   bool
+
+	// RawPermuteExtensions shuffles a captured hello's extension order per
+	// connection, the way Chromium does.
+	//
+	// It has to be declared rather than detected. A capture is one connection,
+	// so its extension order is one sample: nothing in the bytes says whether
+	// the client that produced them would have ordered them differently next
+	// time. Chromium permutes, and everything built on NSS, Apple's stack or Go
+	// does not, so mirroring a captured Chrome without this freezes an order
+	// that the real client varies on every handshake, and turning it on for a
+	// captured curl invents variation the real client never has.
+	//
+	// Ignored when RawBluntMimicry is set. Blunt mimicry exists to pass through
+	// extensions this library has no model for, and moving something it cannot
+	// parse risks placing it where the protocol does not allow, so the two are
+	// mutually exclusive by design rather than by accident.
+	RawPermuteExtensions bool
 	BasedOn           string // For custom presets: name of the parent preset (used by inheritance-loop detection). Empty for built-ins.
 
 	// SignatureAlgorithms, when non-empty, replaces the signature_algorithms

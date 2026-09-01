@@ -85,6 +85,14 @@ func ResolveClientHelloSpec(
 		if err != nil {
 			return nil, SourceRaw, err
 		}
+		// A captured hello is one connection's worth of evidence, so its
+		// extension order is frozen unless the preset says the client varies it.
+		// Chromium does; NSS, Apple's stack and Go do not. Blunt mimicry opts
+		// out either way: it passes through extensions with no model behind
+		// them, and those cannot be moved safely.
+		if p.RawPermuteExtensions && !p.RawBluntMimicry {
+			spec.Extensions = utls.ShuffleChromeTLSExtensionsWithSeed(spec.Extensions, seed)
+		}
 		return spec, SourceRaw, nil
 	}
 

@@ -75,6 +75,7 @@ type TLSSpec struct {
 	RawClientHello    string `json:"raw_client_hello,omitempty"`
 	RawPSKClientHello string `json:"raw_psk_client_hello,omitempty"`
 	AllowBluntMimicry *bool  `json:"allow_blunt_mimicry,omitempty"`
+	RawPermuteExtensions *bool `json:"permute_raw_hello,omitempty"`
 
 	// PSKJA3 is a JA3 captured from a resuming connection, i.e. one whose
 	// extension list contains 41. It is the JA3-mode counterpart of
@@ -665,6 +666,9 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 		}
 		p.RawClientHello = raw
 		p.RawBluntMimicry = blunt
+		if spec.RawPermuteExtensions != nil {
+			p.RawPermuteExtensions = *spec.RawPermuteExtensions
+		}
 		if spec.RawPSKClientHello != "" {
 			pskRaw, err := DecodeRawClientHello("tls.raw_psk_client_hello", spec.RawPSKClientHello, blunt)
 			if err != nil {
