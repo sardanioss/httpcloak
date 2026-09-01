@@ -205,10 +205,22 @@ func TestDataFramesAndRecordsMatchChrome(t *testing.T) {
 	//
 	// every one of them 1186k plus overhead. That progression is the signature:
 	// it does not merely say "not a browser", it names the TLS stack.
+	// The final record is excluded. The probe ends by tearing the connection
+	// down rather than by completing the exchange, so the last record on the
+	// wire is whatever the write had got through, and a truncated one is
+	// mid-sized for reasons that have nothing to do with record sizing. Under a
+	// loaded machine that showed up as an intermittent failure here, which reads
+	// like a real defect and is not one.
+	//
+	// Nothing is lost by skipping it: the ramp is a progression, not a single
+	// value, so it always produces several mid-sized records. The measurement in
+	// the comment above has ten of them.
 	var mid []int
-	for _, r := range recs {
-		if r >= 500 && r < 16000 {
-			mid = append(mid, r)
+	if len(recs) > 1 {
+		for _, r := range recs[:len(recs)-1] {
+			if r >= 500 && r < 16000 {
+				mid = append(mid, r)
+			}
 		}
 	}
 	if len(mid) > 0 {
@@ -216,9 +228,11 @@ func TestDataFramesAndRecordsMatchChrome(t *testing.T) {
 			"still on. Full profile: %v", mid, recs)
 	}
 	var full []int
-	for _, r := range recs {
-		if r > 16000 {
-			full = append(full, r)
+	if len(recs) > 1 {
+		for _, r := range recs[:len(recs)-1] {
+			if r > 16000 {
+				full = append(full, r)
+			}
 		}
 	}
 	for i := 1; i < len(full); i++ {
