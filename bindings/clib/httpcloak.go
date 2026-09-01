@@ -3560,6 +3560,26 @@ type StreamMetadata struct {
 	Protocol      string              `json:"protocol"`
 	ContentLength int64               `json:"content_length"` // -1 if unknown
 	Cookies       []Cookie            `json:"cookies"`
+
+	// StreamHandle is set only by the async entry point, which has to hand the
+	// handle back through the callback because there is no return value to put
+	// it in. The synchronous path returns the handle directly and leaves this
+	// zero, so a caller can tell the two apart.
+	StreamHandle int64 `json:"stream_handle,omitempty"`
+}
+
+// buildStreamMetadata is what stream_get_metadata returns, factored out so the
+// async entry point hands back the same shape rather than a second one that
+// drifts from it.
+func buildStreamMetadata(resp *httpcloak.StreamResponse) StreamMetadata {
+	return StreamMetadata{
+		StatusCode:    resp.StatusCode,
+		Headers:       resp.Headers,
+		FinalURL:      resp.FinalURL,
+		Protocol:      resp.Protocol,
+		ContentLength: resp.ContentLength,
+		Cookies:       parseSetCookieHeaders(resp.Headers),
+	}
 }
 
 func getStream(handle int64) *httpcloak.StreamResponse {
@@ -3764,6 +3784,137 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 	return C.int64_t(handle)
 }
 
+//export httpcloak_stream_request_async
+//
+// The async counterpart of httpcloak_stream_request. The synchronous entry
+// point blocks the calling thread until the response headers arrive, which for a
+// stream can be the whole point of the request: a caller opening several long
+// lived streams had to spend a thread on each one while it waited, and a caller
+// on a single-threaded runtime could not open one at all without stalling
+// everything else.
+//
+// The callback receives the same JSON the synchronous path returns through
+// stream_get_metadata, with the stream handle added, so the caller can go
+// straight to stream_read without a second round trip. On failure it receives an
+// error object and no handle.
+//
+// The stream handle it hands back is owned by the caller exactly as the
+// synchronous one is: it stays open, and its context stays uncancelled, until
+// stream_close. Cancelling before the callback fires is done through the
+// callback ID, the same way it is for the other async entry points.
+func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char, callbackID C.int64_t) {
+	defer guardVoid("httpcloak_stream_request_async")
+	session := getSession(sessionHandle)
+
+	var config RequestConfig
+	if requestJSON != nil {
+		if err := json.Unmarshal([]byte(C.GoString(requestJSON)), &config); err != nil {
+			go func() {
+				errJSON, _ := json.Marshal(ErrorResponse{Error: "invalid request JSON: " + err.Error()})
+				invokeCallback(int64(callbackID), "", string(errJSON))
+			}()
+			return
+		}
+	}
+
+	// Cancellation before the response arrives goes through the callback ID, as
+	// it does for the other async entry points. Once the stream exists its
+	// lifetime belongs to the stream handle, so this cancel is handed over to
+	// the stream entry rather than deferred away.
+	ctx, cancel := context.WithCancel(context.Background())
+	callbackMu.Lock()
+	cancelFuncs[int64(callbackID)] = cancel
+	callbackMu.Unlock()
+
+	go func() {
+		handedOver := false
+		defer func() {
+			if !handedOver {
+				cancel()
+			}
+			callbackMu.Lock()
+			delete(cancelFuncs, int64(callbackID))
+			callbackMu.Unlock()
+		}()
+		defer guardAsync("stream_request_async goroutine", int64(callbackID))
+
+		fail := func(msg string) {
+			errJSON, _ := json.Marshal(ErrorResponse{Error: msg})
+			invokeCallback(int64(callbackID), "", string(errJSON))
+		}
+
+		if session == nil {
+			fail(ErrInvalidSession.Error())
+			return
+		}
+		if config.Method == "" {
+			config.Method = "GET"
+		}
+
+		// Same default as the synchronous path: a stream that never sends is a
+		// leaked goroutine and a held connection, so it gets an outer bound.
+		streamCtx := ctx
+		var timeoutCancel context.CancelFunc
+		if config.Timeout > 0 {
+			streamCtx, timeoutCancel = context.WithTimeout(ctx, time.Duration(config.Timeout)*time.Second)
+		} else {
+			streamCtx, timeoutCancel = context.WithTimeout(ctx, 2*time.Minute)
+		}
+
+		var bodyReader io.Reader
+		if config.Body != "" {
+			bodyBytes, err := decodeRequestBody(config.Body, config.BodyEncoding)
+			if err != nil {
+				timeoutCancel()
+				fail(err.Error())
+				return
+			}
+			bodyReader = bytes.NewReader(bodyBytes)
+		}
+
+		req := &httpcloak.Request{
+			Method:                        config.Method,
+			URL:                           config.URL,
+			Headers:                       buildHeaders(config.Headers, config.FetchMode),
+			ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
+			Body:                          bodyReader,
+			FollowRedirects:               config.FollowRedirects,
+			DisableConditionalCache:       config.DisableConditionalCache,
+			DisableClientHints:            config.DisableClientHints,
+			DisableHighEntropyClientHints: config.DisableHighEntropyClientHints,
+			DisableRedirectReferer:        config.DisableRedirectReferer,
+		}
+
+		resp, err := session.DoStream(streamCtx, req)
+		if err != nil {
+			timeoutCancel()
+			fail(err.Error())
+			return
+		}
+
+		// The stream owns both cancels from here: the caller closes it, not us.
+		release := func() {
+			timeoutCancel()
+			cancel()
+		}
+		streamMu.Lock()
+		streamCounter++
+		handle := streamCounter
+		streams[handle] = &streamEntry{resp: resp, cancel: release}
+		streamMu.Unlock()
+		handedOver = true
+
+		meta := buildStreamMetadata(resp)
+		meta.StreamHandle = handle
+		metaJSON, err := json.Marshal(meta)
+		if err != nil {
+			fail("encode stream metadata: " + err.Error())
+			return
+		}
+		invokeCallback(int64(callbackID), string(metaJSON), "")
+	}()
+}
+
 //export httpcloak_stream_get_metadata
 func httpcloak_stream_get_metadata(streamHandle C.int64_t) (hcRet *C.char) {
 	defer guardCharP("httpcloak_stream_get_metadata", &hcRet)
@@ -3772,18 +3923,7 @@ func httpcloak_stream_get_metadata(streamHandle C.int64_t) (hcRet *C.char) {
 		return makeErrorJSON(ErrInvalidStream)
 	}
 
-	cookies := parseSetCookieHeaders(stream.Headers)
-
-	metadata := StreamMetadata{
-		StatusCode:    stream.StatusCode,
-		Headers:       stream.Headers,
-		FinalURL:      stream.FinalURL,
-		Protocol:      stream.Protocol,
-		ContentLength: stream.ContentLength,
-		Cookies:       cookies,
-	}
-
-	jsonData, _ := json.Marshal(metadata)
+	jsonData, _ := json.Marshal(buildStreamMetadata(stream))
 	return C.CString(string(jsonData))
 }
 

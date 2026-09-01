@@ -222,6 +222,9 @@ internal static class Native
     [DllImport(LibraryName, EntryPoint = "httpcloak_stream_request", CallingConvention = CallingConvention.Cdecl)]
     public static extern long StreamRequest(long handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string requestJson);
 
+    [DllImport(LibraryName, EntryPoint = "httpcloak_stream_request_async", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void StreamRequestAsync(long sessionHandle, string requestJson, long callbackId);
+
     [DllImport(LibraryName, EntryPoint = "httpcloak_stream_get_metadata", CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr StreamGetMetadata(long streamHandle);
 

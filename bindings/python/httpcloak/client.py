@@ -1183,6 +1183,8 @@ def _setup_lib(lib):
     lib.httpcloak_stream_post.restype = c_int64
     lib.httpcloak_stream_request.argtypes = [c_int64, c_char_p]
     lib.httpcloak_stream_request.restype = c_int64
+    lib.httpcloak_stream_request_async.argtypes = [c_int64, c_char_p, c_int64]
+    lib.httpcloak_stream_request_async.restype = None
     lib.httpcloak_stream_get_metadata.argtypes = [c_int64]
     lib.httpcloak_stream_get_metadata.restype = c_void_p
     lib.httpcloak_stream_read.argtypes = [c_int64, c_int64]

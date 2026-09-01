@@ -938,6 +938,7 @@ function getLib() {
       httpcloak_stream_get: nativeLibHandle.func("httpcloak_stream_get", "int64", ["int64", "str", "str"]),
       httpcloak_stream_post: nativeLibHandle.func("httpcloak_stream_post", "int64", ["int64", "str", "str", "str"]),
       httpcloak_stream_request: nativeLibHandle.func("httpcloak_stream_request", "int64", ["int64", "str"]),
+      httpcloak_stream_request_async: nativeLibHandle.func("httpcloak_stream_request_async", "void", ["int64", "str", "int64"]),
       httpcloak_stream_get_metadata: nativeLibHandle.func("httpcloak_stream_get_metadata", HeapStr, ["int64"]),
       httpcloak_stream_read: nativeLibHandle.func("httpcloak_stream_read", HeapStr, ["int64", "int64"]),
       httpcloak_stream_close: nativeLibHandle.func("httpcloak_stream_close", "void", ["int64"]),
