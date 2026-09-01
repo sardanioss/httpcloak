@@ -145,7 +145,7 @@ Pass these to `StartLocalProxy(port, opts...)` (Go) or as kwargs to the binding 
 
 | Option | What it does |
 | --- | --- |
-| `WithProxyPreset(name)` | The fingerprint preset. `chrome-latest`, `firefox-148`, `safari-18`, etc. Default is `chrome-146`. |
+| `WithProxyPreset(name)` | The fingerprint preset. `chrome-latest`, `firefox-148`, `safari-18`, etc. Default is `chrome-152`. |
 | `WithProxyTimeout(d)` | Per-request timeout. Default 30s. |
 | `WithProxyMaxConnections(n)` | Hard cap on concurrent client connections. Anything above gets dropped at accept. Default 1000. |
 | `WithProxyUpstream(tcp, udp)` | Chain through an upstream proxy. SOCKS5 or HTTP for `tcp`, MASQUE for `udp`. Both are optional. |

@@ -161,7 +161,7 @@ Reading that `akamai_text` left to right:
 
 - `1:65536;2:0;4:6291456;6:262144` is the SETTINGS frame, with setting 1 (`HEADER_TABLE_SIZE`), 2 (`ENABLE_PUSH`), 4 (`INITIAL_WINDOW_SIZE`), and 6 (`MAX_HEADER_LIST_SIZE`).
 - `15663105` is the connection-level `WINDOW_UPDATE` increment Chrome sends right after SETTINGS.
-- `0` is the priority-frame block, empty on chrome-148+ because Chrome stopped emitting RFC 7540 priority frames on streams it owns. Older presets put `1:1:0:256,...` here.
+- `0` is the priority-frame block, empty on chrome-152+ because Chrome stopped emitting RFC 7540 priority frames on streams it owns. Older presets put `1:1:0:256,...` here.
 - `m,a,s,p` is the pseudo-header order: `:method`, `:authority`, `:scheme`, `:path`.
 
 The hash at the end is MD5 of the text. Match it against a known-good Chrome capture and the H2 fingerprint is in shape.

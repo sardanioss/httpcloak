@@ -5,6 +5,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-08-31
+
+### Added
+
+- **Chrome 152 preset family**: `chrome-152` plus the `chrome-152-windows` / `-linux` / `-macos` variants, `chrome-152-android`, and `chrome-152-ios`. All `chrome-latest*` aliases now resolve to 152. Unlike the last few version bumps this is a real wire change rather than a header refresh, in two places.
+
+  The first is a new TLS extension carrying the set of certificate authorities the client is willing to accept, sent as a list of short identifiers. Chrome 152 advertises 28 of them in a 184-byte list. The order is not stable: it comes from iterating a hash container whose seed is regenerated whenever the configuration is copied, which happens once per connection, so a browser sends the same set in a different sequence on every handshake. The preset reproduces that with a fresh permutation per connection rather than a fixed order, because a fixed order is the one thing a real client never produces.
+
+  The second is a placeholder value at the head of the signature algorithm list on TCP connections, drawn fresh per handshake. This one is worth knowing about because it makes the third component of the JA4 hash vary per connection against any implementation that does not discard placeholder values everywhere it meets them, which the JA4 specification asks for but not every implementation does. That is what a real Chrome 152 does, so the preset does it too. Connections over QUIC advertise nine signature algorithms with no placeholder and are unaffected.
+
+  `chrome-152-ios` carries neither, because it is built on the platform's own TLS stack rather than Chromium's and only its user agent moves.
+
+- **`raw_client_hello`: build a preset from a captured handshake**: a preset can now carry the bytes of a real ClientHello, base64-encoded, instead of describing one field by field. Everything the capture contains goes on the wire as captured, including extensions the library has no model for, which is what a field-by-field description cannot express. `raw_psk_client_hello` carries the resumption-shaped variant of the same client so that a session which resumes sends the hello that client actually sends when resuming, rather than a first-handshake shape with a session ticket bolted on. Captures are validated when the preset loads, so an unusable one is a named error at load time instead of a handshake failure on the first request. Unrecognised extensions need `tls.allow_blunt_mimicry`, and the error says so.
+
+- **`trust_anchors` and `quic_connection_options` as preset keys**: both are JSON-configurable, both round-trip through `describe_preset` byte-equal, and both are emitted only when a preset actually sets one, so describing a preset that does not use them no longer invents a value. `quic_connection_options` defaults to what current Chrome sends; making it a key rather than a constant means a change in that value is a preset edit rather than a release.
+
+- **Exact-headers mode**: `ExactHeaders` replaces the entire header pipeline for one request. The pairs go on the wire in the order and the casing given, a name may repeat at a chosen position, and nothing else is added: no preset block, no client hints, no `Sec-Fetch-*` inference, no alphabetical tail for names the preset does not know. It exists for reproducing a captured request verbatim, which the normal path cannot do because it is opinionated in exactly those three ways and because a `map[string][]string` cannot express two headers of the same name in a chosen position. Host and Connection on HTTP/1.1 and the pseudo-header block on HTTP/2 and HTTP/3 are still written for you, since those are protocol framing rather than caller headers.
+
+- **`DisableRedirectReferer`**: turns off the `Referer` that is otherwise synthesised on each redirect hop. The default stays on and follows the browser's own policy, the full previous URL same-origin, the origin alone cross-origin, nothing at all on an https-to-http downgrade, so leave it off unless you are reproducing a client that sends none. When set, no `Referer` reaches the next hop at all, including one set on the original request, because forwarding that would hand the pre-redirect URL to the new host.
+
+- **HPACK representation control per header name**: a profile can pin how an individual header is encoded, which is what makes it possible to match a browser's compression instructions rather than only its header list.
+
+- **Response header order**: `Response.HeaderOrder` reports the order the server sent its headers in, one entry per occurrence, lowercased. A header map cannot carry order, so a caller relaying a response onward would otherwise emit a different sequence than the origin did. HTTP/2 and HTTP/3 record it for free; HTTP/1.1 reports nil, because the parser underneath canonicalises names and discards order.
+
+- **Resumption is observable**: whether a connection resumed a previous TLS session is now reported rather than inferred.
+
+### Fixed
+
+- **Forced HTTP/1.1 contradicted itself on Safari and iOS presets**: the mode rewrites the offered protocol list down to HTTP/1.1 alone, but left the application-settings extension advertising HTTP/2. A client that says "I only speak HTTP/1.1" in one extension and "here are my HTTP/2 settings" in the next is describing a client that does not exist. The settings extension is now filtered to protocols the offer actually contains and dropped entirely when that leaves it empty. The two construction sites that had drifted apart are now one helper, which is why only one of them had the bug.
+
+- **`describe_preset` silently dropped the signature algorithm override**: a describe-then-load round trip of any preset carrying one lost every algorithm in it, so a preset rebuilt from its own description advertised a different list than the original. Nothing errored; the output simply had one fewer field than it needed.
+
+- **HTTP/2 flow control, frame sizing and record sizing did not match a browser**, in three ways that had to be fixed together because fixing any one alone leaves the profile more distinctive than it started.
+
+  Record sizes ramped. The TLS layer underneath grows its record size as it sends, trading latency for throughput, and record lengths sit in cleartext in the record header where anyone can read them without decrypting anything. One measured upload produced 3580, 4766, 5952, 2174, 9510, 6918, 11882, 4546, 14254, 2174. That is an arithmetic progression, and it does not merely say "not a browser", it names the TLS stack. The ramp is now off on every TCP path.
+
+  Frame sizes told the same story from the other end. A full 16384-byte DATA payload becomes a 16393-byte frame once its header is added, which the record layer then splits into one full record plus a 31-byte tail, so a large upload goes out as 16406, 31, 16406, 31 for its whole length. Chromium caps DATA payloads at 16375 precisely to avoid that, and ignores whatever maximum the peer advertised while doing it. The cap is derived per profile rather than applied globally, because Firefox and the WebKit family use the full 16384 and a blanket cap would hand one browser's framing to all the others.
+
+  Window updates were emitted on a cadence of our own rather than the browser's, which is visible in the timing and size of every update on a long-lived connection.
+
+- **The HTTP/2 retry replayed blindly**: a failed request was re-sent without asking why it failed, so a request the server had already begun processing could be sent twice. Retries are now classified, and only those the protocol says are safe to repeat are repeated.
+
+- **The HPACK encoder advertised one table size and used another**: the encoder was pinned to the size we advertise rather than the size the peer allows, so the compression state diverged from what the peer was tracking.
+
+- **HTTP/3 control-stream and transport-parameter values were more predictable than the real thing**: the greased setting on the control stream is now drawn the way the reference implementation draws it, deriving both its identifier and its value from independent draws rather than from a fixed pattern; the greased QUIC version label is built from four independent nibbles rather than a single choice; and the greased transport parameter is now genuinely random. A related assertion that the greased version had to come first has been removed, because it does not.
+
+- **The QUIC path stopped probing for the path MTU**, which is not something the browser does, and the QUIC configuration is now built in one place instead of three that had drifted.
+
+- **A resumed 0-RTT attempt repeated the attempt that had just failed**: when 0-RTT was rejected the retry went out identical to the request that had been refused.
+
+- **`SetDisableECH` was ignored on the HTTP/3 probe paths**: a session that had explicitly disabled encrypted client hello still sent it when the H3 probe ran, so the opt-out held everywhere except the one path most likely to run first.
+
+- **HTTP/1.1 never resumed a TLS session at all.** It is now able to, and a preset defined by a JA3 string can resume too. The old check asked whether the JA3 contained the pre-shared-key extension, which is only ever true for a string captured mid-resumption, so a first capture always reported no support.
+
+- **The multipart boundary named this library.** Every request with a multipart body carried the product name in a field no browser fills that way, in all four language bindings.
+
+- **`JA3Extras` had unreachable fields**, and unknown signature algorithms were dropped rather than passed through.
+
+- **Connection timing was partly derived rather than measured**, so the reported breakdown of a connection was arithmetic rather than observation.
+
+- **A connect race with both probes failed hung** instead of returning the failure.
+
+- **`ExactHeaders` went out alphabetically on HTTP/1.1**, and was silently discarded on a redirect hop. The first was a lookup that assumed the canonical spelling of every header name, which exact-headers mode deliberately does not use, so every name missed the ordered pass and fell into a sorted remainder. A caller asking for `user-agent, accept, x-mirror` got `accept, user-agent, x-mirror`. The second rebuilt the follow-up request from a fixed field list that did not include it, so a caller mirroring a captured request got their exact bytes on the first request and the full preset pipeline on every hop after it, with no error. For a feature whose entire purpose is byte-exact reproduction, both defeated the point.
+
+- **A preset that cannot serve a request is now rejected when it loads**, rather than failing on first use.
+
+- **The Python binding used two different names for the JSON body** and could crash on the fast path.
+
+- **The C ABI's int64 entry points returned a bare -1**, with no way to ask what went wrong. They now explain themselves.
+
+- **A prerelease published to npm took the `latest` tag.** npm has no notion of a prerelease version, so publishing one claimed the default install for every user while the other two registries correctly held theirs back. Prereleases now publish under their own tag.
+
 ## [1.6.11] - 2026-08-17
 
 ### Added

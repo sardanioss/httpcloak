@@ -133,10 +133,10 @@ print(f"wrote {len(j)} bytes")
 {
   "version": 1,
   "preset": {
-    "name": "chrome-148-linux",
+    "name": "chrome-152-linux",
     "tls": {
-      "client_hello": "chrome-146-linux",
-      "psk_client_hello": "chrome-146-linux-psk",
+      "client_hello": "chrome-152-linux",
+      "psk_client_hello": "chrome-152-linux-psk",
       "quic_client_hello": "chrome-146-quic",
       "quic_psk_client_hello": "chrome-146-quic-psk"
     },
@@ -217,13 +217,13 @@ the header, which defeats the point of the profile.
 
 ## Step 4: Edit and rename
 
-Always rename the preset before registering. `fingerprint.RegisterStrict(name, *Preset)` errors on any name collision, both with built-ins (`chrome-latest`, `chrome-148`, etc.) and with previously registered customs, so overwriting a shipped preset is rejected at registration time. The plain `fingerprint.Register` is the silent-overwrite path; the embedded preset loader uses `Register`, while the public JSON loaders push through `RegisterStrict`.
+Always rename the preset before registering. `fingerprint.RegisterStrict(name, *Preset)` errors on any name collision, both with built-ins (`chrome-latest`, `chrome-152`, etc.) and with previously registered customs, so overwriting a shipped preset is rejected at registration time. The plain `fingerprint.Register` is the silent-overwrite path; the embedded preset loader uses `Register`, while the public JSON loaders push through `RegisterStrict`.
 
 ```json
 {
   "version": 1,
   "preset": {
-    "name": "chrome-148-linux-mine",
+    "name": "chrome-152-linux-mine",
     "...": "everything else, edited as needed"
   }
 }
@@ -245,16 +245,16 @@ import (
 )
 
 func main() {
-    data, err := os.ReadFile("chrome-148-linux-mine.json")
+    data, err := os.ReadFile("chrome-152-linux-mine.json")
     if err != nil { fmt.Println(err); os.Exit(1) }
 
     p, err := fingerprint.LoadAndBuildPresetFromJSON(data)
     if err != nil { fmt.Println("build:", err); os.Exit(1) }
 
-    if err := fingerprint.RegisterStrict("chrome-148-linux-mine", p); err != nil {
+    if err := fingerprint.RegisterStrict("chrome-152-linux-mine", p); err != nil {
         fmt.Println("register:", err); os.Exit(1)
     }
-    fmt.Println("registered chrome-148-linux-mine")
+    fmt.Println("registered chrome-152-linux-mine")
 }
 ```
 
@@ -264,7 +264,7 @@ func main() {
 ```python
 import httpcloak
 
-with open("chrome-148-linux-mine.json") as f:
+with open("chrome-152-linux-mine.json") as f:
     name = httpcloak.load_preset_from_json(f.read())
 print(f"registered {name}")
 ```
@@ -316,7 +316,7 @@ func capture(preset string) peet {
 
 func main() {
     base := capture("chrome-latest")
-    mine := capture("chrome-148-linux-mine")
+    mine := capture("chrome-152-linux-mine")
 
     fmt.Printf("ja4   base=%s mine=%s match=%v\n", base.TLS.Ja4, mine.TLS.Ja4, base.TLS.Ja4 == mine.TLS.Ja4)
     fmt.Printf("peet  base=%s mine=%s match=%v\n", base.TLS.PeetHash, mine.TLS.PeetHash, base.TLS.PeetHash == mine.TLS.PeetHash)

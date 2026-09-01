@@ -22,7 +22,7 @@ When pip's resolver picks the right wheel, install is one command. On an unusual
 ```python
 import httpcloak
 
-with httpcloak.Session(preset="chrome-146") as s:
+with httpcloak.Session(preset="chrome-152") as s:
     r = s.get("https://tls.peet.ws/api/all")
     print(r.status_code)
     print(r.json()["user_agent"])
@@ -51,7 +51,7 @@ These all share a hidden default `Session`. To configure that default (preset, h
 
 ```python
 httpcloak.configure(
-    preset="chrome-146",
+    preset="chrome-152",
     headers={"Authorization": "Bearer xxx"},
     proxy="http://user:pass@proxy:8080",
     retry=3,
@@ -67,7 +67,7 @@ The main class. Constructor signature (kwargs, all optional):
 
 ```python
 httpcloak.Session(
-    preset: str = "chrome-146",
+    preset: str = "chrome-152",
     proxy: Optional[str] = None,
     tcp_proxy: Optional[str] = None,
     udp_proxy: Optional[str] = None,
@@ -321,7 +321,7 @@ import asyncio
 import httpcloak
 
 async def main():
-    with httpcloak.Session(preset="chrome-146") as s:
+    with httpcloak.Session(preset="chrome-152") as s:
         results = await asyncio.gather(
             s.get_async("https://example.com"),
             s.get_async("https://example.org"),
@@ -339,7 +339,7 @@ Pass `ja3=` and / or `akamai=` to the `Session` constructor:
 
 ```python
 with httpcloak.Session(
-    preset="chrome-146",
+    preset="chrome-152",
     ja3="771,4865-4866-4867-49195-49199,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0",
     akamai="1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
 ) as s:

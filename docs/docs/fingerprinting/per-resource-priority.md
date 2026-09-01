@@ -60,7 +60,7 @@ import (
 )
 
 func main() {
-    s := httpcloak.NewSession("chrome-148-windows")
+    s := httpcloak.NewSession("chrome-152-windows")
     defer s.Close()
 
     for _, dest := range []string{"document", "style", "script", "image", "empty"} {
@@ -86,7 +86,7 @@ func main() {
 ```python
 import httpcloak
 
-with httpcloak.Session(preset="chrome-148-windows") as s:
+with httpcloak.Session(preset="chrome-152-windows") as s:
     for dest in ["document", "style", "script", "image", "empty"]:
         s.get(
             "https://tls.peet.ws/api/all",
@@ -104,7 +104,7 @@ with httpcloak.Session(preset="chrome-148-windows") as s:
 ```js
 const { Session } = require("httpcloak");
 
-const s = new Session({ preset: "chrome-148-windows" });
+const s = new Session({ preset: "chrome-152-windows" });
 for (const dest of ["document", "style", "script", "image", "empty"]) {
   await s.get("https://tls.peet.ws/api/all", {
     headers: {
@@ -123,7 +123,7 @@ s.close();
 ```csharp
 using HttpCloak;
 
-using var s = new Session(preset: "chrome-148-windows");
+using var s = new Session(preset: "chrome-152-windows");
 foreach (var dest in new[] { "document", "style", "script", "image", "empty" }) {
     await s.GetAsync("https://tls.peet.ws/api/all", headers: new Dictionary<string, string> {
         ["Sec-Fetch-Dest"] = dest,
@@ -173,7 +173,7 @@ Example: clamp every resource to urgency 1 (so all wire weights become 220 and t
   "version": 1,
   "preset": {
     "name": "chrome-148-flat-priority",
-    "based_on": "chrome-148-windows",
+    "based_on": "chrome-152-windows",
     "http2": {
       "priority_table": {
         "document": {"urgency": 1, "incremental": true,  "emit_header": true},

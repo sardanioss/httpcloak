@@ -185,7 +185,7 @@ A request to `example.com` that comes back on H3 leaves a marker in the cache. T
 A planned `BrokenAltSvc` circuit breaker would suppress H3 attempts after repeated failures to a specific host without forcing a restart. Tracked in our internal docs, not landed yet.
 
 :::tip Auto vs forced for production
-For production traffic where the protocol doesn't matter, leave it on auto. The lib handles Alt-Svc, the H3 race, and ALPN fallback. For automation aimed at specific bot products, force the protocol the preset is shaped for. Most `chrome-148` presets are tuned for H2 and H3 side by side, but matching against a capture taken specifically on H3 needs H3 forced so the diff doesn't accidentally compare against an H2 fingerprint.
+For production traffic where the protocol doesn't matter, leave it on auto. The lib handles Alt-Svc, the H3 race, and ALPN fallback. For automation aimed at specific bot products, force the protocol the preset is shaped for. Most `chrome-152` presets are tuned for H2 and H3 side by side, but matching against a capture taken specifically on H3 needs H3 forced so the diff doesn't accidentally compare against an H2 fingerprint.
 :::
 
 ## See also

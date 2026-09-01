@@ -62,7 +62,7 @@ The full set of fields a single preset can declare. Each section corresponds to 
 ```json
 {
   "name":     "my-chrome",          // required, unique
-  "based_on": "chrome-148-windows", // optional, parent preset name
+  "based_on": "chrome-152-windows", // optional, parent preset name
   "tls":      { ... },              // TLS fingerprint
   "http2":    { ... },              // HTTP/2 fingerprint
   "http3":    { ... },              // HTTP/3 + QUIC fingerprint
@@ -93,8 +93,8 @@ The TLS layer. Two configuration modes that don't mix: a named uTLS ClientHello 
 
 ```json
 "tls": {
-  "client_hello":      "chrome-148-windows",       // mutually exclusive with ja3
-  "psk_client_hello":  "chrome-148-windows-psk",
+  "client_hello":      "chrome-152-windows",       // mutually exclusive with ja3
+  "psk_client_hello":  "chrome-152-windows-psk",
   "quic_client_hello": "chrome-148-quic",
   "quic_psk_client_hello": "chrome-148-quic-psk",
 
@@ -113,7 +113,7 @@ The TLS layer. Two configuration modes that don't mix: a named uTLS ClientHello 
 
 | Field | Type | Notes |
 |---|---|---|
-| `client_hello` | string | uTLS ClientHello ID name (e.g. `"chrome-146-windows"`). Mutually exclusive with `ja3`. |
+| `client_hello` | string | uTLS ClientHello ID name (e.g. `"chrome-152-windows"`). Mutually exclusive with `ja3`. |
 | `psk_client_hello` | string | PSK variant for TLS session resumption. Requires `client_hello` (directly or via `based_on`). |
 | `quic_client_hello` | string | QUIC-specific ClientHello. Cannot be used with `ja3`. |
 | `quic_psk_client_hello` | string | QUIC PSK variant. |
@@ -378,7 +378,7 @@ The chain `Describe -> LoadPresetFromJSON -> BuildPreset -> Describe` produces b
 ```go
 import "github.com/sardanioss/httpcloak/fingerprint"
 
-orig, _ := fingerprint.Describe("chrome-148-windows")
+orig, _ := fingerprint.Describe("chrome-152-windows")
 pf, _ := fingerprint.LoadPresetFromJSON([]byte(orig))
 rebuilt, _ := fingerprint.BuildPreset(pf.Preset)
 fingerprint.Register(rebuilt.Name+"-rt", rebuilt)
@@ -386,7 +386,7 @@ again, _ := fingerprint.Describe(rebuilt.Name+"-rt")
 // orig == again, modulo the renamed `name` field
 ```
 
-The verified spot-check (chrome-148-windows, firefox-148, safari-18-ios) shows zero diff beyond the rename.
+The verified spot-check (chrome-152-windows, firefox-148, safari-18-ios) shows zero diff beyond the rename.
 
 ---
 
@@ -428,14 +428,14 @@ fingerprint.Register(preset.Name, preset)
 
 ## A complete minimal example
 
-A real preset that swaps only the User-Agent on top of `chrome-148-windows`:
+A real preset that swaps only the User-Agent on top of `chrome-152-windows`:
 
 ```json
 {
   "version": 1,
   "preset": {
-    "name": "chrome-148-windows-headless",
-    "based_on": "chrome-148-windows",
+    "name": "chrome-152-windows-headless",
+    "based_on": "chrome-152-windows",
     "headers": {
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.0.0 Safari/537.36"
     }

@@ -22,7 +22,7 @@ Target frameworks: `net6.0`, `net7.0`, `net8.0`, `net9.0`, `net10.0`. The latest
 ```csharp
 using HttpCloak;
 
-using var s = new Session(preset: "chrome-146");
+using var s = new Session(preset: "chrome-152");
 var r = await s.GetAsync("https://tls.peet.ws/api/all");
 Console.WriteLine($"Status: {r.StatusCode}");
 Console.WriteLine($"Protocol: {r.Protocol}");
@@ -37,7 +37,7 @@ Constructor signature (named arguments are the way):
 
 ```csharp
 public Session(
-    string preset = "chrome-146",
+    string preset = "chrome-152",
     string? proxy = null,
     string? tcpProxy = null,
     string? udpProxy = null,
@@ -325,7 +325,7 @@ public sealed class Response
 `Session` is safe for concurrent use. Multiple `Task`s can call request methods on the same session at once, and the underlying transport handles parallel dials.
 
 ```csharp
-using var s = new Session(preset: "chrome-146");
+using var s = new Session(preset: "chrome-152");
 var tasks = urls.Select(u => s.GetAsync(u));
 var responses = await Task.WhenAll(tasks);
 ```
@@ -336,7 +336,7 @@ For browser-tab-style parallelism with shared cookies, use `Fork(n)`. Each fork 
 
 ```csharp
 using var s = new Session(
-    preset: "chrome-146",
+    preset: "chrome-152",
     ja3: "771,4865-4866-4867-49195-49199,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0",
     akamai: "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
 );
@@ -362,7 +362,7 @@ Constructor signatures:
 
 ```csharp
 new HttpCloakHandler(
-    string preset = "chrome-146",
+    string preset = "chrome-152",
     string? proxy = null,
     string? tcpProxy = null,
     string? udpProxy = null,

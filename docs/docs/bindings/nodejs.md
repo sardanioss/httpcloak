@@ -28,7 +28,7 @@ ESM:
 ```js
 import { Session } from "httpcloak";
 
-const s = new Session({ preset: "chrome-146" });
+const s = new Session({ preset: "chrome-152" });
 try {
   const r = await s.get("https://tls.peet.ws/api/all");
   console.log(r.statusCode, r.json().user_agent);
@@ -43,7 +43,7 @@ CommonJS:
 const { Session } = require("httpcloak");
 
 (async () => {
-  const s = new Session({ preset: "chrome-146" });
+  const s = new Session({ preset: "chrome-152" });
   try {
     const r = await s.get("https://tls.peet.ws/api/all");
     console.log(r.statusCode);
@@ -76,7 +76,7 @@ new Session(options?: SessionOptions);
 
 ```ts
 {
-  preset?: string;             // "chrome-146" by default
+  preset?: string;             // "chrome-152" by default
   proxy?: string;
   tcpProxy?: string;
   udpProxy?: string;
@@ -343,7 +343,7 @@ For browser-tab-style parallelism with shared cookies, use `session.fork(n)`.
 
 ```js
 const s = new Session({
-  preset: "chrome-146",
+  preset: "chrome-152",
   ja3: "771,4865-4866-4867-49195-49199,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0",
   akamai: "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
 });

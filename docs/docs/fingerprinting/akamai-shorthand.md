@@ -100,7 +100,7 @@ import (
 )
 
 func main() {
-    s := httpcloak.NewSession("chrome-148-windows",
+    s := httpcloak.NewSession("chrome-152-windows",
         httpcloak.WithCustomFingerprint(httpcloak.CustomFingerprint{
             // Keep Chrome's TLS, override only H2.
             Akamai: "1:65536;2:0;4:8388608;6:262144|15663105|0|m,a,s,p",
@@ -122,7 +122,7 @@ func main() {
 import httpcloak
 
 with httpcloak.Session(
-    preset="chrome-148-windows",
+    preset="chrome-152-windows",
     akamai="1:65536;2:0;4:8388608;6:262144|15663105|0|m,a,s,p",
 ) as s:
     r = s.get("https://tls.peet.ws/api/all")
@@ -136,7 +136,7 @@ with httpcloak.Session(
 const { Session } = require("httpcloak");
 
 const s = new Session({
-  preset: "chrome-148-windows",
+  preset: "chrome-152-windows",
   akamai: "1:65536;2:0;4:8388608;6:262144|15663105|0|m,a,s,p",
 });
 
@@ -152,7 +152,7 @@ s.close();
 using HttpCloak;
 
 using var s = new Session(
-    preset: "chrome-148-windows",
+    preset: "chrome-152-windows",
     akamai: "1:65536;2:0;4:8388608;6:262144|15663105|0|m,a,s,p");
 
 var r = await s.GetAsync("https://tls.peet.ws/api/all");

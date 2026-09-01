@@ -2655,7 +2655,7 @@ func httpcloak_free_string(str *C.char) {
 // bumped with the nine binding version files and the five optionalDependencies
 // pins; it was missed for 1.7.0-beta.2, so every binding reported 1.6.11 off a
 // 1.7.0b2 wheel.
-const libVersion = "1.7.0-beta.3"
+const libVersion = "1.7.0"
 
 //export httpcloak_version
 func httpcloak_version() (hcRet *C.char) {

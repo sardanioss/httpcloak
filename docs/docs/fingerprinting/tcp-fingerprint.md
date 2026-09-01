@@ -116,14 +116,14 @@ The fourth is QUIC. The TCP fingerprint applies to TCP sockets, which means H1 a
 
 ## Pairing with the right preset
 
-Coherence is the thing to keep in mind. A `chrome-148-windows` preset claiming `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)` paired with a Linux TCP fingerprint is a layer-3-vs-layer-7 mismatch. The TLS handshake might be perfect, the headers might be authentic Chrome, the cookie order might be flawless. None of that survives a `tcp_ip.ttl=64` arriving with a Windows User-Agent.
+Coherence is the thing to keep in mind. A `chrome-152-windows` preset claiming `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)` paired with a Linux TCP fingerprint is a layer-3-vs-layer-7 mismatch. The TLS handshake might be perfect, the headers might be authentic Chrome, the cookie order might be flawless. None of that survives a `tcp_ip.ttl=64` arriving with a Windows User-Agent.
 
 How to stay coherent depends on which preset you pick:
 
-- `*-windows` presets (`chrome-148-windows`, `chrome-146-windows`, etc) pair with `WindowsTCPFingerprint()`.
+- `*-windows` presets (`chrome-152-windows`, `chrome-152-windows`, etc) pair with `WindowsTCPFingerprint()`.
 - `*-macos` presets pair with `MacOSTCPFingerprint()`.
 - `*-linux` presets pair with `LinuxTCPFingerprint()`.
-- Bare `chrome-latest` and `chrome-146` (no platform suffix) auto-detect the running OS at runtime via `GetPlatformInfo`, so on a Linux build host `chrome-latest` resolves to `chrome-148-linux`. Pair these with `PlatformTCPFingerprint(fingerprint.GetPlatformInfo().Platform)` to track whichever variant the registry hands you.
+- Bare `chrome-latest` and `chrome-152` (no platform suffix) auto-detect the running OS at runtime via `GetPlatformInfo`, so on a Linux build host `chrome-latest` resolves to `chrome-152-linux`. Pair these with `PlatformTCPFingerprint(fingerprint.GetPlatformInfo().Platform)` to track whichever variant the registry hands you.
 - Custom presets need the call to match whatever User-Agent string you set on the preset.
 
 For session pools that span multiple personas, pre-build the fingerprint once and reuse it:
@@ -132,8 +132,8 @@ For session pools that span multiple personas, pre-build the fingerprint once an
 winFP := fingerprint.WindowsTCPFingerprint()
 macFP := fingerprint.MacOSTCPFingerprint()
 
-chromeWin := httpcloak.NewSession("chrome-148-windows", httpcloak.WithTCPFingerprint(winFP))
-chromeMac := httpcloak.NewSession("chrome-148-macos",   httpcloak.WithTCPFingerprint(macFP))
+chromeWin := httpcloak.NewSession("chrome-152-windows", httpcloak.WithTCPFingerprint(winFP))
+chromeMac := httpcloak.NewSession("chrome-152-macos",   httpcloak.WithTCPFingerprint(macFP))
 ```
 
 ## What you can verify

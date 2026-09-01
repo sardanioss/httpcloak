@@ -15,7 +15,7 @@ DevTools doesn't show you header order, so you're flying blind there. Hit [tls.p
 
 ## What ships by default
 
-Every preset carries its own browser header set. For `chrome-148-linux` (today's default), the request goes out as:
+Every preset carries its own browser header set. For `chrome-152-linux` (today's default), the request goes out as:
 
 | Position | Header | Example value |
 |---|---|---|

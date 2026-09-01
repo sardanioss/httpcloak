@@ -34,26 +34,26 @@ Versions 133, 141, 143, 144, 145, 146, 147, 148, 149, 150, 151. The 143-151 line
 
 | Family | Variants |
 |---|---|
-| Desktop | `chrome-151`, `chrome-151-windows`, `chrome-151-linux`, `chrome-151-macos` (and the same shape for 150, 149, 148 ...) |
-| Android | `chrome-151-android` (alias: `android-chrome-151`) |
-| iOS     | `chrome-151-ios` (alias: `ios-chrome-151`) |
+| Desktop | `chrome-152`, `chrome-152-windows`, `chrome-152-linux`, `chrome-152-macos` (and the same shape for 150, 149, 148 ...) |
+| Android | `chrome-152-android` (alias: `android-chrome-152`) |
+| iOS     | `chrome-152-ios` (alias: `ios-chrome-152`) |
 
-Bare `chrome-151` resolves to the host OS at runtime via `runtime.GOOS`. On a Linux box, `chrome-151` gives you `chrome-151-linux`. For the same platform UA regardless of where the code runs, use the explicit variant.
+Bare `chrome-152` resolves to the host OS at runtime via `runtime.GOOS`. On a Linux box, `chrome-152` gives you `chrome-152-linux`. For the same platform UA regardless of where the code runs, use the explicit variant.
 
 ### Chrome -latest aliases
 
 Aliases that auto-track the newest shipped Chrome:
 
 ```
-chrome-latest          → chrome-151
-chrome-latest-windows  → chrome-151-windows
-chrome-latest-linux    → chrome-151-linux
-chrome-latest-macos    → chrome-151-macos
-chrome-latest-android  → chrome-151-android
-chrome-latest-ios      → chrome-150-ios
+chrome-latest          → chrome-152
+chrome-latest-windows  → chrome-152-windows
+chrome-latest-linux    → chrome-152-linux
+chrome-latest-macos    → chrome-152-macos
+chrome-latest-android  → chrome-152-android
+chrome-latest-ios      → chrome-152-ios
 ```
 
-Desktop and Android track 151. `chrome-latest-ios` stays on 150 deliberately: iOS Chrome spells its version out in full, including a build number that cannot be derived from the major version, so `chrome-151-ios` exists but is provisional until a real capture confirms it. Code on `chrome-latest` keeps rolling, and code that pinned `chrome-148-windows` stays on the same fingerprint.
+Every `chrome-latest*` alias tracks 152, iOS included: `chrome-152-ios` is built from real captures rather than derived, which matters because iOS Chrome spells its version out in full including a build number that cannot be guessed from the major version. Code on `chrome-latest` keeps rolling, and code that pinned `chrome-148-windows` stays on exactly the fingerprint it pinned.
 
 ### Firefox
 
@@ -76,12 +76,12 @@ Safari sets `NoRFC7540Priorities=true`, so it never emits the H2 PRIORITY frame,
 The older `<os>-<browser>-<version>` naming still works for code written against earlier docs:
 
 ```
-ios-chrome-148        → chrome-148-ios
+ios-chrome-152        → chrome-152-ios
 ios-safari-18         → safari-18-ios
-android-chrome-148    → chrome-148-android
+android-chrome-152    → chrome-152-android
 ```
 
-Both forms resolve to the same preset for version-pinned names. The `-latest` back-compat spellings are the exception and are frozen: `android-chrome-latest` still resolves to `chrome-148-android` and `ios-chrome-latest` to `chrome-148-ios`, while `chrome-latest-android` tracks 151 and `chrome-latest-ios` tracks 150. Prefer the `chrome-latest-*` spelling.
+Both forms resolve to the same preset for version-pinned names. The `-latest` back-compat spellings are the exception and are frozen: `android-chrome-latest` still resolves to `chrome-148-android` and `ios-chrome-latest` to `chrome-148-ios`, while `chrome-latest-android` and `chrome-latest-ios` both track 152. Prefer the `chrome-latest-*` spelling.
 
 ## Inheritance: how a new Chrome version ships in 30 seconds
 
@@ -91,8 +91,8 @@ Each Chrome minor bump is usually pure UA plus sec-ch-ua delta. TLS fingerprint,
 {
   "version": 1,
   "preset": {
-    "name": "chrome-148-windows",
-    "based_on": "chrome-147-windows",
+    "name": "chrome-152-windows",
+    "based_on": "chrome-152-windows",
     "headers": {
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
       "values": {
@@ -131,7 +131,7 @@ import (
 )
 
 func main() {
-    for _, name := range []string{"chrome-latest", "android-chrome-148", "firefox-148", "safari-18-ios"} {
+    for _, name := range []string{"chrome-latest", "android-chrome-152", "firefox-148", "safari-18-ios"} {
         s := httpcloak.NewSession(name)
         resp, _ := s.Get(context.Background(), "https://tls.peet.ws/api/all")
         body, _ := io.ReadAll(resp.Body)
@@ -148,7 +148,7 @@ func main() {
 ```python
 import httpcloak
 
-for name in ["chrome-latest", "android-chrome-148", "firefox-148", "safari-18-ios"]:
+for name in ["chrome-latest", "android-chrome-152", "firefox-148", "safari-18-ios"]:
     with httpcloak.Session(preset=name) as s:
         r = s.get("https://tls.peet.ws/api/all")
         print(name, r.json())
@@ -160,7 +160,7 @@ for name in ["chrome-latest", "android-chrome-148", "firefox-148", "safari-18-io
 ```js
 const { Session } = require("httpcloak");
 
-for (const name of ["chrome-latest", "android-chrome-148", "firefox-148", "safari-18-ios"]) {
+for (const name of ["chrome-latest", "android-chrome-152", "firefox-148", "safari-18-ios"]) {
   const s = new Session({ preset: name });
   const r = await s.get("https://tls.peet.ws/api/all");
   console.log(name, r.json());
@@ -174,7 +174,7 @@ for (const name of ["chrome-latest", "android-chrome-148", "firefox-148", "safar
 ```csharp
 using HttpCloak;
 
-foreach (var name in new[] { "chrome-latest", "android-chrome-148", "firefox-148", "safari-18-ios" }) {
+foreach (var name in new[] { "chrome-latest", "android-chrome-152", "firefox-148", "safari-18-ios" }) {
     using var s = new Session(preset: name);
     var r = await s.GetAsync("https://tls.peet.ws/api/all");
     Console.WriteLine($"{name} {r.Text}");
@@ -187,7 +187,8 @@ foreach (var name in new[] { "chrome-latest", "android-chrome-148", "firefox-148
 Captured fingerprints (re-measured 2026-08):
 
 ```text
-chrome-latest        ja4=t13d1516h2_8daaf6152771_806a8c22fdea  peetprint_hash=67c3e9111bed9e7f03d2f21d6d88994b  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
+chrome-latest        ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
+chrome-152-windows   ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
 chrome-151-windows   ja4=t13d1516h2_8daaf6152771_806a8c22fdea  peetprint_hash=67c3e9111bed9e7f03d2f21d6d88994b  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
 chrome-150-windows   ja4=t13d1516h2_8daaf6152771_806a8c22fdea  peetprint_hash=67c3e9111bed9e7f03d2f21d6d88994b  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
 chrome-148-windows   ja4=t13d1516h2_8daaf6152771_d8a2da3f94cd  peetprint_hash=1d4ffe9b0e34acac0bd883fa7f79d7b5  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
@@ -198,13 +199,14 @@ firefox-148          ja4=t13d1717h2_5b57614c22b0_3cbfd9057e0d  peetprint_hash=89
 safari-18            ja4=t13d2013h2_a09f3c656075_7f0f34a4126d  peetprint_hash=62b834de729e78a9f0ebd1dd099314a7  akamai_fingerprint_hash=90d8353e47699c4c38ecd773e9b5a089
 safari-18-ios        ja4=t13d2013h2_a09f3c656075_7f0f34a4126d  peetprint_hash=62b834de729e78a9f0ebd1dd099314a7  akamai_fingerprint_hash=90d8353e47699c4c38ecd773e9b5a089
 chrome-148-ios       ja4=t13d2013h2_a09f3c656075_7f0f34a4126d  peetprint_hash=62b834de729e78a9f0ebd1dd099314a7  akamai_fingerprint_hash=c52879e43202aeb92740be6e8c86ea96
+chrome-152-ios       ja4=t13d2013h2_a09f3c656075_7f0f34a4126d  peetprint_hash=62b834de729e78a9f0ebd1dd099314a7  akamai_fingerprint_hash=c52879e43202aeb92740be6e8c86ea96
 ```
 
 Things to spot:
 
 - Every Chrome desktop variant lands on the same JA4 / peetprint / akamai. The TLS handshake is identical across Windows / Linux / macOS Chrome. Only the User-Agent and `sec-ch-ua-platform` header tell you which OS you're on.
 - Android Chrome shares the same fingerprint as desktop Chrome. Same TLS, same H2. The wire-level difference is the UA string (Mobile Safari/537.36) and `sec-ch-ua-mobile: ?1`.
-- Chrome on iOS shows up as Safari at the wire level, since iOS WebKit forces every browser onto the system networking stack. `chrome-148-ios` shares its TLS handshake and JA4 hash with `safari-18-ios`. They split only on H2 SETTINGS values (chrome-148-ios advertises `2,3,4,9` vs Safari's `2,4,3,5,9`) and the User-Agent.
+- Chrome on iOS shows up as Safari at the wire level, since iOS WebKit forces every browser onto the system networking stack. `chrome-152-ios` shares its TLS handshake and JA4 hash with `safari-18-ios`. They split only on H2 SETTINGS values (chrome-152-ios advertises `2,3,4,9` vs Safari's `2,4,3,5,9`) and the User-Agent.
 - Firefox and Safari each get their own JA4 / peetprint / akamai. Different cipher list, different SETTINGS, different pseudo-header order.
 
 :::tip

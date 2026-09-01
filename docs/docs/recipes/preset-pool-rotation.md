@@ -38,19 +38,19 @@ The pool format is a top-level `PoolSpec` with a `version`, a name, an optional 
     "presets": [
       {
         "name": "pool-chrome-win",
-        "based_on": "chrome-146-windows",
+        "based_on": "chrome-152-windows",
         "headers": { "values": { "Accept-Language": "en-US,en;q=0.9" } },
         "tcp": { "platform": "Windows" }
       },
       {
         "name": "pool-chrome-linux",
-        "based_on": "chrome-146-linux",
+        "based_on": "chrome-152-linux",
         "headers": { "values": { "Accept-Language": "en-US,en;q=0.9" } },
         "tcp": { "platform": "Linux" }
       },
       {
         "name": "pool-chrome-mac",
-        "based_on": "chrome-146-macos",
+        "based_on": "chrome-152-macos",
         "headers": { "values": { "Accept-Language": "en-US,en;q=0.9" } },
         "tcp": { "platform": "macOS" }
       }
@@ -295,7 +295,7 @@ A few things to think about when wiring a pool into a real workload.
 
 **TLS resumption.** Each Session has its own ticket cache. A fresh Session against a host with no shared cache backend pays a full handshake every time. For a pool that rotates often, this is fine: a real user loading the same site from three browsers wouldn't share tickets across them either. For a pool used inside a multi-replica scraper where you do want resumption to survive Session churn, wire in `WithSessionCache(backend, errCb)` and let all replicas share resumption state through the same Redis or memcached. The `local-proxy-server` chapter walks through a Redis-backed implementation that drops in here unchanged.
 
-**Mixed browser families.** A pool can hold any combination of presets. Built-in plus custom, Chrome plus Firefox, different platforms within one Chrome version. Mixing browser families per request is allowed but rarely useful, since one IP serving Chrome and Firefox in alternation is itself a signal. The standard rotation is across versions or platforms within one browser family: chrome-146-windows, chrome-146-macos, chrome-146-linux. That looks like three users on the same site, which is what a single residential IP can plausibly be doing.
+**Mixed browser families.** A pool can hold any combination of presets. Built-in plus custom, Chrome plus Firefox, different platforms within one Chrome version. Mixing browser families per request is allowed but rarely useful, since one IP serving Chrome and Firefox in alternation is itself a signal. The standard rotation is across versions or platforms within one browser family: chrome-152-windows, chrome-152-macos, chrome-152-linux. That looks like three users on the same site, which is what a single residential IP can plausibly be doing.
 
 **Custom presets are not required.** Built-in preset names can sit alongside custom ones in the same `PoolSpec.presets` list as long as they're built by the loader correctly (custom presets typically use `based_on` to inherit from built-ins). For pure built-in rotation without any customization, the programmatic Go constructor is the cleaner path: load each built-in by name, hand the slice to `NewPresetPool`.
 

@@ -67,7 +67,7 @@ import (
 )
 
 func main() {
-    s := httpcloak.NewSession("chrome-148-windows",
+    s := httpcloak.NewSession("chrome-152-windows",
         httpcloak.WithCustomFingerprint(httpcloak.CustomFingerprint{
             JA3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0",
             // optional uTLS extras:
@@ -92,7 +92,7 @@ func main() {
 import httpcloak
 
 with httpcloak.Session(
-    preset="chrome-148-windows",
+    preset="chrome-152-windows",
     ja3="771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0",
     extra_fp={
         "tls_alpn":                 ["h2", "http/1.1"],
@@ -111,7 +111,7 @@ with httpcloak.Session(
 const { Session } = require("httpcloak");
 
 const s = new Session({
-  preset: "chrome-148-windows",
+  preset: "chrome-152-windows",
   ja3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0",
   extraFp: {
     tls_alpn:                 ["h2", "http/1.1"],
@@ -132,7 +132,7 @@ s.close();
 using HttpCloak;
 
 using var s = new Session(
-    preset: "chrome-148-windows",
+    preset: "chrome-152-windows",
     ja3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0",
     extraFp: new Dictionary<string, object> {
         ["tls_alpn"]                 = new[] { "h2", "http/1.1" },

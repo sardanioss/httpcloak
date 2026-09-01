@@ -27,14 +27,14 @@ The practical upshot: describe, edit, load, describe, diff. The diff shows exact
 ## Use cases
 
 - **Spoof a Chrome version we haven't shipped yet.** Grab `chrome-latest`, override the User-Agent and sec-ch-ua brand list, register under your own name, such as `chrome-152-windows-preview`. Five minutes of work. Pick a name no built-in uses: registering over a shipped preset is rejected.
-- **Pin a UA OS that doesn't match your runtime.** A Linux box can ship the `chrome-148-windows` UA without touching the TLS handshake.
+- **Pin a UA OS that doesn't match your runtime.** A Linux box can ship the `chrome-152-windows` UA without touching the TLS handshake.
 - **Remove or add a single TLS extension.** Override `tls.signature_algorithms` or `tls.alpn` without rebuilding the whole ClientHello.
 - **Tweak one HTTP/2 SETTINGS value.** Bump `initial_window_size`, leave everything else alone.
 - **Swap in a captured ClientHello from a real browser session.** See the [Build a custom preset from a tls.peet.ws capture](/recipes/build-custom-chrome-from-tls-peet) recipe.
 
 ## Walkthrough: dump, mutate, load, send
 
-The shortest useful example: take `chrome-148-windows`, change the User-Agent, register the result as `my-chrome-mutant`, fire a request through it.
+The shortest useful example: take `chrome-152-windows`, change the User-Agent, register the result as `my-chrome-mutant`, fire a request through it.
 
 <Tabs groupId="lang">
 <TabItem value="go" label="Go">
@@ -53,8 +53,8 @@ import (
 )
 
 func main() {
-    // 1. Dump chrome-148-windows as JSON.
-    desc, err := fingerprint.Describe("chrome-148-windows")
+    // 1. Dump chrome-152-windows as JSON.
+    desc, err := fingerprint.Describe("chrome-152-windows")
     if err != nil { panic(err) }
 
     // 2. Parse it, mutate the User-Agent and the preset name.
@@ -87,8 +87,8 @@ func main() {
 import json
 import httpcloak
 
-# 1. Dump chrome-148-windows as JSON.
-desc = httpcloak.describe_preset("chrome-148-windows")
+# 1. Dump chrome-152-windows as JSON.
+desc = httpcloak.describe_preset("chrome-152-windows")
 
 # 2. Parse, mutate, re-serialize.
 pf = json.loads(desc)
@@ -113,8 +113,8 @@ with httpcloak.Session(preset=name) as s:
 ```js
 const { Session, describePreset, loadPresetFromJSON } = require("httpcloak");
 
-// 1. Dump chrome-148-windows as JSON.
-const desc = describePreset("chrome-148-windows");
+// 1. Dump chrome-152-windows as JSON.
+const desc = describePreset("chrome-152-windows");
 
 // 2. Parse, mutate, re-serialize.
 const pf = JSON.parse(desc);
@@ -140,8 +140,8 @@ s.close();
 using System.Text.Json;
 using HttpCloak;
 
-// 1. Dump chrome-148-windows as JSON.
-var desc = CustomPresets.Describe("chrome-148-windows");
+// 1. Dump chrome-152-windows as JSON.
+var desc = CustomPresets.Describe("chrome-152-windows");
 
 // 2. Parse, mutate, re-serialize.
 var doc = JsonNode.Parse(desc)!;
@@ -171,7 +171,7 @@ peetprint_hash:          67c3e9111bed9e7f03d2f21d6d88994b
 akamai_fingerprint_hash: 52d84b11737d980aef856699f885ca86
 ```
 
-The User-Agent is our custom value. The TLS / H2 fingerprint is byte-identical to the original `chrome-148-windows`. The mutation lands on exactly the field we touched, and nothing else drifted.
+The User-Agent is our custom value. The TLS / H2 fingerprint is byte-identical to the original `chrome-152-windows`. The mutation lands on exactly the field we touched, and nothing else drifted.
 
 ## What `describe_preset` returns
 
@@ -181,10 +181,10 @@ A complete `PresetFile` with everything resolved:
 {
   "version": 1,
   "preset": {
-    "name": "chrome-148-windows",
+    "name": "chrome-152-windows",
     "tls": {
-      "client_hello": "chrome-146-windows",
-      "psk_client_hello": "chrome-146-windows-psk",
+      "client_hello": "chrome-152-windows",
+      "psk_client_hello": "chrome-152-windows-psk",
       "quic_client_hello": "chrome-146-quic",
       "quic_psk_client_hello": "chrome-146-quic-psk"
     },
@@ -230,8 +230,8 @@ A complete `PresetFile` with everything resolved:
 
 Worth noting:
 
-- Inheritance is flattened. `chrome-148-windows` is internally based on `chrome-147-windows`, which is based on `chrome-146-windows`, but the describe output has no `based_on` field. Every value is emitted explicitly, so there's no chain to chase.
-- `tls.client_hello` says `chrome-146-windows`. That's the underlying utls ClientHelloID we use. TLS bytes haven't changed since Chrome 146 desktop; only the User-Agent and sec-ch-ua values have moved.
+- Inheritance is flattened. `chrome-152-windows` is internally based on `chrome-152-windows`, which is based on `chrome-152-windows`, but the describe output has no `based_on` field. Every value is emitted explicitly, so there's no chain to chase.
+- `tls.client_hello` says `chrome-152-windows`. That's the underlying utls ClientHelloID we use. TLS bytes haven't changed since Chrome 146 desktop; only the User-Agent and sec-ch-ua values have moved.
 - Every H2 SETTINGS value shows up, even the zero ones (`max_concurrent_streams: 0`, `max_frame_size: 0`). Zero means "don't emit this SETTINGS entry on the wire", and that information survives the round-trip.
 - The full RFC 7540 priority table lands under `http2.priority_table`. Chrome 147+ ships its real per-Sec-Fetch-Dest urgencies. Presets that opt out (Safari, iOS Chrome, iOS Safari) skip this block.
 
@@ -246,7 +246,7 @@ The dump-and-edit flow isn't the only option. A thin patch JSON listing only the
   "version": 1,
   "preset": {
     "name": "my-chrome-mutant",
-    "based_on": "chrome-148-windows",
+    "based_on": "chrome-152-windows",
     "headers": {
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/200.0.0.0 Safari/537.36"
     }
@@ -254,7 +254,7 @@ The dump-and-edit flow isn't the only option. A thin patch JSON listing only the
 }
 ```
 
-That's exactly what our embedded `chrome-148-windows.json` does: a 28-line patch on top of `chrome-147-windows`. Inheritance is recursive with a loop guard, so cycles get caught at load time.
+That's exactly what our embedded `chrome-152-windows.json` does: a 28-line patch on top of `chrome-152-windows`. Inheritance is recursive with a loop guard, so cycles get caught at load time.
 
 When to use which:
 

@@ -37,7 +37,7 @@ import (
 )
 
 func main() {
-	s := httpcloak.NewSession("chrome-146", httpcloak.WithoutCookieJar())
+	s := httpcloak.NewSession("chrome-152", httpcloak.WithoutCookieJar())
 	defer s.Close()
 
 	ctx := context.Background()
@@ -61,7 +61,7 @@ func main() {
 ```python
 import httpcloak
 
-with httpcloak.Session(preset="chrome-146", without_cookie_jar=True) as s:
+with httpcloak.Session(preset="chrome-152", without_cookie_jar=True) as s:
     s.get("https://httpbin.org/cookies/set?demo=hello")
     r = s.get("https://httpbin.org/cookies")
     print(r.json())
@@ -75,7 +75,7 @@ with httpcloak.Session(preset="chrome-146", without_cookie_jar=True) as s:
 const httpcloak = require("httpcloak");
 
 const s = new httpcloak.Session({
-  preset: "chrome-146",
+  preset: "chrome-152",
   withoutCookieJar: true,
 });
 try {
@@ -94,7 +94,7 @@ try {
 ```csharp
 using HttpCloak;
 
-using var s = new Session(preset: "chrome-146", withoutCookieJar: true);
+using var s = new Session(preset: "chrome-152", withoutCookieJar: true);
 
 s.Get("https://httpbin.org/cookies/set?demo=hello");
 var r = s.Get("https://httpbin.org/cookies");

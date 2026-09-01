@@ -8,7 +8,7 @@ import TabItem from '@theme/TabItem';
 
 # Presets Explained
 
-A preset is the bundle of wire-level fingerprint data for one specific browser build. Calling `NewSession("chrome-148-windows")` loads all of this in one go:
+A preset is the bundle of wire-level fingerprint data for one specific browser build. Calling `NewSession("chrome-152-windows")` loads all of this in one go:
 
 - The TLS ClientHello: cipher list, extension order, supported groups, ALPN, signature algorithms, key shares, GREASE positions, ECH config.
 - HTTP/2 SETTINGS frame values, the WINDOW_UPDATE delta, PRIORITY frame defaults, and the pseudo-header order on every request.
@@ -32,7 +32,7 @@ To pin a specific build, name it directly. If a target is blocking Chrome 148 an
 sess := httpcloak.NewSession("chrome-latest")
 
 // Mobile UA + matching TLS for a phone-shaped fingerprint
-mobile := httpcloak.NewSession("chrome-148-android")
+mobile := httpcloak.NewSession("chrome-152-android")
 
 // Pinned to an older build
 old := httpcloak.NewSession("chrome-144-windows")
@@ -43,7 +43,7 @@ old := httpcloak.NewSession("chrome-144-windows")
 
 ```python
 session = httpcloak.Session(preset="chrome-latest")
-mobile  = httpcloak.Session(preset="chrome-148-android")
+mobile  = httpcloak.Session(preset="chrome-152-android")
 old     = httpcloak.Session(preset="chrome-144-windows")
 ```
 
@@ -52,7 +52,7 @@ old     = httpcloak.Session(preset="chrome-144-windows")
 
 ```javascript
 const session = new Session({ preset: "chrome-latest" });
-const mobile  = new Session({ preset: "chrome-148-android" });
+const mobile  = new Session({ preset: "chrome-152-android" });
 const old     = new Session({ preset: "chrome-144-windows" });
 ```
 
@@ -61,7 +61,7 @@ const old     = new Session({ preset: "chrome-144-windows" });
 
 ```csharp
 using var session = new Session(preset: "chrome-latest");
-using var mobile  = new Session(preset: "chrome-148-android");
+using var mobile  = new Session(preset: "chrome-152-android");
 using var old     = new Session(preset: "chrome-144-windows");
 ```
 
@@ -72,9 +72,9 @@ using var old     = new Session(preset: "chrome-144-windows");
 
 Each preset family ships per-OS variants where the underlying browser differs by OS. Chrome differs across Windows, Linux, macOS, Android, and iOS (iOS Chrome is WebKit underneath, a different stack entirely). Firefox barely differs across desktop OSes, so there's a single desktop build.
 
-**Chrome desktop**: 133, 141, 143, 144, 145, 146, 147, 148. The 143-148 line ships per-OS variants (`chrome-148-windows`, `chrome-148-linux`, `chrome-148-macos`); bare `chrome-148` aliases to whatever OS the library defaults to. The older 133 and 141 builds are desktop-only single presets without per-OS suffixes.
+**Chrome desktop**: 133, 141, 143, 144, 145, 146, 147, 148. The 143-148 line ships per-OS variants (`chrome-152-windows`, `chrome-152-linux`, `chrome-152-macos`); bare `chrome-152` aliases to whatever OS the library defaults to. The older 133 and 141 builds are desktop-only single presets without per-OS suffixes.
 
-**Chrome mobile**: `chrome-143-android` through `chrome-148-android`, and `chrome-143-ios` through `chrome-148-ios`. Mobile Chrome has its own UA, its own sec-ch-ua values, and on iOS a completely different TLS stack (WebKit, again).
+**Chrome mobile**: `chrome-143-android` through `chrome-152-android`, and `chrome-143-ios` through `chrome-152-ios`. Mobile Chrome has its own UA, its own sec-ch-ua values, and on iOS a completely different TLS stack (WebKit, again).
 
 **Firefox**: 133 and 148 desktop. No per-OS split.
 
@@ -86,14 +86,14 @@ For the full list with protocol support per preset, see [Reference: Presets](/re
 
 ## Inheritance: the `based_on` chain
 
-Presets aren't standalone JSON blobs. They form a chain. Open `fingerprint/embedded/chrome-148-windows.json` and the file looks something like this:
+Presets aren't standalone JSON blobs. They form a chain. Open `fingerprint/embedded/chrome-152-windows.json` and the file looks something like this:
 
 ```json
 {
   "version": 1,
   "preset": {
-    "name": "chrome-148-windows",
-    "based_on": "chrome-147-windows",
+    "name": "chrome-152-windows",
+    "based_on": "chrome-152-windows",
     "headers": {
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
       "values": {
@@ -108,9 +108,9 @@ That's the whole file. Chrome 148 windows is "Chrome 147 windows with the UA and
 
 This is deliberate. Chrome rarely changes its TLS or H2 wire format between minor versions. Most of what's new in a point release is JS engine and rendering, not network. A wire-level delta only ships when the wire moves (cipher reordering, a new extension, a SETTINGS bump). Everything else is a UA bump on top of the `based_on` chain.
 
-The chain bottoms out at a root preset that carries the full TLS and H2 spec. Loading `chrome-148-windows` walks the chain at startup and merges layer by layer.
+The chain bottoms out at a root preset that carries the full TLS and H2 spec. Loading `chrome-152-windows` walks the chain at startup and merges layer by layer.
 
-To inspect the resolved bundle after the merge, there's a describe API. From Go: `fingerprint.Describe("chrome-148-windows")`. From Python: `httpcloak.describe_preset("chrome-148-windows")`.
+To inspect the resolved bundle after the merge, there's a describe API. From Go: `fingerprint.Describe("chrome-152-windows")`. From Python: `httpcloak.describe_preset("chrome-152-windows")`.
 
 ## Building your own
 

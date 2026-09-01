@@ -97,6 +97,56 @@ When redirects are followed, the response object exposes the full chain through 
 
 With redirects off, a 301 or 302 comes back as the response, body and all, with no auto-follow.
 
+### The Referer on a redirect hop
+
+Each hop carries a `Referer` built the way a browser builds one, following Chrome's
+default policy: the full previous URL when the hop stays on the same origin, the
+origin alone when it crosses to another, and nothing at all on an https to http
+downgrade. That is what a browser sends, so leave it alone unless you have a
+reason not to.
+
+`disable_redirect_referer` turns it off, for reproducing a client that sends no
+`Referer` at all, or replaying a captured chain verbatim.
+
+<Tabs groupId="lang">
+<TabItem value="go" label="Go">
+
+```go
+resp, err := session.Do(&httpcloak.Request{
+    Method:                 "GET",
+    URL:                    url,
+    DisableRedirectReferer: true,
+})
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+r = session.get(url, disable_redirect_referer=True)
+```
+
+</TabItem>
+<TabItem value="node" label="Node.js">
+
+```javascript
+const r = await session.get(url, { disableRedirectReferer: true });
+```
+
+</TabItem>
+<TabItem value="dotnet" label=".NET">
+
+```csharp
+var r = session.Get(url, disableRedirectReferer: true);
+```
+
+</TabItem>
+</Tabs>
+
+It suppresses the header entirely rather than just skipping the synthesis: a
+`Referer` you set on the original request is dropped too, since it names the
+pre-redirect URL and forwarding it would hand that to the new host.
+
 ## Retries
 
 Retries are off by default. `WithRetry(n)` turns them on with sensible defaults. `WithRetryConfig` tunes the backoff window and the trigger status codes. The default retry-on-status set is `[429, 500, 502, 503, 504]`.
