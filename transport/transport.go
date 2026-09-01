@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
@@ -3085,6 +3086,61 @@ func extractHost(urlStr string) string {
 	return parsed.Hostname()
 }
 
+// lowerHeaderNameCache memoises lowerHeaderName for names that are not
+// already lowercase, typically the canonical-cased form the H1 textproto and
+// H2/H3 hpack read paths produce ("Content-Type"). Names reaching it come
+// from a peer's response or a caller's request, so the cache is bounded; past
+// the cap unseen names fall back to allocating, which keeps either from
+// growing it without bound. The cap is far above the name variety real
+// servers and callers emit.
+var (
+	lowerHeaderNameCache     sync.Map // string -> string
+	lowerHeaderNameCacheSize atomic.Int64
+)
+
+const lowerHeaderNameCacheMax = 1024
+
+// lowerHeaderName returns strings.ToLower(name), without allocating for the
+// two shapes response header names actually arrive in: already-lowercase
+// names return as-is, and canonical-cased names hit the memo after their
+// first conversion.
+func lowerHeaderName(name string) string {
+	lowerASCII := true
+	for i := range len(name) {
+		// Non-ASCII goes through ToLower too: it never appears in a valid
+		// header name, but strings.ToLower folds it ("Ü" to "ü"), so taking
+		// the fast path on it would change the output.
+		if c := name[i]; c >= utf8.RuneSelf || ('A' <= c && c <= 'Z') {
+			lowerASCII = false
+			break
+		}
+	}
+	if lowerASCII {
+		return name
+	}
+	if lower, ok := lowerHeaderNameCache.Load(name); ok {
+		return lower.(string)
+	}
+	lower := strings.ToLower(name)
+	if lowerHeaderNameCacheSize.Load() >= lowerHeaderNameCacheMax {
+		return lower
+	}
+	// Both entries must own their memory: name can share backing with a
+	// read buffer, and ToLower returns its input unchanged when nothing
+	// folds, which happens here for a name whose only non-lowercase byte is
+	// non-ASCII. Caching either without copying would pin that buffer for
+	// the process's life. The cap is soft under concurrent stores, which
+	// can overshoot it by at most one entry each.
+	key := strings.Clone(name)
+	if lower == name {
+		lower = key
+	}
+	if _, loaded := lowerHeaderNameCache.LoadOrStore(key, lower); !loaded {
+		lowerHeaderNameCacheSize.Add(1)
+	}
+	return lower
+}
+
 // buildHeadersMap converts http.Header to map[string][]string.
 // Preserves all values for multi-value headers (Set-Cookie, etc.)
 // buildTrailerMap is buildHeadersMap for the trailing block, returning nil
@@ -3102,7 +3158,19 @@ func buildTrailerMap(h http.Header) map[string][]string {
 }
 
 func buildHeadersMap(h http.Header) map[string][]string {
-	headers := make(map[string][]string)
+	headers := make(map[string][]string, len(h))
+	// Every entry's copy is carved out of one shared backing array, one
+	// allocation instead of one per header. Full slice expressions pin each
+	// entry's capacity to its own values, so appending through one entry
+	// cannot reach into the next; element writes stay confined to that
+	// entry, exactly as with per-entry copies.
+	//
+	// One slot per header covers the common case of a single value each.
+	// A repeated header (Set-Cookie) can push past that and reallocate, and
+	// the entries already handed out keep pointing into the old array. That
+	// stays correct: their values were copied there, and nothing writes to
+	// that array again.
+	backing := make([]string, 0, len(h))
 	for key, values := range h {
 		// The order key is transport bookkeeping, not a header the peer sent.
 		// It reaches the response map because the H2 read path records the
@@ -3111,11 +3179,9 @@ func buildHeadersMap(h http.Header) map[string][]string {
 			key == h1HeaderCasingKey || key == exactHeadersKey {
 			continue
 		}
-		lowerKey := strings.ToLower(key)
-		// Copy values to avoid sharing underlying array
-		headerValues := make([]string, len(values))
-		copy(headerValues, values)
-		headers[lowerKey] = headerValues
+		start := len(backing)
+		backing = append(backing, values...)
+		headers[lowerHeaderName(key)] = backing[start:len(backing):len(backing)]
 	}
 	return headers
 }
