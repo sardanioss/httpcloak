@@ -202,6 +202,20 @@ chrome-148-ios       ja4=t13d2013h2_a09f3c656075_7f0f34a4126d  peetprint_hash=62
 chrome-152-ios       ja4=t13d2013h2_a09f3c656075_7f0f34a4126d  peetprint_hash=62b834de729e78a9f0ebd1dd099314a7  akamai_fingerprint_hash=c52879e43202aeb92740be6e8c86ea96
 ```
 
+:::note Chrome 152 has no single JA4
+
+Chrome 152 puts a greased value at the head of `signature_algorithms`, drawn fresh
+per handshake. The JA4 specification says to ignore greased values wherever they
+appear, and implementations differ on whether they do it in the signature list.
+One that strips them reports the stable `cb7bf5808d99` above; one that does not
+reports a different tail on every connection, sixteen in all. Real Chrome 152
+behaves exactly the same way, so a tail that moves is the profile working, not
+failing. Compare on the parts before it, or on a tool you know strips greased
+values everywhere.
+
+:::
+
+
 Things to spot:
 
 - Every Chrome desktop variant lands on the same JA4 / peetprint / akamai. The TLS handshake is identical across Windows / Linux / macOS Chrome. Only the User-Agent and `sec-ch-ua-platform` header tell you which OS you're on.

@@ -64,6 +64,7 @@ Notes:
 
 - Every Chromium preset shows `rotates` for JA3 rather than a value, because it has no single value to show. Chrome permutes its ClientHello extensions on every handshake, so its JA3 differs connection to connection, and the presets reproduce that. Pinning one hash here would document a client that does not exist. JA4 is stable across those connections because it sorts the extension list before hashing, which is why it is the one worth comparing.
 - Chrome 152 moved its JA4 to `t13d1517h2_...` because it added an extension, taking the count from 16 to 17. Versions 143 through 149 shared a single JA4; 150 changed the tail by adding signature algorithms, and 151 kept it.
+- The Chrome 152 JA4 tail is only stable against a tool that discards greased values inside `signature_algorithms`, which the specification asks for but not every implementation does. Chrome 152 puts one at the head of that list per handshake, so an implementation that keeps it reports a different tail every connection, sixteen in all. Real Chrome does the same, so a moving tail is the profile working. The value above was measured against one that strips.
 - `safari-18` and `safari-18-ios` share JA4 + Akamai because the H2 stack is identical. The JA3 differs because of platform-specific ClientHello extensions.
 
 For any preset not listed, run the same capture yourself. The static parts (UA, sec-ch-ua, header order) are also visible in `fingerprint/embedded/<name>.json`.
