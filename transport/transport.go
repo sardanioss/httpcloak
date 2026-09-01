@@ -10,7 +10,7 @@ import (
 	http "github.com/sardanioss/http"
 	"io"
 	"net/url"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2649,16 +2649,21 @@ func isClientHintHeader(key string) bool {
 // fingerprint, and a strong one — no browser produces one. Sorted is not what a
 // browser sends either, but it is stable, which is the detectable part.
 func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header, userHeaders map[string][]string) []string {
-	seen := make(map[string]bool, len(explicitOrder)+len(presetOrder)+len(header)+len(userHeaders))
-	order := make([]string, 0, len(explicitOrder)+len(presetOrder)+len(header)+len(userHeaders))
+	total := len(explicitOrder) + len(presetOrder) + len(header) + len(userHeaders)
+	seen := make(map[string]bool, total)
+	// The named prefix and the sorted remainder are built end to end in one
+	// buffer: the remainder starts where the prefix stops, so sorting it in
+	// place leaves the finished list contiguous and the result needs neither
+	// a second allocation nor a copy.
+	buf := make([]string, 0, total)
 
 	place := func(name string) {
-		lower := strings.ToLower(name)
+		lower := lowerHeaderName(name)
 		if lower == "" || seen[lower] {
 			return
 		}
 		seen[lower] = true
-		order = append(order, lower)
+		buf = append(buf, lower)
 	}
 	for _, name := range explicitOrder {
 		place(name)
@@ -2667,19 +2672,19 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 		place(name)
 	}
 
-	rest := make([]string, 0, len(header)+len(userHeaders))
+	named := len(buf)
 	collect := func(name string) {
 		// The ordering keys are internal control entries, not headers, and must
 		// never reach the wire.
 		if strings.EqualFold(name, http.HeaderOrderKey) || strings.EqualFold(name, http.PHeaderOrderKey) {
 			return
 		}
-		lower := strings.ToLower(name)
+		lower := lowerHeaderName(name)
 		if lower == "" || seen[lower] {
 			return
 		}
 		seen[lower] = true
-		rest = append(rest, lower)
+		buf = append(buf, lower)
 	}
 	for name := range header {
 		collect(name)
@@ -2687,9 +2692,9 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 	for name := range userHeaders {
 		collect(name)
 	}
-	sort.Strings(rest)
+	slices.Sort(buf[named:])
 
-	return append(order, rest...)
+	return buf
 }
 
 // presetSendsSecFetch reports whether a preset describes a client that sends
