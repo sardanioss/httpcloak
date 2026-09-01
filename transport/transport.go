@@ -426,6 +426,25 @@ type Response struct {
 	// reports nil.
 	HeaderOrder []string
 
+	// Trailer carries the trailing header block a server may send after the
+	// body, lowercase-keyed like Headers. Nil when the response had none, which
+	// is almost all of them.
+	//
+	// It matters for gRPC, where the call's status code and message arrive here
+	// rather than in the response headers: a gRPC response is a 200 with the
+	// real outcome in `grpc-status`, so a client that drops trailers reports
+	// every failed call as a success.
+	//
+	// Only populated once the body has been read, because that is when the
+	// trailing block arrives. The transport buffers the body before returning,
+	// so it is ready by the time a caller sees this. On a streamed response it
+	// fills in after the body reaches io.EOF.
+	//
+	// HTTP/1.1 carries trailers only on a chunked response that announced them
+	// in a Trailer header; HTTP/2 and HTTP/3 carry them as a second header
+	// block.
+	Trailer map[string][]string
+
 	Body     io.ReadCloser // Streaming body - call Close() when done
 	FinalURL string
 	Timing   *protocol.Timing
@@ -1927,6 +1946,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 		StatusCode:  resp.StatusCode,
 		Headers:     headers,
 		HeaderOrder: responseHeaderOrder(resp.Header),
+		Trailer:     buildTrailerMap(resp.Trailer),
 		Body:        io.NopCloser(bytes.NewReader(body)),
 		FinalURL:    req.URL,
 		Timing:      timing,
@@ -2040,6 +2060,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 		StatusCode:  resp.StatusCode,
 		Headers:     headers,
 		HeaderOrder: responseHeaderOrder(resp.Header),
+		Trailer:     buildTrailerMap(resp.Trailer),
 		Body:        io.NopCloser(bytes.NewReader(body)),
 		FinalURL:    parsedURL.String(),
 		Timing:      timing,
@@ -2179,6 +2200,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 		StatusCode:  resp.StatusCode,
 		Headers:     headers,
 		HeaderOrder: responseHeaderOrder(resp.Header),
+		Trailer:     buildTrailerMap(resp.Trailer),
 		Body:        io.NopCloser(bytes.NewReader(body)),
 		FinalURL:    req.URL,
 		Timing:      timing,
@@ -2324,6 +2346,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 		StatusCode:  resp.StatusCode,
 		Headers:     headers,
 		HeaderOrder: responseHeaderOrder(resp.Header),
+		Trailer:     buildTrailerMap(resp.Trailer),
 		Body:        io.NopCloser(bytes.NewReader(body)),
 		FinalURL:    req.URL,
 		Timing:      timing,
@@ -2967,6 +2990,20 @@ func extractHost(urlStr string) string {
 
 // buildHeadersMap converts http.Header to map[string][]string.
 // Preserves all values for multi-value headers (Set-Cookie, etc.)
+// buildTrailerMap is buildHeadersMap for the trailing block, returning nil
+// rather than an empty map so a caller can tell "no trailers" from "trailers
+// that happened to be empty" with a plain nil check.
+func buildTrailerMap(h http.Header) map[string][]string {
+	if len(h) == 0 {
+		return nil
+	}
+	m := buildHeadersMap(h)
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
 func buildHeadersMap(h http.Header) map[string][]string {
 	headers := make(map[string][]string)
 	for key, values := range h {

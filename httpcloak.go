@@ -344,6 +344,12 @@ type Response struct {
 	// through textproto, which canonicalises the names and drops the order.
 	HeaderOrder []string
 
+	// Trailer is the trailing header block sent after the body, lowercase-keyed,
+	// nil when there was none. gRPC puts the call's real status here rather than
+	// in the response headers, so a client that ignores it reports every failed
+	// call as a 200.
+	Trailer map[string][]string
+
 	Body     io.ReadCloser // Streaming body - call Close() when done
 	FinalURL string
 	Protocol string
@@ -1182,6 +1188,7 @@ func toResponse(resp *transport.Response) *Response {
 		StatusCode:  resp.StatusCode,
 		Headers:     resp.Headers,
 		HeaderOrder: resp.HeaderOrder,
+		Trailer:     resp.Trailer,
 		Body:        resp.Body,
 		FinalURL:    resp.FinalURL,
 		Protocol:    resp.Protocol,
@@ -1570,6 +1577,20 @@ type StreamResponse struct {
 	ContentLength int64 // -1 if unknown (chunked encoding)
 
 	inner *transport.StreamResponse
+}
+
+// Trailer returns the trailing header block, lowercase-keyed, or nil when there
+// was none.
+//
+// Call it after the body has been read to EOF. On a streamed response the
+// trailers have not arrived before then, which is why this is a method rather
+// than the plain field it is on the buffered Response. gRPC is the case that
+// needs it: the call's real status arrives in the trailers, not the headers.
+func (r *StreamResponse) Trailer() map[string][]string {
+	if r == nil || r.inner == nil {
+		return nil
+	}
+	return r.inner.Trailer()
 }
 
 // Read reads data from the response body

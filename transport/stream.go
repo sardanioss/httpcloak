@@ -48,6 +48,31 @@ type StreamResponse struct {
 	// selects on it so its goroutine unblocks instead of leaking when a caller
 	// abandons iteration and closes the response.
 	done <-chan struct{}
+
+	// httpResp is kept only so Trailer() can read the trailing block. On a
+	// streamed response the trailers are not known when the header block
+	// arrives, so they cannot be a plain field the way they are on a buffered
+	// Response; they have to be read back after the body reaches EOF.
+	httpResp *http.Response
+}
+
+// Trailer returns the trailing header block, lowercase-keyed, or nil when the
+// response carried none.
+//
+// Call it only after the body has been read to EOF. Before that the trailing
+// block has not arrived and this returns nil, or on HTTP/1.1 the declared names
+// with no values, which is what the protocol makes available at that point.
+// This is the streaming counterpart of Response.Trailer, which can be a plain
+// field because that path buffers the body first.
+//
+// gRPC is the case that needs it: the call's real status arrives here, not in
+// the response headers, so a streamed gRPC call read without this reports every
+// failure as a 200.
+func (r *StreamResponse) Trailer() map[string][]string {
+	if r == nil || r.httpResp == nil {
+		return nil
+	}
+	return buildTrailerMap(r.httpResp.Trailer)
 }
 
 // Read reads data from the response body
@@ -434,6 +459,7 @@ func (t *Transport) doStreamHTTP1(ctx context.Context, req *Request) (*StreamRes
 		StatusCode:    resp.StatusCode,
 		Headers:       headers,
 		HeaderOrder:   responseHeaderOrder(resp.Header),
+		httpResp:      resp,
 		FinalURL:      req.URL,
 		Timing:        timing,
 		Protocol:      "h1",
@@ -541,6 +567,7 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 		StatusCode:    resp.StatusCode,
 		Headers:       headers,
 		HeaderOrder:   responseHeaderOrder(resp.Header),
+		httpResp:      resp,
 		FinalURL:      req.URL,
 		Timing:        timing,
 		Protocol:      "h2",
@@ -648,6 +675,7 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 		StatusCode:    resp.StatusCode,
 		Headers:       headers,
 		HeaderOrder:   responseHeaderOrder(resp.Header),
+		httpResp:      resp,
 		FinalURL:      req.URL,
 		Timing:        timing,
 		Protocol:      "h3",
