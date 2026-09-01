@@ -123,6 +123,28 @@ func TestPrefacePingFollowsHeaders(t *testing.T) {
 
 // next_ping_id_ starts at 1 and increments per ping. Four requests, because
 // request 1 on a fresh connection cannot cross the idle threshold by design.
+// waitForPings waits until the server has recorded n client pings, or gives up.
+//
+// A fixed sleep here was the source of an intermittent failure. The last ping is
+// written by the client just before the test looks for it, and under a loaded
+// machine, which is exactly what a full parallel test run is, the write lands
+// after the sleep expires. The test then reported one ping fewer than were
+// actually sent, which reads like a real defect and is not one. Waiting for the
+// condition rather than for a duration removes the race without slowing the
+// passing case, which still returns in about the same time.
+func waitForPings(t *testing.T, s *h2Server, n int) []h2Frame {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	var pings []h2Frame
+	for {
+		pings = clientPings(s)
+		if len(pings) >= n || time.Now().After(deadline) {
+			return pings
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestPrefacePingCounterIncrements(t *testing.T) {
 	name := pingPreset(t, "ping-counter", pingIdleMs, 5000)
 	s := startH2Server(t, h2Config{})
@@ -134,13 +156,12 @@ func TestPrefacePingCounterIncrements(t *testing.T) {
 		}
 		getOnce(t, tr, s.url(fmt.Sprintf("/req%d", i)))
 	}
-	time.Sleep(100 * time.Millisecond)
+	pings := waitForPings(t, s, 3)
 
 	if n := s.connCount(); n != 1 {
 		t.Fatalf("server saw %d connections, want 1; the pings below are not from one session\n%s",
 			n, s.dump())
 	}
-	pings := clientPings(s)
 	if len(pings) != 3 {
 		t.Fatalf("got %d pings for 4 requests, want 3 (request 1 is on a fresh connection)\n%s",
 			len(pings), s.dump())

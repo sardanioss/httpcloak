@@ -12,8 +12,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/sardanioss/http v1.2.0 h1:Zq3uxnYDLeugTvaYaCzR3Tp1qDERbA2pHgkkFWRuETs=
 github.com/sardanioss/http v1.2.0/go.mod h1:Bn2qBFItWB9mLCxWW+tnwDe0stlrxhXaVZKtrLn4dc0=
-github.com/sardanioss/net v1.2.8 h1:3nUNdQmgEC2uaIgXOJVmYzmH4OP1asw0xwyhCq3p8fA=
-github.com/sardanioss/net v1.2.8/go.mod h1:BH4SOxKg5Cf0psT5htTmI7YVBXPsA+TF20Hb7glnLYA=
+github.com/sardanioss/net v1.2.9 h1:7r6xkcDU253JfJMWTkfk2PBEyjV9Wgn/sPh7kYKkWtY=
+github.com/sardanioss/net v1.2.9/go.mod h1:BH4SOxKg5Cf0psT5htTmI7YVBXPsA+TF20Hb7glnLYA=
 github.com/sardanioss/qpack v0.6.3 h1:XGXtEYzpqMD7kzq/kyRhjucohUD8JPiJvi6RuxAlueQ=
 github.com/sardanioss/qpack v0.6.3/go.mod h1:RSs0PpIh6d66DzAdANPGs9eHV/AbROwpW/Egpy0kIvQ=
 github.com/sardanioss/quic-go v1.2.28 h1:2O0RiYAkq4FzfxR+aGnzDSTgjitRFn4+plJMRoxvkKU=
