@@ -68,7 +68,7 @@ func testH2TeardownIsCollectable(t *testing.T, teardown func(*HTTP2Transport)) {
 		if err != nil {
 			t.Fatalf("new request: %v", err)
 		}
-		applyPresetHeaders(req, preset, nil, nil, false, "h2", nil, false, nil)
+		applyPresetHeaders(req, newPresetWireHeaders(preset), nil, nil, false, "h2", nil, false, nil)
 		resp, err := tr.RoundTrip(req)
 		if err != nil {
 			t.Fatalf("roundtrip: %v", err)

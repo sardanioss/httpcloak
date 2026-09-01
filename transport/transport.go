@@ -601,6 +601,12 @@ type Transport struct {
 	proxy       *ProxyConfig
 	config      *TransportConfig
 
+	// presetWire caches the request-invariant part of applyPresetHeaders for
+	// the current preset. It is its own synchronisation and is not guarded by
+	// fieldsMu: readers validate the entry against the preset they snapshot,
+	// so after SetPreset the first request simply rebuilds it.
+	presetWire atomic.Pointer[presetWireHeaders]
+
 	// fieldsMu guards the mutable fields that SetProxy/SetPreset/SetProtocol
 	// reassign while Do/doAuto/DoStream (and the Get*Transport getters) read
 	// them: h1Transport, h2Transport, h3Transport, preset, protocol, proxy,
@@ -1967,7 +1973,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 
 	// Set preset headers (with ordering for fingerprinting)
 	// Pass "h1" protocol so Chrome presets don't send Priority header on HTTP/1.1
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	mergeCallerHeaders(httpReq, req)
 
@@ -2072,7 +2078,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	}
 
 	// Set preset headers - pass "h1" protocol so Chrome presets don't send Priority header
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	mergeCallerHeaders(httpReq, req)
 
@@ -2184,7 +2190,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	mergeCallerHeaders(httpReq, req)
 
@@ -2315,7 +2321,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	mergeCallerHeaders(httpReq, req)
 
@@ -2816,30 +2822,97 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request) {
 	}
 }
 
-func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool, exactHeaders []fingerprint.HeaderPair) {
+// wireHeaderPair is one preset header ready to write: the key is already in
+// the canonical form Header.Set would produce, so applying it is a direct map
+// assignment with no per-request canonicalisation.
+type wireHeaderPair struct {
+	key        string
+	value      string
+	clientHint bool // isClientHintHeader(key); skipped when the request strips client hints
+}
+
+// presetWireHeaders is the request-invariant part of applyPresetHeaders,
+// derived from a preset once and reused for every request that carries it.
+// The fields it distils (HeaderOrder, Headers, UserAgent) never change on a
+// preset once a Transport holds it, so validity is just pointer identity.
+type presetWireHeaders struct {
+	preset        *fingerprint.Preset // the preset this was derived from
+	pairs         []wireHeaderPair
+	sendsSecFetch bool
+}
+
+func newPresetWireHeaders(preset *fingerprint.Preset) *presetWireHeaders {
+	// One extra slot for the User-Agent pair appended below.
+	size := len(preset.Headers)
+	if len(preset.HeaderOrder) > 0 {
+		size = len(preset.HeaderOrder)
+	}
+	pairs := make([]wireHeaderPair, 0, size+1)
+	appendPair := func(key, value string) {
+		pairs = append(pairs, wireHeaderPair{
+			key:        http.CanonicalHeaderKey(key),
+			value:      value,
+			clientHint: isClientHintHeader(key),
+		})
+	}
+	if len(preset.HeaderOrder) > 0 {
+		for _, hp := range preset.HeaderOrder {
+			appendPair(hp.Key, hp.Value)
+		}
+	} else {
+		// Fallback for presets that carry only the backward-compatible map.
+		for key, value := range preset.Headers {
+			appendPair(key, value)
+		}
+	}
+	// The unconditional User-Agent write goes last so it overrides a
+	// user-agent entry from the preset table, exactly as the Header.Set
+	// call after the loop used to.
+	pairs = append(pairs, wireHeaderPair{key: "User-Agent", value: preset.UserAgent})
+	return &presetWireHeaders{
+		preset:        preset,
+		pairs:         pairs,
+		sendsSecFetch: presetSendsSecFetch(preset),
+	}
+}
+
+// wireHeaders returns the cached presetWireHeaders for preset, rebuilding it
+// when the transport's preset has been swapped. Concurrent first requests may
+// build it more than once; they store equivalent values.
+func (t *Transport) wireHeaders(preset *fingerprint.Preset) *presetWireHeaders {
+	if w := t.presetWire.Load(); w != nil && w.preset == preset {
+		return w
+	}
+	w := newPresetWireHeaders(preset)
+	t.presetWire.Store(w)
+	return w
+}
+
+func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool, exactHeaders []fingerprint.HeaderPair) {
+	preset := wire.preset
 	if applyExactHeaders(httpReq, exactHeaders, preset, customPseudoOrder, protocol) {
 		return
 	}
 	// In TLS-only mode, skip applying preset headers but still set header order
 	if !tlsOnly {
-		if len(preset.HeaderOrder) > 0 {
-			// Use ordered headers for HTTP/2 and HTTP/3 fingerprinting
-			for _, hp := range preset.HeaderOrder {
-				if stripClientHints && isClientHintHeader(hp.Key) {
-					continue // full opt-out: don't apply the preset sec-ch-* trio
-				}
-				httpReq.Header.Set(hp.Key, hp.Value)
+		// The precomputed keys are canonical, so direct assignment writes the
+		// same entries Header.Set would, minus the per-request
+		// CanonicalMIMEHeaderKey. The User-Agent write rides at the end of
+		// the pair list.
+		//
+		// The single-element value slices come out of one backing array,
+		// one allocation for the whole preset rather than one per header.
+		// Full slice expressions keep each entry's capacity at its own
+		// element, so an append through one cannot reach the next; Set and
+		// Del below replace or drop whole entries and are unaffected.
+		values := make([]string, 0, len(wire.pairs))
+		for _, p := range wire.pairs {
+			if stripClientHints && p.clientHint {
+				continue // full opt-out: don't apply the preset sec-ch-* trio
 			}
-		} else {
-			// Fallback to unordered headers map
-			for key, value := range preset.Headers {
-				if stripClientHints && isClientHintHeader(key) {
-					continue
-				}
-				httpReq.Header.Set(key, value)
-			}
+			values = append(values, p.value)
+			httpReq.Header[p.key] = values[len(values)-1 : len(values) : len(values)]
 		}
-		httpReq.Header.Set("User-Agent", preset.UserAgent)
 
 		// Auto-detect CORS mode from the request shape. Real browsers use
 		// cors/empty Sec-Fetch-* for fetch()/XHR and navigate/document for
@@ -2851,7 +2924,7 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 		// Skipped for presets that describe a client sending no Sec-Fetch-* at
 		// all; see presetSendsSecFetch for why inferring that from the preset
 		// leaves every browser preset untouched.
-		if presetSendsSecFetch(preset) && sniffXHRMode(httpReq.Method, userHeaders) {
+		if wire.sendsSecFetch && sniffXHRMode(httpReq.Method, userHeaders) {
 			// Preserve any explicitly user-supplied Sec-Fetch-Mode/Dest/Site;
 			// the sniff coercion is for "user said nothing, infer XHR" — once
 			// they pin a value (e.g. mode=no-cors, dest=image, site=same-origin)

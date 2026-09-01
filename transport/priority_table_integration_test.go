@@ -239,7 +239,7 @@ func fireGet(t *testing.T, srv *h2CaptureServer, preset *fingerprint.Preset, sec
 
 	// Mirror what the higher-level Transport.RoundTrip wrapper does on the
 	// httpcloak side before handing the *http.Request to HTTP2Transport.
-	applyPresetHeaders(req, preset, nil, nil, false, "h2", userHeaders, false, nil)
+	applyPresetHeaders(req, newPresetWireHeaders(preset), nil, nil, false, "h2", userHeaders, false, nil)
 
 	resp, err := tr.RoundTrip(req)
 	if err != nil {

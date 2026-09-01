@@ -152,7 +152,7 @@ func keysOf(h http.Header) []string {
 // real entry point, so deleting the short circuit fails here.
 func TestExactHeadersShortCircuitIsWired(t *testing.T) {
 	req, _ := http.NewRequest("GET", "https://example.com/", nil)
-	applyPresetHeaders(req, fingerprint.Get("chrome-latest"), nil, nil, false, "h2",
+	applyPresetHeaders(req, newPresetWireHeaders(fingerprint.Get("chrome-latest")), nil, nil, false, "h2",
 		map[string][]string{"X-User": {"1"}}, false,
 		[]fingerprint.HeaderPair{hp("Only-This", "1")})
 
