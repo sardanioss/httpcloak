@@ -344,6 +344,13 @@ type Response struct {
 	// through textproto, which canonicalises the names and drops the order.
 	HeaderOrder []string
 
+	// HeaderCasing is the response header names as the server spelled them, in
+	// arrival order. HTTP/1.1 only: HTTP/2 and HTTP/3 require lowercase on the
+	// wire, so there is no casing to report and this is nil. Also nil when the
+	// header block was not fully buffered when the response was read. Headers is
+	// populated either way.
+	HeaderCasing []string
+
 	// Trailer is the trailing header block sent after the body, lowercase-keyed,
 	// nil when there was none. gRPC puts the call's real status here rather than
 	// in the response headers, so a client that ignores it reports every failed
@@ -1189,6 +1196,7 @@ func toResponse(resp *transport.Response) *Response {
 		Headers:     resp.Headers,
 		HeaderOrder: resp.HeaderOrder,
 		Trailer:     resp.Trailer,
+		HeaderCasing: resp.HeaderCasing,
 		Body:        resp.Body,
 		FinalURL:    resp.FinalURL,
 		Protocol:    resp.Protocol,

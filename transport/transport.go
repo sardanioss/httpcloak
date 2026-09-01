@@ -426,6 +426,20 @@ type Response struct {
 	// reports nil.
 	HeaderOrder []string
 
+	// HeaderCasing is the response header names as the server spelled them, in
+	// arrival order, for HTTP/1.1 only.
+	//
+	// HTTP/2 and HTTP/3 require lowercase names on the wire, so there is no
+	// casing to report and this stays nil. On HTTP/1.1 the parse underneath
+	// canonicalises (a server's `X-FOO` is reported as `X-Foo`), so anything
+	// relaying a response onward would otherwise emit a spelling the origin did
+	// not use.
+	//
+	// Best-effort: nil when the header block was not fully buffered by the time
+	// the response was read. Headers is always populated either way, and
+	// HeaderOrder carries the same names lowercased.
+	HeaderCasing []string
+
 	// Trailer carries the trailing header block a server may send after the
 	// body, lowercase-keyed like Headers. Nil when the response had none, which
 	// is almost all of them.
@@ -1946,6 +1960,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 		StatusCode:  resp.StatusCode,
 		Headers:     headers,
 		HeaderOrder: responseHeaderOrder(resp.Header),
+		HeaderCasing: takeHeaderCasing(resp.Header),
 		Trailer:     buildTrailerMap(resp.Trailer),
 		Body:        io.NopCloser(bytes.NewReader(body)),
 		FinalURL:    req.URL,
@@ -2060,6 +2075,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 		StatusCode:  resp.StatusCode,
 		Headers:     headers,
 		HeaderOrder: responseHeaderOrder(resp.Header),
+		HeaderCasing: takeHeaderCasing(resp.Header),
 		Trailer:     buildTrailerMap(resp.Trailer),
 		Body:        io.NopCloser(bytes.NewReader(body)),
 		FinalURL:    parsedURL.String(),
@@ -2200,6 +2216,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 		StatusCode:  resp.StatusCode,
 		Headers:     headers,
 		HeaderOrder: responseHeaderOrder(resp.Header),
+		HeaderCasing: takeHeaderCasing(resp.Header),
 		Trailer:     buildTrailerMap(resp.Trailer),
 		Body:        io.NopCloser(bytes.NewReader(body)),
 		FinalURL:    req.URL,
@@ -2346,6 +2363,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 		StatusCode:  resp.StatusCode,
 		Headers:     headers,
 		HeaderOrder: responseHeaderOrder(resp.Header),
+		HeaderCasing: takeHeaderCasing(resp.Header),
 		Trailer:     buildTrailerMap(resp.Trailer),
 		Body:        io.NopCloser(bytes.NewReader(body)),
 		FinalURL:    req.URL,
@@ -3010,7 +3028,7 @@ func buildHeadersMap(h http.Header) map[string][]string {
 		// The order key is transport bookkeeping, not a header the peer sent.
 		// It reaches the response map because the H2 read path records the
 		// arrival order there; it is surfaced separately as Response.HeaderOrder.
-		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey {
+		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey || key == h1HeaderCasingKey {
 			continue
 		}
 		lowerKey := strings.ToLower(key)

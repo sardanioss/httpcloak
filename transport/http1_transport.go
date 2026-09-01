@@ -1113,11 +1113,15 @@ func (t *HTTP1Transport) doRequest(conn *http1Conn, req *http.Request) (*http.Re
 		return nil, err
 	}
 
-	// Read response
+	// Read response. The casing peek has to happen first: it reads nothing, but
+	// once ReadResponse has consumed the header block the original spelling is
+	// gone, since the parse underneath canonicalises the names.
+	casing := peekHeaderCasing(conn.br)
 	resp, err := http.ReadResponse(conn.br, req)
 	if err != nil {
 		return nil, err
 	}
+	stashHeaderCasing(resp.Header, casing)
 
 	return resp, nil
 }

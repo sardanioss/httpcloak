@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/sardanioss/httpcloak/protocol"
@@ -94,5 +95,81 @@ func TestNoTrailersReportsNil(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.Trailer != nil {
 		t.Errorf("Trailer = %v on a response with no trailing block, want nil", resp.Trailer)
+	}
+}
+
+// HTTP/1.1 is the only protocol where response header casing exists at all, and
+// the parse underneath canonicalises it away: a server sending X-FOO is reported
+// as X-Foo. Anything relaying the response onward then emits a spelling the
+// origin never used.
+func newCasingServer(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				br := bufio.NewReader(c)
+				for {
+					line, err := br.ReadString('\n')
+					if err != nil {
+						return
+					}
+					if line == "\r\n" {
+						break
+					}
+				}
+				fmt.Fprint(c,
+					"HTTP/1.1 200 OK\r\n"+
+						"X-FOO: 1\r\n"+
+						"etag: \"abc\"\r\n"+
+						"CONTENT-LENGTH: 2\r\n"+
+						"Connection: close\r\n\r\nok")
+			}(c)
+		}
+	}()
+	return "http://" + ln.Addr().String() + "/"
+}
+
+func TestHTTP1ReportsTheServersOwnHeaderCasing(t *testing.T) {
+	url := newCasingServer(t)
+	s := newBodyTestSession(t, &protocol.SessionConfig{})
+	resp, err := s.Request(context.Background(), &transport.Request{Method: "GET", URL: url})
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.HeaderCasing == nil {
+		t.Fatal("HeaderCasing is nil; the server's own spelling is unrecoverable " +
+			"once the parse canonicalises it")
+	}
+	got := map[string]bool{}
+	for _, n := range resp.HeaderCasing {
+		got[n] = true
+	}
+	for _, want := range []string{"X-FOO", "etag", "CONTENT-LENGTH"} {
+		if !got[want] {
+			t.Errorf("HeaderCasing %v does not carry %q as the server spelled it",
+				resp.HeaderCasing, want)
+		}
+	}
+	// And the canonical map is still there and still canonical.
+	if len(resp.Headers["x-foo"]) != 1 {
+		t.Errorf("Headers lost x-foo: %v", resp.Headers)
+	}
+	// The bookkeeping key must never surface as a header.
+	for k := range resp.Headers {
+		if strings.Contains(k, ":") {
+			t.Errorf("internal key %q leaked into Headers", k)
+		}
 	}
 }
