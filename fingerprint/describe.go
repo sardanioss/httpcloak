@@ -241,6 +241,11 @@ func flattenHTTP2(p *Preset) *HTTP2Spec {
 
 	// H2Config: dump resolved values via getters. nil-safe.
 	out.HPACKHeaderOrder = append([]string(nil), p.H2HeaderOrder()...)
+	// Emitted only when the preset actually carries one, so describing a client
+	// that uses a single order for every request shape does not invent a second.
+	if p.H2Config != nil && len(p.H2Config.HPACKHeaderOrderSubresource) > 0 {
+		out.HPACKHeaderOrderSubresource = append([]string(nil), p.H2Config.HPACKHeaderOrderSubresource...)
+	}
 	policy := p.H2HPACKIndexingPolicy()
 	out.HPACKIndexingPolicy = &policy
 	out.HPACKNeverIndex = append([]string(nil), p.H2HPACKNeverIndex()...)

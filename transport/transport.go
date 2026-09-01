@@ -2829,7 +2829,16 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 	// fingerprinting bug — when callers added cache-control/content-type/
 	// cookie, the fork couldn't slot them and appended them after `priority`
 	// instead of placing them where real Chrome does.
-	httpReq.Header[http.HeaderOrderKey] = CompleteHeaderOrder(customHeaderOrder, preset.H2HeaderOrder(), httpReq.Header, userHeaders)
+	//
+	// The order is chosen by request shape. Chrome builds a top-level navigation
+	// and a subresource through different paths and the leading block comes out
+	// differently, so a preset carrying one order gets one of the two wrong. The
+	// dest read here is the final one: the Sec-Fetch inference above has already
+	// run, and the priority table a few lines up reads the same field.
+	httpReq.Header[http.HeaderOrderKey] = CompleteHeaderOrder(
+		customHeaderOrder,
+		preset.H2HeaderOrderFor(httpReq.Header.Get("Sec-Fetch-Dest")),
+		httpReq.Header, userHeaders)
 
 	// Set pseudo-header order: custom (Akamai) > preset H2Config > heuristic
 	if len(customPseudoOrder) > 0 {

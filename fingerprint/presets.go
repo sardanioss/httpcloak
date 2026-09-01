@@ -278,6 +278,13 @@ type HTTP2Settings struct {
 // also fall back to Chrome defaults, so you can override just the fields you need.
 type H2FingerprintConfig struct {
 	HPACKHeaderOrder    []string // HPACK wire encoding order. nil = Chrome 143 default.
+
+	// HPACKHeaderOrderSubresource is the order for every request that is not a
+	// top-level navigation. Chrome builds those through a different path and the
+	// leading block comes out differently: platform hint and user-agent first,
+	// then the rest of the hint cluster. Nil means "use HPACKHeaderOrder for
+	// everything", which is what every non-Chromium preset wants.
+	HPACKHeaderOrderSubresource []string `json:"hpack_header_order_subresource,omitempty"`
 	HPACKIndexingPolicy string   // "chrome"/"never"/"always"/"default". "" = "chrome".
 	// DataFrameMaxSize caps the payload of a DATA frame this profile will send.
 	// nil means derive it from the client family; see H2DataFrameMaxSize.
@@ -679,6 +686,23 @@ func (p *Preset) H2SettingsOrder() []uint16 {
 
 // H2PseudoHeaderOrder returns the pseudo-header order for HTTP/2.
 // nil signals "use heuristic" (Chrome m,a,s,p / Safari m,s,p,a).
+// H2HeaderOrderFor returns the wire header order for a request with the given
+// sec-fetch-dest.
+//
+// Chrome emits a different order for a top-level navigation than for everything
+// the page then fetches, so a preset carrying one order gets one of the two
+// wrong. An empty dest means the caller could not tell, and is treated as a
+// navigation because that is the shape a bare Get() has.
+func (p *Preset) H2HeaderOrderFor(dest string) []string {
+	if dest == "" || dest == "document" || dest == "iframe" {
+		return p.H2HeaderOrder()
+	}
+	if p.H2Config != nil && len(p.H2Config.HPACKHeaderOrderSubresource) > 0 {
+		return p.H2Config.HPACKHeaderOrderSubresource
+	}
+	return p.H2HeaderOrder()
+}
+
 func (p *Preset) H2PseudoHeaderOrder() []string {
 	if p.H2Config != nil && p.H2Config.PseudoHeaderOrder != nil {
 		return p.H2Config.PseudoHeaderOrder
@@ -943,6 +967,41 @@ func chromeH2Config() *H2FingerprintConfig {
 			"referer",
 			// Conditional-cache validators in a fixed slot (ETag validator first),
 			// so the session-injected If-None-Match / If-Modified-Since don't shuffle.
+			"if-none-match", "if-modified-since",
+			"accept-encoding", "accept-language",
+			"cookie", "priority",
+		},
+		// Everything that is not a top-level navigation. Captured from Chrome 152
+		// on Windows across 20 requests covering script, style, image, font,
+		// manifest and empty: all six produce this one order, so the split is
+		// navigation-vs-not rather than per resource type.
+		//
+		// The difference from the navigation order above is confined to the head:
+		// sec-ch-ua-platform and user-agent lead, then the rest of the hint
+		// cluster. upgrade-insecure-requests and sec-fetch-user do not appear on a
+		// subresource at all, and referer does.
+		//
+		// Three slots come from single observations. origin was seen on a CORS
+		// font fetch and pragma/cache-control on a no-store fetch(), all three at
+		// the very front; sec-fetch-storage-access was seen on a cross-origin
+		// script, between sec-fetch-dest and referer. Their order relative to each
+		// other when several appear at once was not observed.
+		//
+		// The high-entropy hints were not in the capture, since the origins tested
+		// do not request them. They are placed next to their low-entropy siblings,
+		// which is inference rather than measurement; the navigation order emits
+		// the cluster alphabetically and this one plainly does not, so if a capture
+		// ever shows them, expect this grouping to be the part that is wrong.
+		HPACKHeaderOrderSubresource: []string{
+			"pragma", "cache-control", "origin",
+			"sec-ch-ua-platform", "sec-ch-ua-platform-version",
+			"user-agent",
+			"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
+			"sec-ch-ua-mobile", "sec-ch-ua-model", "sec-ch-ua-wow64",
+			"content-type", "content-length",
+			"accept",
+			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-storage-access",
+			"referer",
 			"if-none-match", "if-modified-since",
 			"accept-encoding", "accept-language",
 			"cookie", "priority",

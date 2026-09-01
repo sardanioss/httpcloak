@@ -143,6 +143,7 @@ type HTTP2Spec struct {
 
 	// HPACK config
 	HPACKHeaderOrder    []string `json:"hpack_header_order,omitempty"`
+	HPACKHeaderOrderSubresource []string `json:"hpack_header_order_subresource,omitempty"`
 	HPACKIndexingPolicy *string  `json:"hpack_indexing_policy,omitempty"` // "chrome","never","always","default"
 	// HPACKRepresentation pins the HPACK representation per header name:
 	// "incremental", "without", "never" or "default". Override layer, empty
@@ -482,6 +483,10 @@ func clonePreset(src *Preset) *Preset {
 		if src.H2Config.HPACKHeaderOrder != nil {
 			h2.HPACKHeaderOrder = make([]string, len(src.H2Config.HPACKHeaderOrder))
 			copy(h2.HPACKHeaderOrder, src.H2Config.HPACKHeaderOrder)
+		}
+		if src.H2Config.HPACKHeaderOrderSubresource != nil {
+			h2.HPACKHeaderOrderSubresource = make([]string, len(src.H2Config.HPACKHeaderOrderSubresource))
+			copy(h2.HPACKHeaderOrderSubresource, src.H2Config.HPACKHeaderOrderSubresource)
 		}
 		if src.H2Config.HPACKRepresentation != nil {
 			h2.HPACKRepresentation = make(map[string]string, len(src.H2Config.HPACKRepresentation))
@@ -1028,7 +1033,8 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 
 	// H2 fingerprinting config
 	if spec.SettingsOrder != nil || spec.PseudoOrder != nil ||
-		spec.HPACKHeaderOrder != nil || spec.HPACKIndexingPolicy != nil ||
+		spec.HPACKHeaderOrder != nil || spec.HPACKHeaderOrderSubresource != nil ||
+		spec.HPACKIndexingPolicy != nil ||
 		spec.HPACKNeverIndex != nil || spec.HPACKRepresentation != nil ||
 		spec.StreamPriorityMode != nil ||
 		spec.DisableCookieSplit != nil || spec.PriorityTable != nil ||
@@ -1050,6 +1056,10 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 		if spec.HPACKHeaderOrder != nil {
 			p.H2Config.HPACKHeaderOrder = make([]string, len(spec.HPACKHeaderOrder))
 			copy(p.H2Config.HPACKHeaderOrder, spec.HPACKHeaderOrder)
+		}
+		if spec.HPACKHeaderOrderSubresource != nil {
+			p.H2Config.HPACKHeaderOrderSubresource = make([]string, len(spec.HPACKHeaderOrderSubresource))
+			copy(p.H2Config.HPACKHeaderOrderSubresource, spec.HPACKHeaderOrderSubresource)
 		}
 		if spec.HPACKIndexingPolicy != nil {
 			p.H2Config.HPACKIndexingPolicy = *spec.HPACKIndexingPolicy
