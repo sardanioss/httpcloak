@@ -1145,11 +1145,23 @@ func (t *HTTP1Transport) writeRequest(conn *http1Conn, req *http.Request) error 
 	// Connection header second, immediately after Host. Real Chrome emits
 	// "Connection: keep-alive" as the second request header on the HTTP/1.1 wire.
 	// Honor a caller-supplied value if present; otherwise default to keep-alive.
-	connValue := "keep-alive"
-	if v := req.Header.Get("Connection"); v != "" {
-		connValue = v
+	//
+	// Exact-headers mode is the exception. Its contract is that nothing the
+	// caller did not list goes on the wire, and a caller reproducing a captured
+	// request that carries no Connection cannot have one added back. Nothing
+	// breaks by leaving it out: HTTP/1.1 keeps connections alive by default, so
+	// the header is a restatement of the default rather than what enables it,
+	// which is why suppressing it here does not cost the connection pool
+	// anything. HTTP/1.0 would be a different matter, and this writer only
+	// speaks 1.1.
+	connValue := req.Header.Get("Connection")
+	exact := len(req.Header[exactHeadersKey]) > 0
+	if connValue == "" && !exact {
+		connValue = "keep-alive"
 	}
-	fmt.Fprintf(conn.bw, "Connection: %s\r\n", connValue)
+	if connValue != "" {
+		fmt.Fprintf(conn.bw, "Connection: %s\r\n", connValue)
+	}
 
 	// Determine if we need chunked encoding (unknown content length with body)
 	// http.NoBody is an explicit "no body" sentinel — don't use chunked for it
@@ -1416,7 +1428,8 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 		}
 		// Skip internal header ordering keys - these are used internally to control
 		// header order but MUST NOT be sent to the server
-		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey {
+		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey ||
+			key == h1HeaderCasingKey || key == exactHeadersKey {
 			continue
 		}
 		// Skip Transfer-Encoding and Content-Length if we're handling them specially

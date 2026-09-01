@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/transport"
 )
@@ -110,4 +111,85 @@ func TestTheTwoShapesDiffer(t *testing.T) {
 	if nav == sub {
 		t.Errorf("navigation and subresource produced the same order:\n  %s", nav)
 	}
+}
+
+// Exact-headers mode promises nothing the caller did not list reaches the wire.
+// The HTTP/1.1 writer supplies Connection on every request, which is right for
+// the normal path and wrong here: a caller reproducing a captured request that
+// carries no Connection cannot have one added back.
+//
+// Nothing is lost by leaving it out. HTTP/1.1 keeps connections alive by
+// default, so the header restates the default rather than causing it.
+func TestExactHeadersSuppressesConnection(t *testing.T) {
+	srv := newBodyCapture(t, 200)
+	s := newBodyTestSession(t, &protocol.SessionConfig{})
+	if _, err := s.Request(context.Background(), &transport.Request{
+		Method: "GET", URL: srv.url + "x",
+		ExactHeaders: []fingerprint.HeaderPair{
+			{Key: "user-agent", Value: "mirror/1"},
+			{Key: "accept", Value: "*/*"},
+		},
+	}); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	for _, h := range srv.hops[0].allHeaders {
+		if h == "connection" {
+			t.Error("exact headers still emitted Connection; the caller did not list it")
+		}
+	}
+	// Host is protocol framing and stays, per the documented contract.
+	found := false
+	for _, h := range srv.hops[0].allHeaders {
+		if h == "host" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Host was dropped; it is protocol framing, not a caller header")
+	}
+}
+
+// And a caller who does list Connection gets exactly what they asked for.
+func TestExactHeadersHonoursAListedConnection(t *testing.T) {
+	srv := newBodyCapture(t, 200)
+	s := newBodyTestSession(t, &protocol.SessionConfig{})
+	if _, err := s.Request(context.Background(), &transport.Request{
+		Method: "GET", URL: srv.url + "x",
+		ExactHeaders: []fingerprint.HeaderPair{
+			{Key: "user-agent", Value: "mirror/1"},
+			{Key: "Connection", Value: "close"},
+		},
+	}); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	found := false
+	for _, h := range srv.hops[0].allHeaders {
+		if h == "connection" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a listed Connection was dropped")
+	}
+}
+
+// The normal path keeps Connection, since Chrome sends it on every H1 request.
+func TestNormalPathStillSendsConnection(t *testing.T) {
+	srv := newBodyCapture(t, 200)
+	s := newBodyTestSession(t, &protocol.SessionConfig{})
+	if _, err := s.Request(context.Background(), &transport.Request{Method: "GET", URL: srv.url + "x"}); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	for _, h := range srv.hops[0].allHeaders {
+		if h == "connection" {
+			return
+		}
+	}
+	t.Error("the normal path stopped sending Connection; only exact headers should suppress it")
 }

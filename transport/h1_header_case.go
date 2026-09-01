@@ -17,6 +17,20 @@ import (
 // header name, which cannot contain one.
 const h1HeaderCasingKey = "Header-Casing:"
 
+// exactHeadersKey marks a request whose headers were supplied verbatim, so the
+// HTTP/1.1 writer knows not to add the ones it normally supplies.
+//
+// It cannot be inferred from the order list: the preset order does not name
+// Connection either, so "Connection is absent from the order" is true on the
+// normal path as well and would suppress it for every request.
+//
+// Set on the HTTP/1.1 path only. The fork's HTTP/2 and HTTP/3 encoders skip
+// exactly two ordering keys by name and their validator rejects any header name
+// containing a colon, so this key would fail the request outright there instead
+// of being ignored. HTTP/1.1 is also the only protocol that needs it, since it
+// is the only one whose request this transport writes itself.
+const exactHeadersKey = "Exact-Headers:"
+
 // stashHeaderCasing records the server's spelling on the response for the
 // builder to pick up, doing nothing when the peek came back empty.
 func stashHeaderCasing(h http.Header, names []string) {

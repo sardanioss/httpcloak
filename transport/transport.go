@@ -2719,6 +2719,15 @@ func applyExactHeaders(httpReq *http.Request, exact []fingerprint.HeaderPair, pr
 	// One order entry per name. A repeated name emits all of its values at that
 	// one position, which is what a browser does with Cookie on HTTP/1.1.
 	httpReq.Header[http.HeaderOrderKey] = order
+	// Only on HTTP/1.1, where this transport writes the request itself and can
+	// be told to stop supplying Connection. The HTTP/2 and HTTP/3 encoders live
+	// in the fork, whose skip list names exactly two ordering keys and whose
+	// validator rejects any header name containing a colon: a third key here
+	// would fail every exact-headers request on those protocols rather than
+	// being ignored.
+	if protocol == "h1" {
+		httpReq.Header[exactHeadersKey] = []string{"1"}
+	}
 
 	// Pseudo-header order is still the preset's. It is part of the protocol
 	// framing rather than something the caller listed, and a caller who wants
@@ -3028,7 +3037,8 @@ func buildHeadersMap(h http.Header) map[string][]string {
 		// The order key is transport bookkeeping, not a header the peer sent.
 		// It reaches the response map because the H2 read path records the
 		// arrival order there; it is surfaced separately as Response.HeaderOrder.
-		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey || key == h1HeaderCasingKey {
+		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey ||
+			key == h1HeaderCasingKey || key == exactHeadersKey {
 			continue
 		}
 		lowerKey := strings.ToLower(key)

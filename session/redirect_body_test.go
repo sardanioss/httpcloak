@@ -29,6 +29,7 @@ type hopRecord struct {
 	transferEncoding string
 	contentType      string
 	headers          []string
+	allHeaders       []string          // including host/connection, for tests that assert on those
 	values           map[string]string // lowercased name -> value, for tests that assert content
 	body             []byte
 }
@@ -99,6 +100,7 @@ func (s *bodyCapture) serve(conn net.Conn) {
 		case "content-type":
 			rec.contentType = value
 		}
+		rec.allHeaders = append(rec.allHeaders, name)
 		if name != "host" && name != "connection" {
 			rec.headers = append(rec.headers, name)
 			rec.values[name] = value
