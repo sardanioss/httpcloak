@@ -1510,9 +1510,23 @@ func (s *Session) Fork(n int) []*Session {
 	return forks
 }
 
-// Close closes the session and releases resources
+// Close closes the session and releases resources immediately. Any request
+// still in flight, including a body still being read, is interrupted.
 func (s *Session) Close() {
 	s.inner.Close()
+}
+
+// CloseGraceful closes the session without interrupting requests that are in
+// flight. The session stops accepting new requests at once; idle connections
+// close now, and a connection still delivering a response body closes when that
+// body is finished. It returns immediately, and calling Close afterwards forces
+// anything still draining. This is the right call when retiring a long-lived
+// session that other goroutines may still be reading responses from.
+//
+// HTTP/1.1 and HTTP/2 connections drain as described. HTTP/3 connections are
+// closed immediately, as by Close.
+func (s *Session) CloseGraceful() {
+	s.inner.CloseGraceful()
 }
 
 // Refresh closes all connections but keeps TLS session caches and cookies intact.

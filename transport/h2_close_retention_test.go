@@ -32,6 +32,25 @@ import (
 // regression is about 50x the threshold, so a noisy neighbour in the same test
 // binary cannot fake either result.
 func TestClosedH2TransportIsCollectable(t *testing.T) {
+	testH2TeardownIsCollectable(t, func(tr *HTTP2Transport) { tr.Close() })
+}
+
+// CloseGraceful defers a connection's close until its last body is done rather
+// than cutting it off, which is what a session rotating under load wants. That
+// is also the shape that churns closed sessions fastest, so it is the one the
+// park hurt most.
+//
+// Every deferred close still lands on persistentConn.close and so on the same
+// ClientConn.Close, meaning it inherits the opt-out. Asserting it rather than
+// reading it keeps the two changes from drifting apart: retiring a connection
+// through some other path later would silently reintroduce the five second
+// hold for exactly the callers who rotate most.
+func TestGracefullyClosedH2TransportIsCollectable(t *testing.T) {
+	testH2TeardownIsCollectable(t, func(tr *HTTP2Transport) { tr.CloseGraceful() })
+}
+
+func testH2TeardownIsCollectable(t *testing.T, teardown func(*HTTP2Transport)) {
+	t.Helper()
 	const (
 		cycles = 100
 		budget = 2 << 20 // 2MB total, against ~5MB of regression
@@ -56,7 +75,7 @@ func TestClosedH2TransportIsCollectable(t *testing.T) {
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
-		tr.Close()
+		teardown(tr)
 	}
 
 	// One warm-up cycle so the certificate pool, the preset clone and the
