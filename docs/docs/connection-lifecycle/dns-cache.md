@@ -45,6 +45,24 @@ func (c *Cache) ResolveIPv6First(ctx, host) (ipv6, ipv4 []net.IP, err error)
 
 If a hostname is already an IP literal, every method short-circuits and returns it directly without touching the resolver.
 
+## Address family
+
+```go
+func (c *Cache) SetNetwork(network string) // "ip4", "ip6", or "" for both
+func (c *Cache) Network() string
+func dns.NetworkForLocalAddr(addr string) string
+```
+
+`SetNetwork` restricts lookups to one family. This is narrower than `SetPreferIPv4`, which only orders a result set that still contains both: a restricted cache never asks for the other family at all, so the resolver makes one query instead of two.
+
+You rarely set this yourself, because the case that calls for it is handled automatically. Binding a source address with `WithLocalAddress` fixes the family for every connection the session makes, and an address of the other family cannot be dialed from that socket, so the transports drop those records after resolving them. A session built with a local address therefore restricts its cache to the matching family at construction, which moves that filter ahead of the resolver instead of behind it. Sessions without a local address are unaffected and query both families as before.
+
+A consequence worth knowing: a host that publishes no record of the bound family now fails with a resolver error naming the host rather than a dial error reporting no usable address. It failed either way, since there was nothing to dial.
+
+Cached entries are stamped with the family they were resolved under, and are ignored while the cache is on another one. So changing the family cannot hand back a set the new family would filter down to nothing, and a lookup already in flight when it changed cannot land as a usable entry either. The next lookup for that host replaces the entry; anything not looked up again expires on the normal TTL.
+
+The restriction is applied at construction, where one local address is known to hold for all three protocol transports. They share a cache but keep their own local address, so calling `SetLocalAddr` on one of them afterwards either stays inside the current family, which keeps the restriction, or lifts it and resolves both families again.
+
 ## TTL and expiry
 
 ```go

@@ -403,9 +403,11 @@ func (t *HTTP3Transport) SetInsecureSkipVerify(skip bool) {
 	}
 }
 
-// SetLocalAddr sets the local IP address for outgoing connections
+// SetLocalAddr sets the local IP address for outgoing connections.
+// See HTTP1Transport.SetLocalAddr for why this also narrows the DNS cache.
 func (t *HTTP3Transport) SetLocalAddr(addr string) {
 	t.localAddr = addr
+	narrowDNSToLocalFamily(t.dnsCache, addr)
 }
 
 // SetDisableECH disables ECH (Encrypted Client Hello) lookup for faster first request

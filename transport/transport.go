@@ -741,6 +741,28 @@ func proxyURLWithCreds(rawURL, username, password string) string {
 	return u.String()
 }
 
+// narrowDNSToLocalFamily keeps the shared DNS cache in step with a source
+// address set after construction, through one of the per-protocol
+// SetLocalAddr methods.
+//
+// Only the constructor sees the single address all three protocol transports
+// were configured with. A later change reaches one of them, while its siblings
+// keep the address they were built with and go on filtering against it, so
+// narrowing the cache to the new family could leave another protocol with
+// nothing it is willing to dial. Anything other than a rebind inside the
+// current family therefore lifts the restriction and goes back to resolving
+// both, which is what this library did before the restriction existed. No
+// configuration reachable this way ends up worse off than it was.
+func narrowDNSToLocalFamily(cache *dns.Cache, addr string) {
+	if cache == nil {
+		return
+	}
+	if dns.NetworkForLocalAddr(addr) == cache.Network() {
+		return
+	}
+	cache.SetNetwork("")
+}
+
 // NewTransportWithConfig creates a new unified transport with proxy and config
 func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *TransportConfig) *Transport {
 	preset := fingerprint.Get(presetName)
@@ -749,6 +771,14 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 	// Determine TLS-only mode from config
 	tlsOnly := false
 	if config != nil {
+		// A bound source address decides the address family for every connection
+		// this transport makes, so records of the other family cannot be dialled.
+		// All three protocol transports already drop them, filtering the resolved
+		// set against the bound family before they dial. Telling the resolver up
+		// front means those records are never looked up, which removes one of the
+		// two queries getaddrinfo makes for an unrestricted lookup.
+		dnsCache.SetNetwork(dns.NetworkForLocalAddr(config.LocalAddr))
+
 		tlsOnly = config.TLSOnly
 
 		// Override preset HTTP/2 settings with custom Akamai fingerprint

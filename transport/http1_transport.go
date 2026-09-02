@@ -281,9 +281,13 @@ func (t *HTTP1Transport) SetInsecureSkipVerify(skip bool) {
 	t.insecureSkipVerify = skip
 }
 
-// SetLocalAddr sets the local IP address for outgoing connections
+// SetLocalAddr sets the local IP address for outgoing connections.
+//
+// It also keeps the shared DNS cache from staying restricted to a family this
+// transport is no longer bound to; see narrowDNSToLocalFamily.
 func (t *HTTP1Transport) SetLocalAddr(addr string) {
 	t.localAddr = addr
+	narrowDNSToLocalFamily(t.dnsCache, addr)
 }
 
 // RoundTrip implements http.RoundTripper
