@@ -666,6 +666,15 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 		}
 		p.RawClientHello = raw
 		p.RawBluntMimicry = blunt
+		// permute_extensions means the same thing here, and is the name someone
+		// reaches for first because it is what the other two TLS modes call it.
+		// It feeds JA3Extras, which the raw path never consults, so accepting it
+		// and doing nothing would be the exact failure this key exists to avoid:
+		// a preset that looks configured and goes on the wire unchanged.
+		// permute_raw_hello wins when both are given.
+		if spec.PermuteExtensions != nil {
+			p.RawPermuteExtensions = *spec.PermuteExtensions
+		}
 		if spec.RawPermuteExtensions != nil {
 			p.RawPermuteExtensions = *spec.RawPermuteExtensions
 		}
