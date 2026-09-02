@@ -2701,9 +2701,9 @@ func httpcloak_free_string(str *C.char) {
 
 // libVersion is the one place the C ABI reports a version from. It has to be
 // bumped with the nine binding version files and the five optionalDependencies
-// pins; it was missed for 1.7.0-beta.2, so every binding reported 1.6.11 off a
-// 1.7.0b2 wheel.
-const libVersion = "1.7.0"
+// pins; it was missed for 1.7.1-beta.2, so every binding reported 1.6.11 off a
+// 1.7.1b2 wheel.
+const libVersion = "1.7.1"
 
 // httpcloak_trim_memory returns freed memory to the operating system and blocks
 // until it has.

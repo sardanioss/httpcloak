@@ -56,7 +56,7 @@ library file, or to a directory holding it under the usual name, and that
 process loads that build instead of the one shipped with the package.
 
 ```sh
-HTTPCLOAK_LIB_PATH=/opt/httpcloak/1.7.0 ./my-bot
+HTTPCLOAK_LIB_PATH=/opt/httpcloak/engines/current ./my-bot
 ```
 
 It exists for a fleet that deploys many processes into one shared directory.
