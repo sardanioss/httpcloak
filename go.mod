@@ -14,8 +14,8 @@ require (
 	github.com/klauspost/compress v1.18.2
 	github.com/miekg/dns v1.1.69
 	github.com/sardanioss/http v1.2.0
-	github.com/sardanioss/net v1.2.9
-	github.com/sardanioss/quic-go v1.2.28
+	github.com/sardanioss/net v1.2.10
+	github.com/sardanioss/quic-go v1.2.29
 	github.com/sardanioss/udpbara v1.1.0
 	github.com/sardanioss/utls v1.10.4
 	golang.org/x/net v0.48.0
