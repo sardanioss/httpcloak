@@ -107,25 +107,6 @@ That's it. Full browser transport layer fingerprint.
 
 ---
 
-## vs curl_cffi
-
-```
-┌────────────────────────────────┬────────────────────────────────┐
-│        BOTH LIBRARIES          │       HTTPCLOAK ONLY           │
-├────────────────────────────────┼────────────────────────────────┤
-│                                │                                │
-│  + TLS fingerprint (JA3/JA4)   │  + HTTP/3 fingerprinting       │
-│  + HTTP/2 fingerprint          │  + ECH (encrypted SNI)         │
-│  + Post-quantum TLS            │  + MASQUE proxy                │
-│  + Bot score: 99               │  + Domain fronting             │
-│                                │  + Certificate pinning         │
-│                                │  + Go, Python, Node.js, C#     │
-│                                │                                │
-└────────────────────────────────┴────────────────────────────────┘
-```
-
----
-
 ## Install
 
 ```bash
