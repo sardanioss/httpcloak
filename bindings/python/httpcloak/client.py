@@ -765,9 +765,14 @@ class StreamResponse:
 
         Call it once the body has been read to the end. Trailers arrive after
         the body, so unlike the buffered Response this cannot be an attribute
-        set when the stream opens; before the body is finished it reports what
-        has arrived so far, which is nothing. gRPC is the case that needs it,
-        since it carries its status here.
+        set when the stream opens.
+
+        Before the body is finished it reports the names the response announced
+        in its Trailer header, each mapped to an empty list, because that is all
+        the peer has actually sent. So an empty list of values means "not here
+        yet", not "sent empty", and the way to tell them apart is to finish the
+        body first. gRPC is the case that needs this, since it carries its
+        status here.
         """
         if self._closed or self._handle is None:
             return {}
@@ -775,7 +780,7 @@ class StreamResponse:
         if not ptr:
             return {}
         try:
-            raw = ctypes.cast(ptr, c_char_p).value
+            raw = cast(ptr, c_char_p).value
             return json.loads(raw.decode("utf-8")) if raw else {}
         except (ValueError, AttributeError):
             return {}
@@ -1059,8 +1064,42 @@ class _AsyncCallbackManager:
         elif response_json:
             try:
                 data = json.loads(response_json.decode("utf-8"))
-                response = Response._from_dict(data, elapsed=elapsed)
-                loop.call_soon_threadsafe(future.set_result, response)
+                # A non-zero stream_handle means this came from the streaming
+                # entry point, which has to hand the handle back through the
+                # callback because there is no return value to put it in. The
+                # synchronous path returns the handle directly and leaves this
+                # zero, so the field doubles as the discriminator between a
+                # buffered response and a stream that is only just open.
+                handle = data.get("stream_handle") or 0
+                if handle:
+                    result = StreamResponse(
+                        stream_handle=handle,
+                        lib=self._lib,
+                        status_code=data.get("status_code", 0),
+                        headers=data.get("headers") or {},
+                        final_url=data.get("final_url", ""),
+                        protocol=data.get("protocol", ""),
+                        content_length=data.get("content_length", -1),
+                        cookies=[
+                            Cookie(
+                                name=c.get("name", ""),
+                                value=c.get("value", ""),
+                                domain=c.get("domain", ""),
+                                path=c.get("path", ""),
+                                expires=c.get("expires", ""),
+                                max_age=c.get("max_age", 0),
+                                secure=c.get("secure", False),
+                                http_only=c.get("http_only", False),
+                                same_site=c.get("same_site", ""),
+                            )
+                            for c in (data.get("cookies") or [])
+                            if isinstance(c, dict)
+                        ],
+                        header_order=data.get("header_order") or [],
+                    )
+                else:
+                    result = Response._from_dict(data, elapsed=elapsed)
+                loop.call_soon_threadsafe(future.set_result, result)
             except Exception as e:
                 loop.call_soon_threadsafe(future.set_exception, HTTPCloakError(f"Failed to parse response: {e}"))
         else:
@@ -3991,6 +4030,108 @@ class Session:
             cookies=cookies_list,
             header_order=metadata.get("header_order") or [],
         )
+
+    async def request_stream_async(
+        self,
+        method: str,
+        url: str,
+        data: Union[str, bytes, None] = None,
+        params: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
+        auth: Optional[Tuple[str, str]] = None,
+        timeout: Optional[int] = None,
+        allow_redirects: Optional[bool] = None,
+        disable_conditional_cache: bool = False,
+        disable_client_hints: bool = False,
+        disable_high_entropy_client_hints: bool = False,
+        disable_redirect_referer: bool = False,
+        exact_headers: Optional[Sequence[Tuple[str, str]]] = None,
+        header_order: Optional[Sequence[str]] = None,
+    ) -> StreamResponse:
+        """
+        Open a streaming request without blocking the event loop.
+
+        Every other streaming method blocks the calling thread until the
+        response headers arrive, which in an asyncio program stalls every other
+        coroutine for the length of a DNS lookup, a TCP connect and a TLS
+        handshake. This awaits that instead: the Go side runs the request on its
+        own goroutine and resolves the future when the headers land.
+
+        Only the opening is asynchronous. The returned StreamResponse reads its
+        body with the same synchronous methods as the rest, so wrap those in
+        asyncio.to_thread if the body is large enough to matter.
+
+        Args:
+            method: HTTP method (GET, POST, PUT, etc.)
+            url: Request URL
+            data: Request body
+            params: URL query parameters
+            headers: Request headers
+            cookies: Cookies to send with this request
+            auth: Basic auth tuple (username, password)
+            timeout: Request timeout in seconds
+            exact_headers: Replaces the whole header pipeline, see request()
+            header_order: Header order for this request only
+
+        Returns:
+            StreamResponse, already open, body not yet read
+
+        Example:
+            resp = await session.request_stream_async("GET", url)
+            try:
+                for chunk in resp.iter_content(8192):
+                    ...
+            finally:
+                resp.close()
+        """
+        url = _add_params_to_url(url, params)
+        merged_headers = self._merge_headers(headers)
+        effective_auth = auth if auth is not None else self.auth
+        merged_headers = _apply_auth(merged_headers, effective_auth)
+        merged_headers = self._apply_cookies(merged_headers, cookies)
+
+        request_config: Dict[str, Any] = {
+            "method": method.upper(),
+            "url": url,
+        }
+        if exact_headers:
+            request_config["exact_headers"] = [[str(k), str(v)] for k, v in exact_headers]
+        if header_order:
+            request_config["header_order"] = [str(h) for h in header_order]
+        if merged_headers:
+            request_config["headers"] = merged_headers
+        if data is not None:
+            request_config["body"] = data.decode("utf-8") if isinstance(data, bytes) else str(data)
+        if timeout:
+            request_config["timeout"] = int(timeout * 1000)
+        if allow_redirects is not None:
+            request_config["follow_redirects"] = bool(allow_redirects)
+        if disable_conditional_cache:
+            request_config["disable_conditional_cache"] = True
+        if disable_client_hints:
+            request_config["disable_client_hints"] = True
+        if disable_high_entropy_client_hints:
+            request_config["disable_high_entropy_client_hints"] = True
+        if disable_redirect_referer:
+            request_config["disable_redirect_referer"] = True
+
+        manager = _get_async_manager()
+        callback_id, future = manager.register_request(self._lib)
+        self._lib.httpcloak_stream_request_async(
+            self._handle,
+            _json.dumps(request_config).encode("utf-8"),
+            callback_id,
+        )
+        return await future
+
+    async def get_stream_async(self, url: str, **kwargs) -> StreamResponse:
+        """GET, streamed, without blocking the event loop. See request_stream_async."""
+        return await self.request_stream_async("GET", url, **kwargs)
+
+    async def post_stream_async(self, url: str, data: Union[str, bytes, None] = None, **kwargs) -> StreamResponse:
+        """POST, streamed, without blocking the event loop. See request_stream_async."""
+        return await self.request_stream_async("POST", url, data=data, **kwargs)
 
     def request_stream(
         self,
