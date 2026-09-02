@@ -72,7 +72,7 @@ using var old     = new Session(preset: "chrome-144-windows");
 
 Each preset family ships per-OS variants where the underlying browser differs by OS. Chrome differs across Windows, Linux, macOS, Android, and iOS (iOS Chrome is WebKit underneath, a different stack entirely). Firefox barely differs across desktop OSes, so there's a single desktop build.
 
-**Chrome desktop**: 133, 141, 143, 144, 145, 146, 147, 148. The 143-148 line ships per-OS variants (`chrome-152-windows`, `chrome-152-linux`, `chrome-152-macos`); bare `chrome-152` aliases to whatever OS the library defaults to. The older 133 and 141 builds are desktop-only single presets without per-OS suffixes.
+**Chrome desktop**: 133, 141, and 143 through 152. The 143-152 line ships per-OS variants (`chrome-152-windows`, `chrome-152-linux`, `chrome-152-macos`); bare `chrome-152` aliases to whatever OS the library defaults to. The older 133 and 141 builds are desktop-only single presets without per-OS suffixes.
 
 **Chrome mobile**: `chrome-143-android` through `chrome-152-android`, and `chrome-143-ios` through `chrome-152-ios`. Mobile Chrome has its own UA, its own sec-ch-ua values, and on iOS a completely different TLS stack (WebKit, again).
 

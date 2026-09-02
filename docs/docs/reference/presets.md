@@ -73,7 +73,7 @@ For any preset not listed, run the same capture yourself. The static parts (UA, 
 
 ## Chrome desktop
 
-The Chrome desktop family. Versions 143 through 146 are Go-defined in `fingerprint/presets.go`. Versions 147, 148, and 149 ship as JSON in `fingerprint/embedded/`, inheriting from 146, 147, and 148 respectively with just the User-Agent and `sec-ch-ua` brand list bumped.
+The Chrome desktop family. Versions 143 through 146 are Go-defined in `fingerprint/presets.go`. Versions 147 through 152 ship as JSON in `fingerprint/embedded/`, each inheriting from the one before it. Most bump only the User-Agent and the `sec-ch-ua` brand list; 150 and 152 also change the TLS layer, 150 by adding signature algorithms and 152 by adding the trust anchors extension and a greased signature algorithm.
 
 | Preset | UA | `sec-ch-ua` | Notes |
 |---|---|---|---|
