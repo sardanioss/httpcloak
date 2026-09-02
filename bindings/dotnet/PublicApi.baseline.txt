@@ -1,0 +1,384 @@
+HttpCloak.Cookie.Domain : System.String
+HttpCloak.Cookie.Expires : System.String
+HttpCloak.Cookie.HttpOnly : System.Boolean
+HttpCloak.Cookie.MaxAge : System.Int64
+HttpCloak.Cookie.Name : System.String
+HttpCloak.Cookie.Path : System.String
+HttpCloak.Cookie.SameSite : System.String
+HttpCloak.Cookie.Secure : System.Boolean
+HttpCloak.Cookie.ToString() : System.String
+HttpCloak.Cookie.Value : System.String
+HttpCloak.CustomPresets.Describe(System.String) : System.String
+HttpCloak.CustomPresets.LoadFromFile(System.String) : System.String
+HttpCloak.CustomPresets.LoadFromJson(System.String) : System.String
+HttpCloak.CustomPresets.Unregister(System.String) : System.Void
+HttpCloak.FastResponse.Content : System.Byte[]
+HttpCloak.FastResponse.Cookies : System.Collections.Generic.List<HttpCloak.Cookie>
+HttpCloak.FastResponse.Elapsed : System.TimeSpan
+HttpCloak.FastResponse.Encoding : System.String
+HttpCloak.FastResponse.GetHeader(System.String) : System.String
+HttpCloak.FastResponse.GetHeaders(System.String) : System.String[]
+HttpCloak.FastResponse.Headers : System.Collections.Generic.Dictionary<System.String, System.String[]>
+HttpCloak.FastResponse.History : System.Collections.Generic.List<HttpCloak.RedirectInfo>
+HttpCloak.FastResponse.Json() : T
+HttpCloak.FastResponse.Ok : System.Boolean
+HttpCloak.FastResponse.Protocol : System.String
+HttpCloak.FastResponse.RaiseForStatus() : System.Void
+HttpCloak.FastResponse.Reason : System.String
+HttpCloak.FastResponse.StatusCode : System.Int32
+HttpCloak.FastResponse.Text : System.String
+HttpCloak.FastResponse.Url : System.String
+HttpCloak.HttpCloakCache.ClearSessionCache() : System.Void
+HttpCloak.HttpCloakCache.ConfigureSessionCache(HttpCloak.ISessionCache) : HttpCloak.SessionCacheBackend
+HttpCloak.HttpCloakContentStream.CanRead : System.Boolean
+HttpCloak.HttpCloakContentStream.CanSeek : System.Boolean
+HttpCloak.HttpCloakContentStream.CanWrite : System.Boolean
+HttpCloak.HttpCloakContentStream.Flush() : System.Void
+HttpCloak.HttpCloakContentStream.Length : System.Int64
+HttpCloak.HttpCloakContentStream.Position : System.Int64
+HttpCloak.HttpCloakContentStream.Read(System.Byte[], System.Int32, System.Int32) : System.Int32
+HttpCloak.HttpCloakContentStream.ReadAsync(System.Byte[], System.Int32, System.Int32, System.Threading.CancellationToken) : System.Threading.Tasks.Task<System.Int32>
+HttpCloak.HttpCloakContentStream.Seek(System.Int64, System.IO.SeekOrigin) : System.Int64
+HttpCloak.HttpCloakContentStream.SetLength(System.Int64) : System.Void
+HttpCloak.HttpCloakContentStream.Write(System.Byte[], System.Int32, System.Int32) : System.Void
+HttpCloak.HttpCloakException..ctor(System.String)
+HttpCloak.HttpCloakHandler..ctor(HttpCloak.LocalProxy)
+HttpCloak.HttpCloakHandler..ctor(System.String, System.String, System.String, System.String, System.Int32, System.Int32)
+HttpCloak.HttpCloakHandler.GetStats() : HttpCloak.LocalProxyStats
+HttpCloak.HttpCloakHandler.Proxy : HttpCloak.LocalProxy
+HttpCloak.HttpCloakHandler.ProxyUrl : System.String
+HttpCloak.HttpCloakInfo.AvailablePresets() : System.Collections.Generic.Dictionary<System.String, HttpCloak.PresetInfo>
+HttpCloak.HttpCloakInfo.GetEchDnsServers() : System.String[]
+HttpCloak.HttpCloakInfo.SetEchDnsServers(System.String[]) : System.Void
+HttpCloak.HttpCloakInfo.Version() : System.String
+HttpCloak.ISessionCache.Delete(System.String) : System.Int32
+HttpCloak.ISessionCache.Get(System.String) : System.String
+HttpCloak.ISessionCache.GetEch(System.String) : System.String
+HttpCloak.ISessionCache.OnError(System.String, System.String, System.String) : System.Void
+HttpCloak.ISessionCache.Put(System.String, System.String, System.Int64) : System.Int32
+HttpCloak.ISessionCache.PutEch(System.String, System.String, System.Int64) : System.Int32
+HttpCloak.LocalProxy..ctor(System.Int32, System.String, System.Int32, System.Int32, System.String, System.String, System.Boolean)
+HttpCloak.LocalProxy.CreateClient(System.Net.Http.HttpClientHandler) : System.Net.Http.HttpClient
+HttpCloak.LocalProxy.CreateFingerprintHandler(System.Net.Http.HttpClientHandler) : System.Net.Http.HttpMessageHandler
+HttpCloak.LocalProxy.CreateHandler() : System.Net.Http.HttpClientHandler
+HttpCloak.LocalProxy.CreateWebProxy() : System.Net.WebProxy
+HttpCloak.LocalProxy.Dispose() : System.Void
+HttpCloak.LocalProxy.GetStats() : HttpCloak.LocalProxyStats
+HttpCloak.LocalProxy.HasSession(System.String) : System.Boolean
+HttpCloak.LocalProxy.IsRunning : System.Boolean
+HttpCloak.LocalProxy.ListSessions() : System.Collections.Generic.List<System.String>
+HttpCloak.LocalProxy.Port : System.Int32
+HttpCloak.LocalProxy.ProxyUrl : System.String
+HttpCloak.LocalProxy.RegisterSession(System.String, HttpCloak.Session) : System.Void
+HttpCloak.LocalProxy.UnregisterSession(System.String) : System.Boolean
+HttpCloak.LocalProxyStats..ctor()
+HttpCloak.LocalProxyStats.ActiveConnections : System.Int64
+HttpCloak.LocalProxyStats.MaxConnections : System.Int32
+HttpCloak.LocalProxyStats.Port : System.Int32
+HttpCloak.LocalProxyStats.Preset : System.String
+HttpCloak.LocalProxyStats.Running : System.Boolean
+HttpCloak.LocalProxyStats.TotalRequests : System.Int64
+HttpCloak.MultipartFile..ctor(System.Byte[], System.String, System.String)
+HttpCloak.MultipartFile.Content : System.Byte[]
+HttpCloak.MultipartFile.ContentType : System.String
+HttpCloak.MultipartFile.Filename : System.String
+HttpCloak.PresetInfo..ctor()
+HttpCloak.PresetInfo.Protocols : System.String[]
+HttpCloak.PresetPool..ctor(System.String)
+HttpCloak.PresetPool.Count : System.Int32
+HttpCloak.PresetPool.Dispose() : System.Void
+HttpCloak.PresetPool.FromJson(System.String) : HttpCloak.PresetPool
+HttpCloak.PresetPool.Item : System.String
+HttpCloak.PresetPool.Name : System.String
+HttpCloak.PresetPool.Next() : System.String
+HttpCloak.PresetPool.Pick() : System.String
+HttpCloak.PresetPool.Random() : System.String
+HttpCloak.Presets.AndroidChrome143 : System.String
+HttpCloak.Presets.AndroidChrome144 : System.String
+HttpCloak.Presets.AndroidChrome145 : System.String
+HttpCloak.Presets.AndroidChrome146 : System.String
+HttpCloak.Presets.AndroidChrome147 : System.String
+HttpCloak.Presets.AndroidChrome148 : System.String
+HttpCloak.Presets.AndroidChromeLatest : System.String
+HttpCloak.Presets.Chrome133 : System.String
+HttpCloak.Presets.Chrome141 : System.String
+HttpCloak.Presets.Chrome143 : System.String
+HttpCloak.Presets.Chrome143Android : System.String
+HttpCloak.Presets.Chrome143Ios : System.String
+HttpCloak.Presets.Chrome143Linux : System.String
+HttpCloak.Presets.Chrome143MacOS : System.String
+HttpCloak.Presets.Chrome143Windows : System.String
+HttpCloak.Presets.Chrome144 : System.String
+HttpCloak.Presets.Chrome144Android : System.String
+HttpCloak.Presets.Chrome144Ios : System.String
+HttpCloak.Presets.Chrome144Linux : System.String
+HttpCloak.Presets.Chrome144MacOS : System.String
+HttpCloak.Presets.Chrome144Windows : System.String
+HttpCloak.Presets.Chrome145 : System.String
+HttpCloak.Presets.Chrome145Android : System.String
+HttpCloak.Presets.Chrome145Ios : System.String
+HttpCloak.Presets.Chrome145Linux : System.String
+HttpCloak.Presets.Chrome145MacOS : System.String
+HttpCloak.Presets.Chrome145Windows : System.String
+HttpCloak.Presets.Chrome146 : System.String
+HttpCloak.Presets.Chrome146Android : System.String
+HttpCloak.Presets.Chrome146Ios : System.String
+HttpCloak.Presets.Chrome146Linux : System.String
+HttpCloak.Presets.Chrome146MacOS : System.String
+HttpCloak.Presets.Chrome146Windows : System.String
+HttpCloak.Presets.Chrome147 : System.String
+HttpCloak.Presets.Chrome147Android : System.String
+HttpCloak.Presets.Chrome147Ios : System.String
+HttpCloak.Presets.Chrome147Linux : System.String
+HttpCloak.Presets.Chrome147MacOS : System.String
+HttpCloak.Presets.Chrome147Windows : System.String
+HttpCloak.Presets.Chrome148 : System.String
+HttpCloak.Presets.Chrome148Android : System.String
+HttpCloak.Presets.Chrome148Ios : System.String
+HttpCloak.Presets.Chrome148Linux : System.String
+HttpCloak.Presets.Chrome148MacOS : System.String
+HttpCloak.Presets.Chrome148Windows : System.String
+HttpCloak.Presets.Chrome149 : System.String
+HttpCloak.Presets.Chrome149Linux : System.String
+HttpCloak.Presets.Chrome149MacOS : System.String
+HttpCloak.Presets.Chrome149Windows : System.String
+HttpCloak.Presets.Chrome150 : System.String
+HttpCloak.Presets.Chrome150Android : System.String
+HttpCloak.Presets.Chrome150IOS : System.String
+HttpCloak.Presets.Chrome150Linux : System.String
+HttpCloak.Presets.Chrome150MacOS : System.String
+HttpCloak.Presets.Chrome150Windows : System.String
+HttpCloak.Presets.Chrome151 : System.String
+HttpCloak.Presets.Chrome151Android : System.String
+HttpCloak.Presets.Chrome151IOS : System.String
+HttpCloak.Presets.Chrome151Linux : System.String
+HttpCloak.Presets.Chrome151MacOS : System.String
+HttpCloak.Presets.Chrome151Windows : System.String
+HttpCloak.Presets.ChromeLatest : System.String
+HttpCloak.Presets.ChromeLatestAndroid : System.String
+HttpCloak.Presets.ChromeLatestIos : System.String
+HttpCloak.Presets.ChromeLatestLinux : System.String
+HttpCloak.Presets.ChromeLatestMacOS : System.String
+HttpCloak.Presets.ChromeLatestWindows : System.String
+HttpCloak.Presets.Firefox133 : System.String
+HttpCloak.Presets.Firefox133Linux : System.String
+HttpCloak.Presets.Firefox133MacOS : System.String
+HttpCloak.Presets.Firefox133Windows : System.String
+HttpCloak.Presets.Firefox148 : System.String
+HttpCloak.Presets.Firefox148Linux : System.String
+HttpCloak.Presets.Firefox148MacOS : System.String
+HttpCloak.Presets.Firefox148Windows : System.String
+HttpCloak.Presets.FirefoxLatest : System.String
+HttpCloak.Presets.FirefoxLatestLinux : System.String
+HttpCloak.Presets.FirefoxLatestMacOS : System.String
+HttpCloak.Presets.FirefoxLatestWindows : System.String
+HttpCloak.Presets.IosChrome143 : System.String
+HttpCloak.Presets.IosChrome144 : System.String
+HttpCloak.Presets.IosChrome145 : System.String
+HttpCloak.Presets.IosChrome146 : System.String
+HttpCloak.Presets.IosChrome147 : System.String
+HttpCloak.Presets.IosChrome148 : System.String
+HttpCloak.Presets.IosChromeLatest : System.String
+HttpCloak.Presets.IosSafari17 : System.String
+HttpCloak.Presets.IosSafari18 : System.String
+HttpCloak.Presets.IosSafariLatest : System.String
+HttpCloak.Presets.Safari17Ios : System.String
+HttpCloak.Presets.Safari18 : System.String
+HttpCloak.Presets.Safari18Ios : System.String
+HttpCloak.Presets.SafariLatest : System.String
+HttpCloak.Presets.SafariLatestIos : System.String
+HttpCloak.RedirectInfo.GetHeader(System.String) : System.String
+HttpCloak.RedirectInfo.Headers : System.Collections.Generic.Dictionary<System.String, System.String[]>
+HttpCloak.RedirectInfo.StatusCode : System.Int32
+HttpCloak.RedirectInfo.ToString() : System.String
+HttpCloak.RedirectInfo.Url : System.String
+HttpCloak.Response.Content : System.Byte[]
+HttpCloak.Response.Cookies : System.Collections.Generic.List<HttpCloak.Cookie>
+HttpCloak.Response.Elapsed : System.TimeSpan
+HttpCloak.Response.Encoding : System.String
+HttpCloak.Response.GetHeader(System.String) : System.String
+HttpCloak.Response.GetHeaders(System.String) : System.String[]
+HttpCloak.Response.Headers : System.Collections.Generic.Dictionary<System.String, System.String[]>
+HttpCloak.Response.History : System.Collections.Generic.List<HttpCloak.RedirectInfo>
+HttpCloak.Response.Json() : T
+HttpCloak.Response.Ok : System.Boolean
+HttpCloak.Response.Protocol : System.String
+HttpCloak.Response.RaiseForStatus() : System.Void
+HttpCloak.Response.Reason : System.String
+HttpCloak.Response.StatusCode : System.Int32
+HttpCloak.Response.Text : System.String
+HttpCloak.Response.Url : System.String
+HttpCloak.Session..ctor(System.String, System.String, System.String, System.String, System.Int32, System.String, System.Boolean, System.Boolean, System.Int32, System.Int32, System.Int32[], System.Int32, System.Int32, System.Boolean, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Boolean, System.Int32, System.String, System.String, System.Boolean, System.String, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.Object>, System.Nullable<System.Int32>, System.Nullable<System.Int32>, System.Nullable<System.Int32>, System.Nullable<System.Int32>, System.Nullable<System.Boolean>)
+HttpCloak.Session.Auth : System.Nullable<System.ValueTuple<System.String, System.String>>
+HttpCloak.Session.ClearCache() : System.Void
+HttpCloak.Session.ClearCookies() : System.Void
+HttpCloak.Session.Delete(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Delete(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.DeleteAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.DeleteAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.DeleteCookie(System.String, System.String) : System.Void
+HttpCloak.Session.DeleteFast(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String) : HttpCloak.FastResponse
+HttpCloak.Session.Dispose() : System.Void
+HttpCloak.Session.Fork(System.Int32) : HttpCloak.Session[]
+HttpCloak.Session.Get(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Get(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.GetAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.GetAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.GetClientHints() : System.Boolean
+HttpCloak.Session.GetConditionalCache() : System.Boolean
+HttpCloak.Session.GetCookie(System.String) : HttpCloak.Cookie
+HttpCloak.Session.GetCookieDetailed(System.String) : HttpCloak.Cookie
+HttpCloak.Session.GetCookies() : System.Collections.Generic.List<HttpCloak.Cookie>
+HttpCloak.Session.GetCookiesDetailed() : System.Collections.Generic.List<HttpCloak.Cookie>
+HttpCloak.Session.GetFast(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.String) : HttpCloak.FastResponse
+HttpCloak.Session.GetFollowRedirects() : System.Boolean
+HttpCloak.Session.GetHeaderOrder() : System.String[]
+HttpCloak.Session.GetHighEntropyClientHints() : System.Boolean
+HttpCloak.Session.GetMaxRedirects() : System.Int32
+HttpCloak.Session.GetProxy() : System.String
+HttpCloak.Session.GetStream(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String) : HttpCloak.StreamResponse
+HttpCloak.Session.GetTcpProxy() : System.String
+HttpCloak.Session.GetUdpProxy() : System.String
+HttpCloak.Session.Head(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Head(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.HeadAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.HeadAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.IdleTime() : System.TimeSpan
+HttpCloak.Session.IsActive() : System.Boolean
+HttpCloak.Session.Load(System.String) : HttpCloak.Session
+HttpCloak.Session.Marshal() : System.String
+HttpCloak.Session.Options(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Options(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.OptionsAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.OptionsAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.Patch(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Patch(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.Patch(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Patch(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.Patch(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Patch(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.PatchAsync(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PatchAsync(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PatchAsync(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PatchAsync(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PatchAsync(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PatchAsync(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PatchFast(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String) : HttpCloak.FastResponse
+HttpCloak.Session.PatchJson(System.String, T, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.PatchJsonAsync(System.String, T, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.Post(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Post(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.Post(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Post(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.Post(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Post(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.PostAsync(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostAsync(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostAsync(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostAsync(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostAsync(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostAsync(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostFast(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.String) : HttpCloak.FastResponse
+HttpCloak.Session.PostForm(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String) : HttpCloak.Response
+HttpCloak.Session.PostFormAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostJson(System.String, T, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.PostJsonAsync(System.String, T, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostMultipart(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.Dictionary<System.String, HttpCloak.MultipartFile>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String) : HttpCloak.Response
+HttpCloak.Session.PostMultipartAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.Dictionary<System.String, HttpCloak.MultipartFile>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostMultipartAsync(System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.Dictionary<System.String, HttpCloak.MultipartFile>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PostStream(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String) : HttpCloak.StreamResponse
+HttpCloak.Session.PostUpload(System.String, System.Collections.Generic.IEnumerable<System.Byte[]>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Nullable<System.Int32>) : HttpCloak.Response
+HttpCloak.Session.Proxy : System.String
+HttpCloak.Session.Put(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Put(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.Put(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Put(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.Put(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Put(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.PutAsync(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PutAsync(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PutAsync(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PutAsync(System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PutAsync(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PutAsync(System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.PutFast(System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String) : HttpCloak.FastResponse
+HttpCloak.Session.PutJson(System.String, T, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.PutJsonAsync(System.String, T, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.Refresh(System.String) : System.Void
+HttpCloak.Session.Request(System.String, System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.Request(System.String, System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.RequestAsync(System.String, System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.RequestAsync(System.String, System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.RequestBinary(System.String, System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.RequestBinary(System.String, System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.RequestBinaryAsync(System.String, System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.RequestBinaryAsync(System.String, System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.RequestFast(System.String, System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String) : HttpCloak.FastResponse
+HttpCloak.Session.RequestFast(System.String, System.String, System.Byte[], System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.FastResponse
+HttpCloak.Session.RequestStream(System.String, System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : HttpCloak.Response
+HttpCloak.Session.RequestStream(System.String, System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.Response
+HttpCloak.Session.RequestStream(System.String, System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String) : HttpCloak.StreamResponse
+HttpCloak.Session.RequestStream(System.String, System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.String>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Nullable<System.Int32>, System.String, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : HttpCloak.StreamResponse
+HttpCloak.Session.RequestStreamAsync(System.String, System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.RequestStreamAsync(System.String, System.String, System.IO.Stream, System.Collections.Generic.Dictionary<System.String, System.String>, System.Nullable<System.Int32>, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.Threading.CancellationToken, System.String, System.Nullable<System.Boolean>, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.String, System.String>>) : System.Threading.Tasks.Task<HttpCloak.Response>
+HttpCloak.Session.Save(System.String) : System.Void
+HttpCloak.Session.SetClientHints(System.Boolean) : System.Void
+HttpCloak.Session.SetConditionalCache(System.Boolean) : System.Void
+HttpCloak.Session.SetCookie(System.String, System.String, System.String, System.String, System.Boolean, System.Boolean, System.String, System.Int64, System.String) : System.Void
+HttpCloak.Session.SetFollowRedirects(System.Boolean) : System.Void
+HttpCloak.Session.SetHeaderOrder(System.String[]) : System.Void
+HttpCloak.Session.SetHighEntropyClientHints(System.Boolean) : System.Void
+HttpCloak.Session.SetMaxRedirects(System.Int32) : System.Void
+HttpCloak.Session.SetProxy(System.String) : System.Void
+HttpCloak.Session.SetSessionIdentifier(System.String) : System.Void
+HttpCloak.Session.SetTcpProxy(System.String) : System.Void
+HttpCloak.Session.SetUdpProxy(System.String) : System.Void
+HttpCloak.Session.Stats() : HttpCloak.SessionStats
+HttpCloak.Session.Touch() : System.Void
+HttpCloak.Session.Unmarshal(System.String) : HttpCloak.Session
+HttpCloak.Session.UploadStream(System.String, System.String, System.Collections.Generic.IEnumerable<System.Byte[]>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Nullable<System.Int32>) : HttpCloak.Response
+HttpCloak.Session.Warmup(System.String, System.Int64) : System.Void
+HttpCloak.Session.WarmupAsync(System.String, System.Int64, System.Threading.CancellationToken) : System.Threading.Tasks.Task
+HttpCloak.SessionCacheBackend..ctor(HttpCloak.ISessionCache)
+HttpCloak.SessionCacheBackend.ClearActive() : System.Void
+HttpCloak.SessionCacheBackend.Dispose() : System.Void
+HttpCloak.SessionCacheBackend.IsRegistered : System.Boolean
+HttpCloak.SessionCacheBackend.Register() : System.Void
+HttpCloak.SessionCacheBackend.Unregister() : System.Void
+HttpCloak.SessionStats..ctor()
+HttpCloak.SessionStats.Active : System.Boolean
+HttpCloak.SessionStats.Age : System.TimeSpan
+HttpCloak.SessionStats.AgeNs : System.Int64
+HttpCloak.SessionStats.CacheEntryCount : System.Int32
+HttpCloak.SessionStats.CookieCount : System.Int32
+HttpCloak.SessionStats.CreatedAt : System.DateTimeOffset
+HttpCloak.SessionStats.CreatedAtNs : System.Int64
+HttpCloak.SessionStats.Id : System.String
+HttpCloak.SessionStats.IdleTimeNs : System.Int64
+HttpCloak.SessionStats.IdleTimeSpan : System.TimeSpan
+HttpCloak.SessionStats.LastUsed : System.DateTimeOffset
+HttpCloak.SessionStats.LastUsedNs : System.Int64
+HttpCloak.SessionStats.Preset : System.String
+HttpCloak.SessionStats.RequestCount : System.Int64
+HttpCloak.SessionStats.TransportStats : System.Collections.Generic.Dictionary<System.String, System.Text.Json.JsonElement>
+HttpCloak.StreamResponse.ContentLength : System.Int64
+HttpCloak.StreamResponse.Cookies : System.Collections.Generic.List<HttpCloak.Cookie>
+HttpCloak.StreamResponse.Dispose() : System.Void
+HttpCloak.StreamResponse.Elapsed : System.TimeSpan
+HttpCloak.StreamResponse.Encoding : System.String
+HttpCloak.StreamResponse.GetContentStream(System.Int32) : System.IO.Stream
+HttpCloak.StreamResponse.GetHeader(System.String) : System.String
+HttpCloak.StreamResponse.GetHeaders(System.String) : System.String[]
+HttpCloak.StreamResponse.Headers : System.Collections.Generic.Dictionary<System.String, System.String[]>
+HttpCloak.StreamResponse.History : System.Collections.Generic.List<HttpCloak.RedirectInfo>
+HttpCloak.StreamResponse.Json() : T
+HttpCloak.StreamResponse.Ok : System.Boolean
+HttpCloak.StreamResponse.Protocol : System.String
+HttpCloak.StreamResponse.RaiseForStatus() : System.Void
+HttpCloak.StreamResponse.ReadAll() : System.Byte[]
+HttpCloak.StreamResponse.ReadChunk(System.Int32) : System.Byte[]
+HttpCloak.StreamResponse.ReadChunks(System.Int32) : System.Collections.Generic.IEnumerable<System.Byte[]>
+HttpCloak.StreamResponse.Reason : System.String
+HttpCloak.StreamResponse.StatusCode : System.Int32
+HttpCloak.StreamResponse.Text : System.String
+HttpCloak.StreamResponse.Url : System.String

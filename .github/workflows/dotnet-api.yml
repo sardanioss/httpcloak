@@ -1,0 +1,52 @@
+# Guards the .NET public surface against removals.
+#
+# C# writes a call's full signature into the calling assembly, so removing or
+# reshaping a public method breaks every already-compiled consumer with a
+# MissingMethodException. Nothing else catches it: the library still builds and
+# its own tests still pass, because only somebody else's binary is broken.
+#
+# This runs on every push and pull request rather than at tag time, since a
+# release is far too late to find out.
+name: .NET public API
+
+on:
+  push:
+    paths:
+      - 'bindings/dotnet/**'
+      - '.github/workflows/dotnet-api.yml'
+  pull_request:
+    paths:
+      - 'bindings/dotnet/**'
+      - '.github/workflows/dotnet-api.yml'
+  workflow_dispatch:
+
+jobs:
+  public-api:
+    name: Public API is still backward compatible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # The native library is not needed: the check only reflects over the
+      # managed assembly and never starts a session.
+      - name: Build the managed assembly
+        run: |
+          cd bindings/dotnet
+          mkdir -p HttpCloak/runtimes/linux-x64/native
+          touch HttpCloak/runtimes/linux-x64/native/libhttpcloak-linux-amd64.so
+          dotnet build HttpCloak/HttpCloak.csproj -f net10.0 -c Release
+
+      - name: Build the checker
+        run: cd bindings/dotnet && dotnet build ApiCheck/ApiCheck.csproj -c Release
+
+      - name: Compare against the baseline
+        run: |
+          cd bindings/dotnet
+          dotnet ApiCheck/bin/Release/net10.0/ApiCheck.dll \
+            HttpCloak/bin/Release/net10.0/HttpCloak.dll \
+            PublicApi.baseline.txt

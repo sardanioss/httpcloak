@@ -586,3 +586,32 @@ proxy.Dispose();      // Stop the proxy
 ## License
 
 MIT
+
+## Public API compatibility
+
+C# writes a call's full signature into the calling assembly. Adding an optional
+parameter to a shipped method therefore leaves every already-compiled consumer
+looking for a method that no longer exists, and it fails at the call with
+`MissingMethodException`. The library still builds and its own tests still pass,
+because the only thing broken is somebody else's binary.
+
+Two releases did this before the rule below existed, which left anyone who
+could not rebuild their whole fleet unable to take a newer build at all.
+
+**Never add a parameter to an existing public method.** Either add an overload
+carrying the new parameter, or keep the old shape as a forwarding overload with
+no default values, next to the ones at the end of `Session.cs`.
+
+`PublicApi.baseline.txt` records the surface and the `.NET public API` workflow
+compares against it on every push. Adding members is fine and the baseline grows:
+
+```sh
+cd bindings/dotnet
+dotnet build HttpCloak/HttpCloak.csproj -f net10.0 -c Release
+dotnet build ApiCheck/ApiCheck.csproj -c Release
+dotnet ApiCheck/bin/Release/net10.0/ApiCheck.dll \
+  HttpCloak/bin/Release/net10.0/HttpCloak.dll PublicApi.baseline.txt --update
+```
+
+Removing a member is what fails, and the fix is a forwarding overload rather
+than an edited baseline.
