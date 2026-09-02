@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-09-03
+
+Worth taking if you use HTTP/3 with a custom fingerprint. A preset built from a
+captured hello or a JA3 was not applying its fingerprint over HTTP/3 at all, and
+the requests succeeded anyway, so there was nothing to notice.
+
+### Fixed
+
+- **A preset using `raw_client_hello` or `ja3` lost its fingerprint on HTTP/3**: a preset carries one captured hello and one JA3, and which transport those describe is a property of the bytes, since every QUIC hello carries `quic_transport_parameters` and no TCP one does. Setting either cleared the preset's QUIC identity on the assumption that the capture was the whole fingerprint, which holds for TCP and is false for QUIC. The HTTP/3 transport then had nothing to build from and fell back to the QUIC stack's own default hello, so every request still succeeded while carrying a fingerprint nobody chose, and a worse one than the preset it inherited from. Measured against a live endpoint, `chrome-151-windows` over HTTP/3 went from 11 extensions to 7 purely from adding a TCP `ja3`. The QUIC identity now survives a TCP-only source, and whether a capture applies to QUIC is decided per transport rather than baked into the preset.
+
+- **HTTP/3 now resolves its hello from every fingerprint source, not just one**: the QUIC transport knew only the named QUIC client hello id, while HTTP/1.1 and HTTP/2 had moved to a shared resolver, so a captured QUIC hello could never be used. Both transports now go through the same resolution, each source gated on whether it describes that transport, so a QUIC capture is used on QUIC and a TCP capture is not. A source that cannot be used is an error rather than a silent fall-through, which is what let the original problem stay invisible.
+
+- **`allow_blunt_mimicry` no longer freezes the extension order**: the two were mutually exclusive, so declaring `permute_extensions` alongside it was ignored rather than refused. Everything whose position is genuinely constrained is modelled and stays pinned regardless: GREASE brackets the list, padding sizes the record, and `pre_shared_key` is required to be last. Only extensions that cannot be modelled at all are passed through opaquely, and those carry no ordering constraint. This mattered most on HTTP/3, where a capture could not be read without blunt mimicry, so every HTTP/3 mirror was frozen at a single extension order however the preset was written.
+
+### Changed
+
+- **A captured QUIC hello no longer needs `allow_blunt_mimicry`**: `quic_transport_parameters` was the one extension the TLS layer recognised without being able to parse, and blunt mimicry passes every unrecognised extension through unchecked, so that single gap switched off per-extension validation for the whole capture with no way to decline it. It is now parsed, and the captured bytes are kept exactly as they arrived rather than re-encoded, because the encoding allows several byte strings for the same meaning and for a fingerprint the bytes are the meaning. Nothing captured reaches the wire: transport parameters are specific to the connection that sent them, so the QUIC layer substitutes its own.
+
 ## [1.7.1] - 2026-09-02
 
 ### Added
