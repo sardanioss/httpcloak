@@ -182,11 +182,23 @@ func TestDataFramesAndRecordsMatchChrome(t *testing.T) {
 	}
 	// No short record wedged between two full ones. That pattern is the frame
 	// spilling past the record boundary, and it repeats forever.
+	//
+	// Counted rather than flagged on the first one. The bug is a frame that
+	// overruns the record boundary, so it produces a tail after EVERY full
+	// record, not one somewhere: measured with the cap reverted, the profile
+	// reads 31, 16406, 31, 16406, 31. A single short record between two full
+	// ones is what a partial flush looks like on a loaded machine, and flagging
+	// that made this test fail intermittently in a full parallel run while
+	// passing alone.
+	spills := 0
 	for i := 1; i < len(recs)-1; i++ {
 		if recs[i] < 100 && recs[i-1] > 16000 && recs[i+1] > 16000 {
-			t.Errorf("record %d is %d bytes between two full records (%v); a DATA frame "+
-				"is spilling past the record boundary", i, recs[i], recs[max(0, i-2):min(len(recs), i+3)])
+			spills++
 		}
+	}
+	if spills > 1 {
+		t.Errorf("%d short records wedged between full ones (%v); a DATA frame is "+
+			"spilling past the record boundary on every frame", spills, recs)
 	}
 	// And no arithmetic ramp. With dynamic sizing on, the first records of a
 	// large write climb 1186 bytes at a time (1203, 2389, 3575, ...), so the

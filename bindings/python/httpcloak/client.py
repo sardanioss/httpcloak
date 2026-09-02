@@ -2579,6 +2579,7 @@ class Session:
         disable_client_hints: bool = False,
         disable_high_entropy_client_hints: bool = False,
         disable_redirect_referer: bool = False,
+        exact_headers: Optional[Sequence[Tuple[str, str]]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
         """
@@ -2595,6 +2596,11 @@ class Session:
             cookies: Cookies to send with this request
             auth: Basic auth tuple (username, password)
         """
+        # exact_headers replaces the whole header pipeline: the pairs go out in
+        # the order and casing given, a name may repeat, and no preset headers,
+        # client hints or alphabetical tail are added. A dict cannot express any
+        # of that, which is why this takes a sequence of pairs.
+        _exact = [[str(k), str(v)] for k, v in exact_headers] if exact_headers else None
         json_data = _resolve_json_alias(json, json_data)
         url = _add_params_to_url(url, params)
         merged_headers = self._merge_headers(headers)
@@ -2632,6 +2638,8 @@ class Session:
             "method": method.upper(),
             "url": url,
         }
+        if _exact:
+            request_config["exact_headers"] = _exact
         if merged_headers:
             request_config["headers"] = merged_headers
         if body:
