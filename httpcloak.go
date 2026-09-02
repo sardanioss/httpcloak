@@ -177,19 +177,25 @@ type Request struct {
 	Headers map[string][]string // Multi-value headers (matches http.Header)
 
 	// ExactHeaders, when non-empty, replaces the whole header pipeline for this
-	// request. The pairs go on the wire in the order and casing given, a name
-	// may repeat, and nothing is added: no preset block, no client hints, no
-	// Sec-Fetch inference, and no alphabetical tail for names the preset does
-	// not know.
+	// request. The pairs go on the wire in the order and casing given, and
+	// nothing is added: no preset block, no client hints, no Sec-Fetch
+	// inference, and no alphabetical tail for names the preset does not know.
+	//
+	// A name may repeat, and each occurrence keeps its own position. Listing
+	// cookie, accept, cookie puts the accept between the two cookies on all
+	// three protocols, which a map of name to values cannot express and is the
+	// shape a captured request routinely has.
 	//
 	// Use it to reproduce a captured request exactly. It is an escape hatch:
 	// the caller takes on the entire request shape, including headers a browser
-	// would always send. Headers is ignored when this is set.
+	// would always send. Headers is ignored when this is set, and so is the
+	// session cookie jar, which would otherwise append a Cookie of its own.
 	//
-	// Two things are still written for you, because they are protocol framing
-	// rather than caller headers: Host and Connection on HTTP/1.1, and the
-	// pseudo-header block on HTTP/2 and HTTP/3. Suppressing Connection would
-	// break keep-alive, and Chrome sends it on every H1 request anyway.
+	// Host on HTTP/1.1 and the pseudo-header block on HTTP/2 and HTTP/3 are
+	// still written for you, because they are protocol framing rather than
+	// caller headers. Connection is not: a capture that carries none cannot
+	// have one added back, and HTTP/1.1 keeps the connection alive by default
+	// anyway. List it yourself to send it.
 	ExactHeaders []fingerprint.HeaderPair
 	Body         io.Reader // Streaming body for uploads
 	Timeout      time.Duration

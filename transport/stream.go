@@ -417,17 +417,7 @@ func (t *Transport) doStreamHTTP1(ctx context.Context, req *Request) (*StreamRes
 	// Set preset headers
 	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	// Override with custom headers (multi-value support)
-	// Use Set for first value to replace preset headers, Add for additional values
-	for key, values := range req.Headers {
-		for i, value := range values {
-			if i == 0 {
-				httpReq.Header.Set(key, value)
-			} else {
-				httpReq.Header.Add(key, value)
-			}
-		}
-	}
+	mergeCallerHeaders(httpReq, req)
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -527,17 +517,7 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	// Set preset headers
 	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	// Override with custom headers (multi-value support)
-	// Use Set for first value to replace preset headers, Add for additional values
-	for key, values := range req.Headers {
-		for i, value := range values {
-			if i == 0 {
-				httpReq.Header.Set(key, value)
-			} else {
-				httpReq.Header.Add(key, value)
-			}
-		}
-	}
+	mergeCallerHeaders(httpReq, req)
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -635,17 +615,7 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 	// Set preset headers
 	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	// Override with custom headers (multi-value support)
-	// Use Set for first value to replace preset headers, Add for additional values
-	for key, values := range req.Headers {
-		for i, value := range values {
-			if i == 0 {
-				httpReq.Header.Set(key, value)
-			} else {
-				httpReq.Header.Add(key, value)
-			}
-		}
-	}
+	mergeCallerHeaders(httpReq, req)
 
 	// Record timing before request
 	reqStart := time.Now()

@@ -1271,24 +1271,58 @@ func h1WireHeaderName(canonicalKey string) string {
 // and the case-insensitive scan only runs for a name that is not stored
 // canonically.
 func resolveHeaderKey(h http.Header, key string) (string, bool) {
-	if canonical := canonicalHeaderKey(key); canonical == key {
+	// The exact key wins over the canonical one. It used to be the other way
+	// round, which is invisible on the preset path (every key there is already
+	// canonical) but wrong for a caller who lists the same name twice in two
+	// casings: "Cookie" and "cookie" are two map entries, and preferring the
+	// canonical form pointed both order slots at the first one.
+	if _, ok := h[key]; ok {
+		return key, true
+	}
+	if canonical := canonicalHeaderKey(key); canonical != key {
 		if _, ok := h[canonical]; ok {
 			return canonical, true
-		}
-	} else {
-		if _, ok := h[canonical]; ok {
-			return canonical, true
-		}
-		if _, ok := h[key]; ok {
-			return key, true
 		}
 	}
+	// Last resort, a fold match. Map iteration is randomised, so with more than
+	// one candidate take the lowest rather than whichever the range hands over
+	// first: an order that changes per request is itself a fingerprint.
+	best := ""
+	found := false
 	for k := range h {
-		if strings.EqualFold(k, key) {
-			return k, true
+		if strings.EqualFold(k, key) && (!found || k < best) {
+			best, found = k, true
 		}
+	}
+	if found {
+		return best, true
 	}
 	return canonicalHeaderKey(key), false
+}
+
+// valuesForSlot returns the values one order slot emits.
+//
+// n is how many slots the order list gives this header name and i is which of
+// them this is, counting from zero.
+//
+// One slot takes every value. That is the long-standing behaviour and the only
+// thing the preset path ever produces, since CompleteHeaderOrder deduplicates.
+// Several slots split the values one apiece in order, which is what lets exact
+// mode put an Accept between two Cookie headers instead of hoisting the second
+// Cookie up to join the first. The last slot takes whatever is left, so a
+// caller who lists a name twice but supplies three values does not lose the
+// third.
+func valuesForSlot(vals []string, n, i int) []string {
+	if n <= 1 {
+		return vals
+	}
+	if i >= len(vals) {
+		return nil
+	}
+	if i == n-1 {
+		return vals[i:]
+	}
+	return vals[i : i+1]
 }
 
 // writeHeadersInOrder writes headers in a browser-like order
@@ -1333,6 +1367,18 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 	}
 
 	written := make(map[string]bool)
+
+	// A name may hold more than one slot in the order list. Exact mode gives
+	// every pair its own slot, so "cookie, accept, cookie" has to put one
+	// cookie either side of the accept. Count the slots per resolved map key
+	// first, then hand slot i value i as the pass below walks the list.
+	slots := make(map[string]int, len(headerOrder))
+	for _, key := range headerOrder {
+		if mapKey, ok := resolveHeaderKey(req.Header, key); ok {
+			slots[mapKey]++
+		}
+	}
+	cursor := make(map[string]int, len(slots))
 
 	// Write headers in preferred order
 	for _, key := range headerOrder {
@@ -1394,9 +1440,10 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 			if mapKey != canonicalHeaderKey(mapKey) {
 				wire = mapKey
 			}
-			for _, v := range req.Header[mapKey] {
+			for _, v := range valuesForSlot(req.Header[mapKey], slots[mapKey], cursor[mapKey]) {
 				fmt.Fprintf(w, "%s: %s\r\n", wire, v)
 			}
+			cursor[mapKey]++
 			written[mapKey] = true
 		}
 	}

@@ -67,11 +67,51 @@ func TestExactHeadersCarryRepeatedNames(t *testing.T) {
 	if vals := req.Header["Cookie"]; len(vals) != 2 || vals[0] != "a=1" || vals[1] != "b=2" {
 		t.Errorf("Cookie = %v, want both values in order", vals)
 	}
-	// One order entry per name, at the position of its first appearance, which
-	// is what a browser does with a repeated header.
+	// One order slot per pair, so the second Cookie keeps its own position
+	// after the Accept. Deduplicating the names here, which is what this used
+	// to do, is what forced the encoders to hoist the second Cookie up next to
+	// the first.
 	order := req.Header[http.HeaderOrderKey]
-	if len(order) != 2 || order[0] != "Cookie" || order[1] != "Accept" {
-		t.Errorf("header order = %v, want [Cookie Accept]", order)
+	want := []string{"Cookie", "Accept", "Cookie"}
+	if len(order) != len(want) {
+		t.Fatalf("header order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("header order = %v, want %v", order, want)
+		}
+	}
+}
+
+// The slot list has to stay index-aligned with the value slices the encoders
+// read, and the value slices are per name in order of appearance.
+func TestExactHeadersSlotsAlignWithValues(t *testing.T) {
+	req, _ := http.NewRequest("GET", "https://example.com/", nil)
+	applyExactHeaders(req, []fingerprint.HeaderPair{
+		hp("x-a", "1"),
+		hp("x-b", "z"),
+		hp("x-a", "2"),
+		hp("x-a", "3"),
+	}, nil, nil, "h2")
+
+	order := req.Header[http.HeaderOrderKey]
+	if len(order) != 4 {
+		t.Fatalf("header order = %v, want one slot per pair", order)
+	}
+	vals := req.Header["x-a"]
+	if len(vals) != 3 || vals[0] != "1" || vals[1] != "2" || vals[2] != "3" {
+		t.Fatalf("x-a = %v, want [1 2 3] in the order given", vals)
+	}
+	// Slot count for a name must equal its value count, or the encoders hand a
+	// slot the wrong value with nothing to report the mismatch.
+	n := 0
+	for _, k := range order {
+		if k == "x-a" {
+			n++
+		}
+	}
+	if n != len(vals) {
+		t.Errorf("x-a has %d slots against %d values", n, len(vals))
 	}
 }
 

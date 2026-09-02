@@ -193,3 +193,76 @@ func TestNormalPathStillSendsConnection(t *testing.T) {
 	}
 	t.Error("the normal path stopped sending Connection; only exact headers should suppress it")
 }
+
+// Exact-headers mode exists so a captured request can be replayed byte for
+// byte, and a capture routinely carries two fields of one name with something
+// else between them. A map cannot hold that, so the order list has to: one slot
+// per pair, each slot taking the value at its own index.
+//
+// The old form gave a name one slot and emitted all of its values there, which
+// silently rewrote cookie, accept, cookie into cookie, cookie, accept. The
+// request still succeeded, which is why this asserts on what the SERVER read
+// rather than on the request object.
+func TestExactHeadersKeepInterleavedDuplicates(t *testing.T) {
+	srv := newBodyCapture(t, 200)
+	s := newBodyTestSession(t, &protocol.SessionConfig{})
+	if _, err := s.Request(context.Background(), &transport.Request{
+		Method: "GET", URL: srv.url + "x",
+		ExactHeaders: []fingerprint.HeaderPair{
+			{Key: "cookie", Value: "a=1"},
+			{Key: "accept", Value: "*/*"},
+			{Key: "cookie", Value: "b=2"},
+			{Key: "user-agent", Value: "mirror/1"},
+		},
+	}); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	var got []string
+	for _, p := range srv.hops[0].pairs {
+		if strings.HasPrefix(p, "host:") {
+			continue
+		}
+		got = append(got, p)
+	}
+	want := []string{"cookie: a=1", "accept: */*", "cookie: b=2", "user-agent: mirror/1"}
+	if strings.Join(got, " | ") != strings.Join(want, " | ") {
+		t.Errorf("wire fields =\n  %v\nwant\n  %v", got, want)
+	}
+}
+
+// Exact mode promises nothing the caller did not list reaches the wire, and the
+// session's own cookie jar is the loudest counter-example: it writes a Cookie
+// header into Request.Headers on every attempt, and the transport merged that
+// map over the exact set unconditionally. A request built to mirror a capture
+// went out with a jar cookie appended to it.
+func TestExactHeadersIgnoreTheCallerHeaderMap(t *testing.T) {
+	srv := newBodyCapture(t, 200)
+	s := newBodyTestSession(t, &protocol.SessionConfig{})
+	host, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSuffix(srv.url, "/"), "http://"), ":")
+	s.SetCookie("jar", "yes", host, "/", false, false, "", 0, nil)
+	if _, err := s.Request(context.Background(), &transport.Request{
+		Method: "GET", URL: srv.url + "x",
+		Headers: map[string][]string{"X-Extra": {"1"}},
+		ExactHeaders: []fingerprint.HeaderPair{
+			{Key: "user-agent", Value: "mirror/1"},
+			{Key: "accept", Value: "*/*"},
+		},
+	}); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	for _, h := range srv.hops[0].headers {
+		if h == "x-extra" {
+			t.Error("Request.Headers was merged over the exact set")
+		}
+		if h == "cookie" {
+			t.Error("the session cookie jar added a Cookie to an exact-headers request")
+		}
+	}
+	if len(srv.hops[0].headers) != 2 {
+		t.Errorf("wire carried %v, want exactly the two listed pairs", srv.hops[0].headers)
+	}
+}

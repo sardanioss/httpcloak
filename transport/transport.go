@@ -209,10 +209,15 @@ type Request struct {
 	Timeout time.Duration
 
 	// ExactHeaders, when non-empty, replaces the whole header pipeline for this
-	// request. The pairs go on the wire in the order and the casing given, a
-	// name may repeat, and nothing else is added: no preset header block, no
-	// client hints, no Sec-Fetch inference, no alphabetical tail for names the
-	// preset does not know.
+	// request. The pairs go on the wire in the order and the casing given and
+	// nothing else is added: no preset header block, no client hints, no
+	// Sec-Fetch inference, no alphabetical tail for names the preset does not
+	// know, and no merge of the Headers map, which is where the session writes
+	// its cookie jar.
+	//
+	// A name may repeat, and each occurrence keeps its own position rather than
+	// collapsing onto the first. Every encoder reads the order list as one slot
+	// per field and hands slot i the value at index i.
 	//
 	// It exists because the normal path is opinionated in three ways that a
 	// mirror cannot live with. It always injects the preset block, it appends
@@ -225,10 +230,11 @@ type Request struct {
 	// takes on responsibility for the entire request shape, including the
 	// headers a browser would always send.
 	//
-	// Two things are still written for you, because they are protocol framing
-	// rather than caller headers: Host and Connection on HTTP/1.1, and the
-	// pseudo-header block on HTTP/2 and HTTP/3. Suppressing Connection would
-	// break keep-alive, and Chrome sends it on every H1 request anyway.
+	// Host on HTTP/1.1 and the pseudo-header block on HTTP/2 and HTTP/3 are
+	// still written for you, because they are protocol framing rather than
+	// caller headers. Connection is not: a capture that carries none cannot
+	// have one added back, and HTTP/1.1 keeps the connection alive by default
+	// anyway, so nothing is lost by leaving it out.
 	ExactHeaders []fingerprint.HeaderPair
 
 	// TLSOnly is a per-request override for TLS-only mode.
@@ -1911,17 +1917,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 	// Pass "h1" protocol so Chrome presets don't send Priority header on HTTP/1.1
 	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	// Override with custom headers (multi-value support)
-	// Use Set for first value to replace preset headers, Add for additional values
-	for key, values := range req.Headers {
-		for i, value := range values {
-			if i == 0 {
-				httpReq.Header.Set(key, value)
-			} else {
-				httpReq.Header.Add(key, value)
-			}
-		}
-	}
+	mergeCallerHeaders(httpReq, req)
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -1957,17 +1953,17 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 	headers := buildHeadersMap(resp.Header)
 
 	return &Response{
-		StatusCode:  resp.StatusCode,
-		Headers:     headers,
-		HeaderOrder: responseHeaderOrder(resp.Header),
+		StatusCode:   resp.StatusCode,
+		Headers:      headers,
+		HeaderOrder:  responseHeaderOrder(resp.Header),
 		HeaderCasing: takeHeaderCasing(resp.Header),
-		Trailer:     buildTrailerMap(resp.Trailer),
-		Body:        io.NopCloser(bytes.NewReader(body)),
-		FinalURL:    req.URL,
-		Timing:      timing,
-		Protocol:    "h1",
-		bodyBytes:   body,
-		bodyRead:    true,
+		Trailer:      buildTrailerMap(resp.Trailer),
+		Body:         io.NopCloser(bytes.NewReader(body)),
+		FinalURL:     req.URL,
+		Timing:       timing,
+		Protocol:     "h1",
+		bodyBytes:    body,
+		bodyRead:     true,
 	}, nil
 }
 
@@ -2026,17 +2022,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	// Set preset headers - pass "h1" protocol so Chrome presets don't send Priority header
 	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	// Override with custom headers (multi-value support)
-	// Use Set for first value to replace preset headers, Add for additional values
-	for key, values := range req.Headers {
-		for i, value := range values {
-			if i == 0 {
-				httpReq.Header.Set(key, value)
-			} else {
-				httpReq.Header.Add(key, value)
-			}
-		}
-	}
+	mergeCallerHeaders(httpReq, req)
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -2072,17 +2058,17 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	headers := buildHeadersMap(resp.Header)
 
 	return &Response{
-		StatusCode:  resp.StatusCode,
-		Headers:     headers,
-		HeaderOrder: responseHeaderOrder(resp.Header),
+		StatusCode:   resp.StatusCode,
+		Headers:      headers,
+		HeaderOrder:  responseHeaderOrder(resp.Header),
 		HeaderCasing: takeHeaderCasing(resp.Header),
-		Trailer:     buildTrailerMap(resp.Trailer),
-		Body:        io.NopCloser(bytes.NewReader(body)),
-		FinalURL:    parsedURL.String(),
-		Timing:      timing,
-		Protocol:    "h1",
-		bodyBytes:   body,
-		bodyRead:    true,
+		Trailer:      buildTrailerMap(resp.Trailer),
+		Body:         io.NopCloser(bytes.NewReader(body)),
+		FinalURL:     parsedURL.String(),
+		Timing:       timing,
+		Protocol:     "h1",
+		bodyBytes:    body,
+		bodyRead:     true,
 	}, nil
 }
 
@@ -2148,17 +2134,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	// Set preset headers (with ordering for fingerprinting)
 	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	// Override with custom headers (multi-value support)
-	// Use Set for first value to replace preset headers, Add for additional values
-	for key, values := range req.Headers {
-		for i, value := range values {
-			if i == 0 {
-				httpReq.Header.Set(key, value)
-			} else {
-				httpReq.Header.Add(key, value)
-			}
-		}
-	}
+	mergeCallerHeaders(httpReq, req)
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -2213,17 +2189,17 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	headers := buildHeadersMap(resp.Header)
 
 	return &Response{
-		StatusCode:  resp.StatusCode,
-		Headers:     headers,
-		HeaderOrder: responseHeaderOrder(resp.Header),
+		StatusCode:   resp.StatusCode,
+		Headers:      headers,
+		HeaderOrder:  responseHeaderOrder(resp.Header),
 		HeaderCasing: takeHeaderCasing(resp.Header),
-		Trailer:     buildTrailerMap(resp.Trailer),
-		Body:        io.NopCloser(bytes.NewReader(body)),
-		FinalURL:    req.URL,
-		Timing:      timing,
-		Protocol:    "h2",
-		bodyBytes:   body,
-		bodyRead:    true,
+		Trailer:      buildTrailerMap(resp.Trailer),
+		Body:         io.NopCloser(bytes.NewReader(body)),
+		FinalURL:     req.URL,
+		Timing:       timing,
+		Protocol:     "h2",
+		bodyBytes:    body,
+		bodyRead:     true,
 	}, nil
 }
 
@@ -2289,17 +2265,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	// Set preset headers (with ordering for fingerprinting)
 	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	// Override with custom headers (multi-value support)
-	// Use Set for first value to replace preset headers, Add for additional values
-	for key, values := range req.Headers {
-		for i, value := range values {
-			if i == 0 {
-				httpReq.Header.Set(key, value)
-			} else {
-				httpReq.Header.Add(key, value)
-			}
-		}
-	}
+	mergeCallerHeaders(httpReq, req)
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -2360,17 +2326,17 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	headers := buildHeadersMap(resp.Header)
 
 	return &Response{
-		StatusCode:  resp.StatusCode,
-		Headers:     headers,
-		HeaderOrder: responseHeaderOrder(resp.Header),
+		StatusCode:   resp.StatusCode,
+		Headers:      headers,
+		HeaderOrder:  responseHeaderOrder(resp.Header),
 		HeaderCasing: takeHeaderCasing(resp.Header),
-		Trailer:     buildTrailerMap(resp.Trailer),
-		Body:        io.NopCloser(bytes.NewReader(body)),
-		FinalURL:    req.URL,
-		Timing:      timing,
-		Protocol:    "h3",
-		bodyBytes:   body,
-		bodyRead:    true,
+		Trailer:      buildTrailerMap(resp.Trailer),
+		Body:         io.NopCloser(bytes.NewReader(body)),
+		FinalURL:     req.URL,
+		Timing:       timing,
+		Protocol:     "h3",
+		bodyBytes:    body,
+		bodyRead:     true,
 	}, nil
 }
 
@@ -2708,16 +2674,22 @@ func applyExactHeaders(httpReq *http.Request, exact []fingerprint.HeaderPair, pr
 		delete(httpReq.Header, k)
 	}
 	order := make([]string, 0, len(exact))
-	seen := make(map[string]bool, len(exact))
 	for _, hp := range exact {
 		httpReq.Header[hp.Key] = append(httpReq.Header[hp.Key], hp.Value)
-		if !seen[hp.Key] {
-			seen[hp.Key] = true
-			order = append(order, hp.Key)
-		}
+		order = append(order, hp.Key)
 	}
-	// One order entry per name. A repeated name emits all of its values at that
-	// one position, which is what a browser does with Cookie on HTTP/1.1.
+	// One order slot per PAIR, not per name. A map cannot hold position, so the
+	// slot list is what carries it, and each encoder hands slot i the value at
+	// index i of that name's slice. Cookie, Accept, Cookie therefore keeps the
+	// Accept in the middle.
+	//
+	// The old form deduplicated the names, which meant a repeated name emitted
+	// all of its values consecutively at its first slot. That is right for the
+	// one shape a browser produces, several Cookie fields in a row, and wrong
+	// for every capture where two fields of one name sit either side of a
+	// third. A name listed once still emits all of its values, so the preset
+	// path, whose order list is deduplicated by CompleteHeaderOrder, is
+	// untouched.
 	httpReq.Header[http.HeaderOrderKey] = order
 	// Only on HTTP/1.1, where this transport writes the request itself and can
 	// be told to stop supplying Connection. The HTTP/2 and HTTP/3 encoders live
@@ -2743,6 +2715,36 @@ func applyExactHeaders(httpReq *http.Request, exact []fingerprint.HeaderPair, pr
 		httpReq.Header[http.PHeaderOrderKey] = []string{":method", ":authority", ":scheme", ":path"}
 	}
 	return true
+}
+
+// mergeCallerHeaders folds Request.Headers over whatever the preset pipeline
+// produced. The first value replaces, the rest append, so a caller can both
+// override a preset header and send one name twice.
+//
+// It is a no-op under ExactHeaders. That mode promises the wire carries the
+// listed pairs and nothing else, and req.Headers is not only what the caller
+// passed for this request: the session writes the cookie jar's Cookie header
+// into it on every attempt, and the client-hint policy adds to it as well. So
+// merging here broke the promise in the one place it mattered most, silently
+// appending a jar Cookie to a request built to mirror a capture.
+//
+// It also has to stay out of the way for a structural reason. Exact mode now
+// gives every pair its own slot in the order list and the encoders hand slot i
+// value i, so a Set or an Add here would leave the order list and the value
+// slices it indexes out of step with no error anywhere.
+func mergeCallerHeaders(httpReq *http.Request, req *Request) {
+	if len(req.ExactHeaders) > 0 {
+		return
+	}
+	for key, values := range req.Headers {
+		for i, value := range values {
+			if i == 0 {
+				httpReq.Header.Set(key, value)
+			} else {
+				httpReq.Header.Add(key, value)
+			}
+		}
+	}
 }
 
 func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool, exactHeaders []fingerprint.HeaderPair) {

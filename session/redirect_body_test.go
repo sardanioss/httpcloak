@@ -30,6 +30,7 @@ type hopRecord struct {
 	contentType      string
 	headers          []string
 	allHeaders       []string          // including host/connection, for tests that assert on those
+	pairs            []string          // "name: value" in wire order, for tests that assert on repeated names
 	values           map[string]string // lowercased name -> value, for tests that assert content
 	body             []byte
 }
@@ -101,6 +102,7 @@ func (s *bodyCapture) serve(conn net.Conn) {
 			rec.contentType = value
 		}
 		rec.allHeaders = append(rec.allHeaders, name)
+		rec.pairs = append(rec.pairs, name+": "+value)
 		if name != "host" && name != "connection" {
 			rec.headers = append(rec.headers, name)
 			rec.values[name] = value
