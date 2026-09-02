@@ -148,6 +148,43 @@ The body is bytes coming off the wire. The caller decides how to split them.
 - **JSON streams.** Wrap in a JSON decoder. Go: `json.NewDecoder(stream).Decode(&v)` in a loop for NDJSON. Python: `for line in r.iter_lines(): obj = json.loads(line)`.
 - **Pipe to a file.** Go: `io.Copy(file, stream)`. Python: `for chunk in r.iter_content(8192): f.write(chunk)`.
 
+## Trailers
+
+`Trailer()` returns the trailing header block, lowercase-keyed, or nil when there
+was none.
+
+Call it after the body has been read to EOF. On a streamed response the trailers
+have not arrived when the header block does, which is why this is a method rather
+than the plain field it is on a buffered response. Before EOF it returns nil, or
+on HTTP/1.1 the declared names with no values, which is all the protocol makes
+available at that point.
+
+gRPC is the case that needs it: the call's real status arrives in the trailers
+and the response is a 200 either way, so a streamed gRPC call read without this
+reports every failure as a success.
+
+```python
+st = session.get_stream("https://example.com/grpc")
+body = st.read_all()          # drain to EOF first
+print(st.trailer())           # {'grpc-status': ['14'], 'grpc-message': ['unavailable']}
+st.close()
+```
+
+## Opening a stream without blocking
+
+The synchronous entry points block the calling thread until the response headers
+arrive, which for a stream can be the whole point of the request. Opening several
+long-lived streams costs a thread each, and a single-threaded runtime cannot open
+one at all without stalling everything else.
+
+The async variant hands the stream back through a callback instead, carrying the
+same metadata the synchronous path returns plus the stream handle, so there is no
+second call to fetch it. From there it is the same stream: read it, then close it.
+
+Cancelling before the response arrives goes through the request, as it does for
+any other async call. Once the stream exists its lifetime belongs to the stream
+itself and ends at `close`.
+
 ## Lifetime and Close
 
 The contract is the caller must call Close when done. There's no GC fallback because the stream wraps real syscall resources: a TCP socket, an H2 stream window, an H3 stream.

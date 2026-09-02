@@ -214,6 +214,46 @@ The cleanest verification path is sending to [tls.peet.ws/api/all](https://tls.p
 
 httpbin.org/headers is fine for "did my custom header show up?" checks, but it returns a Python dict, not the wire order. For order, use peet.
 
+## Reading the response headers back
+
+Three things come back alongside the header map, all of which a plain map cannot
+carry.
+
+`HeaderOrder` (`header_order`) is the order the peer sent its headers in,
+lowercase, one entry per occurrence. A map has no order, so anything relaying a
+response onward would otherwise emit a different sequence than the origin did.
+HTTP/2 and HTTP/3 decode an ordered field list and record it for free. HTTP/1.1
+reports nil, because the parse underneath canonicalises names and drops order.
+
+`HeaderCasing` (`header_casing`) is the names as the server actually spelled them,
+HTTP/1.1 only. HTTP/2 and HTTP/3 require lowercase on the wire, so there is no
+casing to preserve and this stays nil. On HTTP/1.1 the server's spelling is real
+and the parse canonicalises it away: a server sending `X-FOO` is reported as
+`X-Foo`, one sending `etag` as `Etag`. It is best-effort, and comes back nil when
+the header block was not fully buffered by the time the response was read, since
+correct casing is not worth blocking a response for. `Headers` is populated
+either way.
+
+`Trailer` (`trailer`) is the trailing header block a server may send after the
+body, lowercase-keyed, nil when there was none, which is almost always. It
+matters for gRPC, where the call's real status arrives in the trailers rather
+than the response headers: a gRPC response is a 200 whatever happened, so a
+client that drops trailers reports every failed call as a success.
+
+```python
+r = session.get("https://example.com/")
+print(r.header_order)    # ['content-type', 'date', 'server', ...]
+print(r.header_casing)   # ['Content-Type', 'Date', 'Server', ...]  (HTTP/1.1 only)
+print(r.trailer)         # None, or {'grpc-status': ['0']}
+```
+
+On a buffered response the trailers are ready when you get it, because the body
+is read first. On a streamed one they are not: call `Trailer()` after the body
+reaches EOF. See [Streaming responses](./streaming-responses).
+
+HTTP/1.1 carries trailers only on a chunked response that announced them in a
+`Trailer` header; HTTP/2 and HTTP/3 carry them as a second header block.
+
 ## Header order overrides
 
 `SetHeaderOrder(order []string)` mutates the session's emit sequence at runtime. The next request through the session uses the new order on the wire. `GetHeaderOrder()` returns whatever's currently active, custom or preset-default. Pass `nil` or an empty slice to `SetHeaderOrder` and the session falls back to the preset's baked-in order, which is what you want most of the time.
