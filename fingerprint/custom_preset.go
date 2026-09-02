@@ -72,10 +72,10 @@ type TLSSpec struct {
 	// AllowBluntMimicry passes unknown extensions through verbatim instead of
 	// rejecting them. curl needs it for extension 22; without it the load fails
 	// with "unsupported extension 22".
-	RawClientHello    string `json:"raw_client_hello,omitempty"`
-	RawPSKClientHello string `json:"raw_psk_client_hello,omitempty"`
-	AllowBluntMimicry *bool  `json:"allow_blunt_mimicry,omitempty"`
-	RawPermuteExtensions *bool `json:"permute_raw_hello,omitempty"`
+	RawClientHello       string `json:"raw_client_hello,omitempty"`
+	RawPSKClientHello    string `json:"raw_psk_client_hello,omitempty"`
+	AllowBluntMimicry    *bool  `json:"allow_blunt_mimicry,omitempty"`
+	RawPermuteExtensions *bool  `json:"permute_raw_hello,omitempty"`
 
 	// PSKJA3 is a JA3 captured from a resuming connection, i.e. one whose
 	// extension list contains 41. It is the JA3-mode counterpart of
@@ -143,9 +143,9 @@ type HTTP2Spec struct {
 	PseudoOrder   []string           `json:"pseudo_order,omitempty"`
 
 	// HPACK config
-	HPACKHeaderOrder    []string `json:"hpack_header_order,omitempty"`
+	HPACKHeaderOrder            []string `json:"hpack_header_order,omitempty"`
 	HPACKHeaderOrderSubresource []string `json:"hpack_header_order_subresource,omitempty"`
-	HPACKIndexingPolicy *string  `json:"hpack_indexing_policy,omitempty"` // "chrome","never","always","default"
+	HPACKIndexingPolicy         *string  `json:"hpack_indexing_policy,omitempty"` // "chrome","never","always","default"
 	// HPACKRepresentation pins the HPACK representation per header name:
 	// "incremental", "without", "never" or "default". Override layer, empty
 	// for browser profiles, deltas only. See H2FingerprintConfig.
@@ -688,10 +688,18 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 		// Same reasoning as the JA3 branch below: the captured bytes are the
 		// whole TLS fingerprint, so leaving a ClientHelloID behind would let a
 		// stale inherited identity win at some branch further down.
+		//
+		// The QUIC identities are deliberately NOT cleared. A capture describes
+		// one transport, and which one it describes is a property of the bytes:
+		// a QUIC hello carries quic_transport_parameters and a TCP hello does
+		// not. Clearing them here threw away the only QUIC identity the preset
+		// had, on the strength of a capture that usually says nothing about
+		// QUIC, and the HTTP/3 transport then had nothing to build from and
+		// silently fell back to the QUIC stack's own default hello. Whether the
+		// capture applies to QUIC is decided per transport, in
+		// ResolveQUICClientHelloSpec, which is the only place that knows.
 		p.ClientHelloID = tls.ClientHelloID{}
 		p.PSKClientHelloID = tls.ClientHelloID{}
-		p.QUICClientHelloID = tls.ClientHelloID{}
-		p.QUICPSKClientHelloID = tls.ClientHelloID{}
 		p.JA3 = ""
 		p.PSKJA3 = ""
 		return nil
@@ -707,10 +715,13 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 		// PSKClientHelloID goes with them, which is correct: a PSK hello built
 		// from a named ClientHelloID would not match the JA3 the rest of the
 		// connection advertises. psk_ja3 is the JA3-mode route to resumption.
+		//
+		// The QUIC identities stay, for the reason given in the raw branch: a
+		// JA3 describes the transport it was captured on, and taking a TCP JA3
+		// as grounds to erase the preset's QUIC identity left HTTP/3 with
+		// nothing to build from.
 		p.ClientHelloID = tls.ClientHelloID{}
 		p.PSKClientHelloID = tls.ClientHelloID{}
-		p.QUICClientHelloID = tls.ClientHelloID{}
-		p.QUICPSKClientHelloID = tls.ClientHelloID{}
 		// Build JA3Extras from the spec
 		if spec.JA3ExtrasSpec != nil {
 			extras, err := buildJA3Extras(spec.JA3ExtrasSpec)

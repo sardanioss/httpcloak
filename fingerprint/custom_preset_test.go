@@ -583,7 +583,19 @@ func TestClonePresetDeepCopyH2Config(t *testing.T) {
 
 // --- Mutual Exclusion Tests ---
 
-func TestApplyTLSJA3ClearsClientHelloID(t *testing.T) {
+// A JA3 replaces the TCP identity and leaves the QUIC one alone.
+//
+// This test used to assert the opposite, and the assertion was the bug. A JA3
+// or a captured hello describes the transport it came from, and a TCP one says
+// nothing about QUIC, so erasing the QUIC identity on the strength of it left
+// HTTP/3 with nothing to build from. The HTTP/3 transport then fell back to the
+// QUIC stack's own default hello, which is both wrong and quiet: measured
+// against a live endpoint, chrome-151-windows over HTTP/3 dropped from
+// q13d311_55b375c5d22e_653d80c3fe9d with 11 extensions to
+// q13d37_55b375c5d22e_4ca1098a2eeb with 7, purely from adding a TCP ja3 to the
+// preset. Whether a capture applies to QUIC is decided per transport, by
+// ResolveQUICClientHelloSpec, which is the only place that can know.
+func TestApplyTLSJA3ClearsTCPIdentityOnly(t *testing.T) {
 	// Start from a Chrome preset with ClientHelloID set, then overlay JA3
 	spec := &PresetSpec{
 		Name:    "ja3-override",
@@ -606,11 +618,15 @@ func TestApplyTLSJA3ClearsClientHelloID(t *testing.T) {
 	if p.PSKClientHelloID.Client != "" {
 		t.Fatal("expected PSKClientHelloID to be cleared")
 	}
-	if p.QUICClientHelloID.Client != "" {
-		t.Fatal("expected QUICClientHelloID to be cleared")
+	// And the QUIC identity survives, because a TCP JA3 is not evidence about
+	// QUIC. Losing it here is what silently downgraded every HTTP/3 request.
+	if p.QUICClientHelloID.Client == "" {
+		t.Error("QUICClientHelloID was cleared by a TCP JA3; HTTP/3 has nothing " +
+			"left to build from and falls back to a default hello")
 	}
-	if p.QUICPSKClientHelloID.Client != "" {
-		t.Fatal("expected QUICPSKClientHelloID to be cleared")
+	if p.QUICPSKClientHelloID.Client == "" {
+		t.Error("QUICPSKClientHelloID was cleared by a TCP JA3; HTTP/3 resumption " +
+			"loses its identity the same way")
 	}
 }
 
