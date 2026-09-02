@@ -34,6 +34,8 @@ github.com/sardanioss/utls v1.10.3 h1:b1HU1+owWCUhfLUk0mk2mOgepL14rmthbA1PS8XGQX
 github.com/sardanioss/utls v1.10.3/go.mod h1:3sXK05Ir31HiMGINYV1uMDFRv/z9JL+QY9ITi/WEbV0=
 github.com/sardanioss/utls v1.10.4 h1:xfoy+Tw9JgRNOgaySTTD32SkFZrvWdeb4VUc+MEfkxw=
 github.com/sardanioss/utls v1.10.4/go.mod h1:3sXK05Ir31HiMGINYV1uMDFRv/z9JL+QY9ITi/WEbV0=
+github.com/sardanioss/utls v1.10.5 h1:7vFm1syxf6pb5bDSPoZRzS2jzlIZg9lonlqMVL6xpZo=
+github.com/sardanioss/utls v1.10.5/go.mod h1:3sXK05Ir31HiMGINYV1uMDFRv/z9JL+QY9ITi/WEbV0=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=

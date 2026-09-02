@@ -13,7 +13,7 @@ require (
 	github.com/sardanioss/qpack v0.6.3 // indirect
 	github.com/sardanioss/quic-go v1.2.29 // indirect
 	github.com/sardanioss/udpbara v1.1.0 // indirect
-	github.com/sardanioss/utls v1.10.4 // indirect
+	github.com/sardanioss/utls v1.10.5 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
