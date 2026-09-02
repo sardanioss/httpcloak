@@ -25,6 +25,7 @@ import (
 type rootHop struct {
 	method        string
 	contentLength string
+	chunked       bool
 	body          []byte
 }
 
@@ -77,14 +78,27 @@ func (s *rootRedirectServer) serve(conn net.Conn) {
 			break
 		}
 		if name, value, ok := strings.Cut(line, ":"); ok {
-			if strings.EqualFold(strings.TrimSpace(name), "content-length") {
+			switch {
+			case strings.EqualFold(strings.TrimSpace(name), "content-length"):
 				hop.contentLength = strings.TrimSpace(value)
+			case strings.EqualFold(strings.TrimSpace(name), "transfer-encoding"):
+				hop.chunked = strings.Contains(strings.ToLower(value), "chunked")
 			}
 		}
 	}
 
 	// Drain the body before answering, or the client is reset mid-write.
-	if hop.contentLength != "" {
+	//
+	// Both framings, not just Content-Length. A caller who hides the concrete
+	// reader type behind an interface gets no Content-Length, so the request
+	// goes out chunked; draining only the sized case left those bodies in the
+	// socket, and answering then closing reset the client mid-write. That
+	// surfaced as an intermittent "write: broken pipe" on loopback, which reads
+	// like a transport defect and is a gap in this server.
+	switch {
+	case hop.chunked:
+		hop.body = readChunkedBody(br)
+	case hop.contentLength != "":
 		if n, _ := strconv.Atoi(hop.contentLength); n > 0 {
 			buf := make([]byte, n)
 			if _, err := io.ReadFull(br, buf); err != nil {
@@ -267,5 +281,26 @@ func TestSessionDo_GetBodyEscapeHatch(t *testing.T) {
 	}
 	if got := string(hops[1].body); got != payload {
 		t.Errorf("hop 1 body = %q, want %q", got, payload)
+	}
+}
+
+// readChunkedBody drains a chunked request body, returning what it carried.
+func readChunkedBody(br *bufio.Reader) []byte {
+	var out []byte
+	for {
+		sizeLine, err := br.ReadString('\n')
+		if err != nil {
+			return out
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(sizeLine), 16, 64)
+		if err != nil || n == 0 {
+			return out
+		}
+		buf := make([]byte, n)
+		if _, err := io.ReadFull(br, buf); err != nil {
+			return out
+		}
+		out = append(out, buf...)
+		br.ReadString('\n') // trailing CRLF
 	}
 }
