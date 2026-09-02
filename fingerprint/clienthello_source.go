@@ -87,9 +87,26 @@ func ResolveClientHelloSpec(
 		}
 		// A captured hello is one connection's worth of evidence, so its
 		// extension order is frozen unless the preset says the client varies it.
-		// Chromium does; NSS, Apple's stack and Go do not. Blunt mimicry opts
-		// out either way: it passes through extensions with no model behind
-		// them, and those cannot be moved safely.
+		// Chromium does; NSS, Apple's stack and Go do not.
+		//
+		// Blunt mimicry used to opt out of this on the reasoning that an
+		// extension with no model behind it cannot be moved safely. That is not
+		// what the classifier does. Everything whose position is actually
+		// constrained is modelled and stays pinned through a blunt parse: GREASE
+		// brackets the list, padding sizes the record, and pre_shared_key is
+		// required by RFC 8446 4.2.11 to be last. All three are writable, so a
+		// blunt parse yields their real types and the shuffle leaves them where
+		// they are. Only genuinely unmodellable extensions become a
+		// GenericExtension, and RFC 8446 4.2 puts no ordering constraint on
+		// those at all.
+		//
+		// The old coupling was also self-defeating for the one caller that needs
+		// both. A QUIC capture cannot be parsed without blunt mimicry, because
+		// quic_transport_parameters is the single extension uTLS recognises and
+		// cannot write, so requiring blunt to disable permutation meant every
+		// HTTP/3 mirror was frozen at one order no matter what the preset asked
+		// for. That is the snapshot-versus-behaviour gap, and declaring
+		// permute_extensions was silently ignored rather than refused.
 		//
 		// Fresh randomness per call, not the caller's seed. Chromium permutes on
 		// every handshake, because BoringSSL keeps extension_permutation on the
@@ -109,7 +126,7 @@ func ResolveClientHelloSpec(
 		// of what a TCP hello looks like. Fall through to the TCP identity
 		// rather than send a hello no TCP client would.
 		if !SpecHasQUICTransportParameters(spec) {
-			if p.RawPermuteExtensions && !p.RawBluntMimicry {
+			if p.RawPermuteExtensions {
 				spec.Extensions = utls.ShuffleChromeTLSExtensions(spec.Extensions)
 			}
 			return spec, SourceRaw, nil
@@ -339,7 +356,7 @@ func ResolveQUICClientHelloSpec(p *Preset, wantPSK bool, seed int64) (*utls.Clie
 			return nil, SourceRaw, fmt.Errorf("parse raw client hello for quic: %w", err)
 		}
 		if SpecHasQUICTransportParameters(spec) {
-			if p.RawPermuteExtensions && !p.RawBluntMimicry {
+			if p.RawPermuteExtensions {
 				spec.Extensions = utls.ShuffleChromeTLSExtensions(spec.Extensions)
 			}
 			return spec, SourceRaw, nil

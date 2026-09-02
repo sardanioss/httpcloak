@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"encoding/base64"
+	"fmt"
 	"testing"
 
 	utls "github.com/sardanioss/utls"
@@ -143,23 +144,67 @@ func TestRawHelloPermutesOnTheZeroSeed(t *testing.T) {
 // Blunt mimicry passes through extensions with no model behind them, and those
 // cannot be moved safely, so it wins over the permute flag rather than the two
 // combining.
-func TestBluntMimicryDisablesRawPermutation(t *testing.T) {
+// Blunt mimicry and permutation now compose, and this is what makes that safe.
+//
+// The two used to be mutually exclusive, on the reasoning that an extension with
+// no model behind it cannot be moved. That is not what the shuffle does. It
+// pins by type, and every extension whose position is genuinely constrained is
+// modelled and survives a blunt parse as its own type: GREASE brackets the list,
+// padding sizes the record, and pre_shared_key is required by RFC 8446 4.2.11 to
+// be last. Only extensions uTLS cannot model at all become a GenericExtension,
+// and RFC 8446 4.2 puts no ordering constraint on those.
+//
+// The coupling also defeated the one caller that needs both: a QUIC capture
+// only parses under blunt mimicry, since quic_transport_parameters is the single
+// extension uTLS recognises and cannot write, so an HTTP/3 mirror was frozen at
+// one order however the preset was written.
+//
+// So the guarantee under test is not "nothing moves", it is "the things that
+// must not move stay put while the rest varies".
+func TestBluntMimicryPermutesOnlyWhatMayMove(t *testing.T) {
 	raw := buildRawHelloBytes(t)
 	p := &Preset{RawClientHello: raw, RawPermuteExtensions: true, RawBluntMimicry: true}
+
+	pinnedSlots := func(spec *utls.ClientHelloSpec) map[int]string {
+		out := map[int]string{}
+		for i, e := range spec.Extensions {
+			switch e.(type) {
+			case *utls.UtlsGREASEExtension, *utls.UtlsPaddingExtension, utls.PreSharedKeyExtension:
+				out[i] = fmt.Sprintf("%T", e)
+			}
+		}
+		return out
+	}
 
 	first, _, err := ResolveClientHelloSpec(p, "", nil, false, 1)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	for _, seed := range []int64{2, 3, 99} {
-		got, _, err := ResolveClientHelloSpec(p, "", nil, false, seed)
+	wantPinned := pinnedSlots(first)
+
+	seen := map[string]bool{}
+	for i := 0; i < 8; i++ {
+		got, _, err := ResolveClientHelloSpec(p, "", nil, false, 1)
 		if err != nil {
-			t.Fatalf("resolve seed %d: %v", seed, err)
+			t.Fatalf("resolve %d: %v", i, err)
 		}
-		if !sameOrder(extIDs(t, first), extIDs(t, got)) {
-			t.Fatalf("seed %d reordered a blunt-mimicry hello; extensions with no "+
-				"model behind them must not be moved", seed)
+		seen[orderKey(extIDs(t, got))] = true
+
+		// Every pinned extension is still in the slot it started in.
+		for idx, typ := range wantPinned {
+			if idx >= len(got.Extensions) {
+				t.Fatalf("extension count changed: %d vs %d", len(got.Extensions), len(first.Extensions))
+			}
+			if gotType := fmt.Sprintf("%T", got.Extensions[idx]); gotType != typ {
+				t.Errorf("slot %d held %s and now holds %s; that extension is "+
+					"position-invariant and must not be permuted", idx, typ, gotType)
+			}
 		}
+	}
+	if len(seen) < 4 {
+		t.Errorf("8 resolves of a blunt-mimicry hello produced %d distinct orders; "+
+			"a declared permuting client should vary, and blunt mimicry no longer "+
+			"suppresses that", len(seen))
 	}
 }
 
