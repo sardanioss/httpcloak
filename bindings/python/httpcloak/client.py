@@ -915,9 +915,21 @@ def _get_lib_path() -> str:
         Path(f"/usr/lib/{lib_name}"),
     ]
 
+    # HTTPCLOAK_LIB_PATH points a single process at a specific build, which is
+    # what lets several processes sharing one install directory run different
+    # versions. It takes the library file or a directory holding it under the
+    # usual name; a value that is neither falls through to the normal search
+    # rather than failing, so a stale variable degrades instead of breaking.
     env_path = os.environ.get("HTTPCLOAK_LIB_PATH")
     if env_path:
-        search_paths.insert(0, Path(env_path))
+        # A directory has to be joined with the file name rather than handed to
+        # the loader as-is. Testing for a file first is what keeps a directory
+        # from matching: Path.exists() is true for both.
+        p = Path(env_path)
+        if p.is_file():
+            search_paths.insert(0, p)
+        else:
+            search_paths.insert(0, p / lib_name)
 
     for path in search_paths:
         if path.exists():

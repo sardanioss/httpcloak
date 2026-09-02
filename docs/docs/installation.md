@@ -49,4 +49,32 @@ dotnet add package HttpCloak
 </TabItem>
 </Tabs>
 
+## Pointing a process at a specific build
+
+Every binding except Go honours `HTTPCLOAK_LIB_PATH`. Set it to the shared
+library file, or to a directory holding it under the usual name, and that
+process loads that build instead of the one shipped with the package.
+
+```sh
+HTTPCLOAK_LIB_PATH=/opt/httpcloak/1.7.0 ./my-bot
+```
+
+It exists for a fleet that deploys many processes into one shared directory.
+The normal search looks next to the installed package, so a shared directory
+means a single build for everyone and no way to stage a rollout across it.
+The variable gives back the per-process choice without splitting the fleet
+into separate folders.
+
+Two things to know. A value that points at neither a file nor a directory
+containing one is ignored rather than fatal, so a stale variable falls back to
+the normal search instead of taking the process down. And the variable only
+wins over the packaged library, so on a machine where some processes set it and
+others do not, the ones that do not keep using whatever the install directory
+holds.
+
+The shared library is backward compatible: a binding built against an older
+release runs on a newer library, which is what makes swapping the file a safe
+way to pick up new fingerprints without rebuilding. The reverse is not true, so
+do not point a newer binding at an older library.
+
 Next: [send your first request](./getting-started/first-request).

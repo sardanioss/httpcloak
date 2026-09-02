@@ -56,6 +56,30 @@ internal static class Native
             libName = arch == "arm64" ? "libhttpcloak-linux-arm64.so" : "libhttpcloak-linux-amd64.so";
         }
 
+        // HTTPCLOAK_LIB_PATH wins over everything below. The name matches the
+        // variable the Python binding has always honoured.
+        //
+        // It exists for a fleet that deploys many processes into one shared
+        // directory. The probe paths under it are all relative to the assembly
+        // directory, so a shared directory means one engine for everyone and no
+        // way to stage a rollout across it. Pointing each process at its own
+        // build with an environment variable gives back the per-process choice
+        // without moving anyone into separate folders.
+        //
+        // The value may be the library file itself or a directory holding it
+        // under the usual name. A value that resolves to neither is ignored
+        // rather than fatal, so a stale variable degrades to the normal search
+        // instead of taking the process down.
+        string? overridePath = Environment.GetEnvironmentVariable("HTTPCLOAK_LIB_PATH");
+        if (!string.IsNullOrWhiteSpace(overridePath))
+        {
+            if (File.Exists(overridePath))
+                return overridePath;
+            string inDir = Path.Combine(overridePath, libName);
+            if (File.Exists(inDir))
+                return inDir;
+        }
+
         // Try different locations
         string assemblyDir = Path.GetDirectoryName(typeof(Native).Assembly.Location) ?? ".";
         string[] searchPaths =

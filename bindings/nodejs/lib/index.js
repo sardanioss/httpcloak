@@ -790,6 +790,14 @@ function getPlatformPackageName() {
   return `@httpcloak/${platName}-${archName}`;
 }
 
+// nativeLibName is the file the platform's build is published under.
+function nativeLibName(platform, arch) {
+  const archName = arch === "arm64" ? "arm64" : "amd64";
+  if (platform === "darwin") return `libhttpcloak-darwin-${archName}.dylib`;
+  if (platform === "win32") return `libhttpcloak-windows-${archName}.dll`;
+  return `libhttpcloak-linux-${archName}.so`;
+}
+
 /**
  * Get the path to the native library
  */
@@ -797,9 +805,21 @@ function getLibPath() {
   const platform = os.platform();
   const arch = os.arch();
 
+  // HTTPCLOAK_LIB_PATH points a single process at a specific build, which is
+  // what lets several processes sharing one install directory run different
+  // versions. It takes the library file or a directory holding it under the
+  // usual name; a directory used to be accepted and then handed to the loader
+  // as-is, which fails. A value that resolves to neither falls through to the
+  // normal search rather than being fatal, so a stale variable degrades.
   const envPath = process.env.HTTPCLOAK_LIB_PATH;
-  if (envPath && fs.existsSync(envPath)) {
-    return envPath;
+  if (envPath) {
+    if (fs.existsSync(envPath) && fs.statSync(envPath).isFile()) {
+      return envPath;
+    }
+    const inDir = path.join(envPath, nativeLibName(platform, arch));
+    if (fs.existsSync(inDir)) {
+      return inDir;
+    }
   }
 
   const packageName = getPlatformPackageName();
