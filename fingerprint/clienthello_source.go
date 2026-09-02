@@ -104,10 +104,16 @@ func ResolveClientHelloSpec(
 		// hello is exactly what a caller reaches for when they want to look like
 		// one specific build, so a permutation that never moves is the wrong
 		// answer twice over.
-		if p.RawPermuteExtensions && !p.RawBluntMimicry {
-			spec.Extensions = utls.ShuffleChromeTLSExtensions(spec.Extensions)
+		// A QUIC capture on a TCP connection is the same error as the reverse:
+		// quic_transport_parameters is meaningless here and its absence is part
+		// of what a TCP hello looks like. Fall through to the TCP identity
+		// rather than send a hello no TCP client would.
+		if !SpecHasQUICTransportParameters(spec) {
+			if p.RawPermuteExtensions && !p.RawBluntMimicry {
+				spec.Extensions = utls.ShuffleChromeTLSExtensions(spec.Extensions)
+			}
+			return spec, SourceRaw, nil
 		}
-		return spec, SourceRaw, nil
 	}
 
 	if p.JA3 != "" {
@@ -119,7 +125,9 @@ func ResolveClientHelloSpec(
 		if err != nil {
 			return nil, SourceJA3, fmt.Errorf("parse ja3: %w", err)
 		}
-		return spec, SourceJA3, nil
+		if !SpecHasQUICTransportParameters(spec) {
+			return spec, SourceJA3, nil
+		}
 	}
 
 	id := p.ClientHelloID
@@ -255,4 +263,118 @@ func ClientHelloSourceOf(p *Preset, customJA3 string) ClientHelloSource {
 		return SourceJA3
 	}
 	return SourceClientHelloID
+}
+
+// SpecHasQUICTransportParameters reports whether a resolved spec carries
+// quic_transport_parameters (extension 57), which is what distinguishes a hello
+// captured from a QUIC handshake from one captured off TCP.
+//
+// Two shapes count, because uTLS represents the extension differently depending
+// on how the capture was parsed. ExtensionFromID recognises 57 and hands back a
+// QUICTransportParametersExtension, but that type has no Write method, so it is
+// not a TLSExtensionWriter and the parser cannot fill it from captured bytes.
+// A QUIC capture therefore only parses under blunt mimicry, where the extension
+// arrives as a GenericExtension carrying the raw id. Matching only the named
+// type would miss every real capture.
+func SpecHasQUICTransportParameters(spec *utls.ClientHelloSpec) bool {
+	if spec == nil {
+		return false
+	}
+	for _, ext := range spec.Extensions {
+		switch e := ext.(type) {
+		case *utls.QUICTransportParametersExtension:
+			return true
+		case *utls.GenericExtension:
+			if e.Id == quicTransportParametersExtensionID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// quicTransportParametersExtensionID is extension 57, quic_transport_parameters
+// (RFC 9001 section 8.2). Every QUIC ClientHello carries it and no TCP one does,
+// which makes it the discriminator between the two.
+const quicTransportParametersExtensionID uint16 = 57
+
+// ResolveQUICClientHelloSpec is ResolveClientHelloSpec for a QUIC handshake.
+//
+// It exists because the two transports need different answers from the same
+// preset. A preset carries one RawClientHello and one JA3, and which transport
+// those describe is a property of the bytes rather than of the field they sit
+// in. Handing a TCP capture to QUIC produces a hello with no transport
+// parameters, which is not the configured fingerprint and is not a valid QUIC
+// hello either.
+//
+// Precedence, highest first, and each source is skipped unless it actually
+// describes a QUIC handshake:
+//
+//	preset.RawClientHello   when it carries quic_transport_parameters
+//	preset.JA3              when it carries quic_transport_parameters
+//	preset.QUICClientHelloID
+//
+// The last is the common case and the reason the QUIC identities are no longer
+// cleared when a TCP source is set: a TCP capture says nothing about QUIC, so
+// QUIC keeps the identity it inherited.
+//
+// An unusable source is an error rather than a silent fall-through to the next
+// one. Falling through is how a capture that failed to parse turned into a
+// default hello that still connected, which is the failure this whole path was
+// built to stop.
+func ResolveQUICClientHelloSpec(p *Preset, wantPSK bool, seed int64) (*utls.ClientHelloSpec, ClientHelloSource, error) {
+	if p == nil {
+		return nil, SourceClientHelloID, fmt.Errorf("nil preset")
+	}
+
+	if len(p.RawClientHello) > 0 {
+		raw := p.RawClientHello
+		realPSK := false
+		if wantPSK && len(p.RawPSKClientHello) > 0 {
+			raw = p.RawPSKClientHello
+			realPSK = true
+		}
+		spec, err := SpecFromRawClientHello(raw, p.RawBluntMimicry, realPSK)
+		if err != nil {
+			return nil, SourceRaw, fmt.Errorf("parse raw client hello for quic: %w", err)
+		}
+		if SpecHasQUICTransportParameters(spec) {
+			if p.RawPermuteExtensions && !p.RawBluntMimicry {
+				spec.Extensions = utls.ShuffleChromeTLSExtensions(spec.Extensions)
+			}
+			return spec, SourceRaw, nil
+		}
+		// A TCP capture. Fall through to the QUIC identity rather than send a
+		// hello with no transport parameters.
+	}
+
+	if p.JA3 != "" {
+		ja3 := p.JA3
+		if wantPSK && p.PSKJA3 != "" {
+			ja3 = p.PSKJA3
+		}
+		spec, err := ParseJA3(ja3, p.JA3Extras)
+		if err != nil {
+			return nil, SourceJA3, fmt.Errorf("parse ja3 for quic: %w", err)
+		}
+		if SpecHasQUICTransportParameters(spec) {
+			return spec, SourceJA3, nil
+		}
+	}
+
+	id := p.QUICClientHelloID
+	if wantPSK && p.QUICPSKClientHelloID.Client != "" {
+		id = p.QUICPSKClientHelloID
+	}
+	if id.Client == "" {
+		return nil, SourceClientHelloID, fmt.Errorf(
+			"preset %q has no QUIC client hello: no capture or ja3 carrying "+
+				"quic_transport_parameters, and no quic_client_hello_id", p.Name)
+	}
+	spec, err := SpecForWithAnchors(id, seed, p.QUICSignatureAlgorithms, p.TrustAnchors)
+	if err != nil {
+		return nil, SourceClientHelloID, fmt.Errorf(
+			"build quic spec for %s/%s: %w", id.Client, id.Version, err)
+	}
+	return spec, SourceClientHelloID, nil
 }

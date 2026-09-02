@@ -290,6 +290,11 @@ type HTTP3Transport struct {
 	// Shuffle seed for TLS and transport parameter ordering (consistent per session)
 	shuffleSeed int64
 
+	// specErr holds why the QUIC hello could not be built, so a dial reports it
+	// instead of connecting with the QUIC stack's default hello.
+	specErrMu sync.Mutex
+	specErr   error
+
 	// Track requests for timing
 	requestCount int64
 	dialCount    int64 // Number of times dialQUIC was called (new connections)
@@ -442,34 +447,57 @@ func (t *HTTP3Transport) hasSessionForHost(host string) bool {
 // used only when there is a cached session to resume; Chrome does not send
 // early_data on a fresh connection.
 func (t *HTTP3Transport) getSpecForHost(host string) *utls.ClientHelloSpec {
-	if t.preset.QUICPSKClientHelloID.Client != "" && t.hasSessionForHost(host) {
-		if spec, err := fingerprint.SpecForWithAnchors(t.preset.QUICPSKClientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms, t.preset.TrustAnchors); err == nil {
-			return spec
-		}
+	spec, err := t.resolveQUICSpec(host)
+	if err != nil {
+		t.noteSpecFailure(err)
+		return nil
 	}
-	if t.clientHelloID != nil {
-		if spec, err := fingerprint.SpecForWithAnchors(*t.clientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms, t.preset.TrustAnchors); err == nil {
-			return spec
-		}
-	}
-	return nil
+	return spec
+}
+
+// resolveQUICSpec picks the QUIC hello for this connection.
+//
+// It used to know one source, the stored QUICClientHelloID, and swallow any
+// error with `if err == nil`. A preset built from a captured hello or a JA3 has
+// no QUICClientHelloID once those cleared it, so this returned nil and the QUIC
+// stack quietly substituted its own default hello: the request succeeded and
+// carried a fingerprint nobody chose. Routing through the shared resolver gives
+// QUIC the same source precedence TCP has, and returning the error means the
+// next time a source cannot be used it is visible rather than inferred from a
+// fingerprint that looks wrong.
+func (t *HTTP3Transport) resolveQUICSpec(host string) (*utls.ClientHelloSpec, error) {
+	wantPSK := t.preset.QUICPSKClientHelloID.Client != "" && t.hasSessionForHost(host)
+	spec, _, err := fingerprint.ResolveQUICClientHelloSpec(t.preset, wantPSK, t.shuffleSeed)
+	return spec, err
+}
+
+// noteSpecFailure records why the QUIC hello could not be built. There is no
+// error return on the path that needs it, and a connection with the wrong
+// fingerprint is worse than a loud one, so the reason is kept for the dial to
+// report rather than discarded.
+func (t *HTTP3Transport) noteSpecFailure(err error) {
+	t.specErrMu.Lock()
+	t.specErr = err
+	t.specErrMu.Unlock()
+}
+
+// SpecError returns the last failure to build a QUIC hello, or nil.
+func (t *HTTP3Transport) SpecError() error {
+	t.specErrMu.Lock()
+	defer t.specErrMu.Unlock()
+	return t.specErr
 }
 
 // getInnerSpecForHost is the inner-MASQUE counterpart of getSpecForHost. Same
 // fresh-per-dial regeneration so concurrent MASQUE inner dials never share a spec;
 // kept a separate object from the outer connection for a consistent inner JA4.
 func (t *HTTP3Transport) getInnerSpecForHost(host string) *utls.ClientHelloSpec {
-	if t.preset.QUICPSKClientHelloID.Client != "" && t.hasSessionForHost(host) {
-		if spec, err := fingerprint.SpecForWithAnchors(t.preset.QUICPSKClientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms, t.preset.TrustAnchors); err == nil {
-			return spec
-		}
+	spec, err := t.resolveQUICSpec(host)
+	if err != nil {
+		t.noteSpecFailure(err)
+		return nil
 	}
-	if t.clientHelloID != nil {
-		if spec, err := fingerprint.SpecForWithAnchors(*t.clientHelloID, t.shuffleSeed, t.preset.QUICSignatureAlgorithms, t.preset.TrustAnchors); err == nil {
-			return spec
-		}
-	}
-	return nil
+	return spec
 }
 
 // NewHTTP3Transport creates a new HTTP/3 transport
