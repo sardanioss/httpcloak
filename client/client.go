@@ -111,6 +111,11 @@ type Client struct {
 	// Store H3 initialization error for better error messages
 	h3InitError error
 
+	// configErr is a construction-time problem surfaced on the first request,
+	// since NewClient has no error return. Currently only an unrecognised
+	// preset name.
+	configErr error
+
 	// Custom header order (nil = use preset's order)
 	customHeaderOrder   []string
 	customHeaderOrderMu sync.RWMutex
@@ -125,6 +130,14 @@ func NewClient(presetName string, opts ...Option) *Client {
 		opt(config)
 	}
 
+	// An unrecognised preset name is a config error rather than something to
+	// resolve to a default. fingerprint.Get answers an unknown name with
+	// chrome-146, so one mistyped character used to put a three-version-old
+	// fingerprint on the wire with nothing said about it.
+	var configErr error
+	if config.Preset != "" && fingerprint.GetStrict(config.Preset) == nil {
+		configErr = fingerprint.UnknownPresetError(config.Preset)
+	}
 	preset := fingerprint.Get(config.Preset)
 
 	// Determine effective proxy URLs for TCP and UDP transports
@@ -293,6 +306,7 @@ func NewClient(presetName string, opts ...Option) *Client {
 		h3Failures:        make(map[string]time.Time),
 		h2Failures:        make(map[string]time.Time),
 		h3InitError:       h3InitError,
+		configErr:         configErr,
 	}
 
 	// Auto-enable cookies when retry is enabled
@@ -810,6 +824,9 @@ func (r *Response) IsServerError() bool {
 // Do executes an HTTP request
 // Tries HTTP/3 first, falls back to HTTP/2 if HTTP/3 fails
 func (c *Client) Do(ctx context.Context, req *Request) (*Response, error) {
+	if c.configErr != nil {
+		return nil, c.configErr
+	}
 	// Handle retries
 	if c.config.RetryEnabled && !req.DisableRetry {
 		return c.doWithRetry(ctx, req)

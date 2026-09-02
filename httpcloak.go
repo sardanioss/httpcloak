@@ -1167,7 +1167,18 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 	} else {
 		s = session.NewSession("", sessionCfg)
 	}
-	return &Session{inner: s, configErr: cfg.configErr}
+	// An unrecognised preset name is a config error, not something to paper
+	// over. Get() answers it with chrome-146, so a single mistyped character
+	// used to put a three-version-old fingerprint on the wire with nothing said
+	// about it, which is the one failure this library exists to prevent.
+	//
+	// Deferred like the other config errors: NewSession has no error return, so
+	// it surfaces on the first request rather than at construction.
+	configErr := cfg.configErr
+	if configErr == nil && cfg.preset != "" && fingerprint.GetStrict(cfg.preset) == nil {
+		configErr = fingerprint.UnknownPresetError(cfg.preset)
+	}
+	return &Session{inner: s, configErr: configErr}
 }
 
 // toResponse converts a transport response, including its redirect history.
