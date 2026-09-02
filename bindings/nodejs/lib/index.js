@@ -1265,6 +1265,41 @@ function addParamsToUrl(url, params) {
 /**
  * Apply basic auth to headers
  */
+/**
+ * Normalize the exactHeaders option into the [[name, value], ...] shape clib
+ * expects, or null when nothing was given.
+ *
+ * exactHeaders replaces the whole header pipeline: the pairs go out in the
+ * order and casing given, a name may repeat and each occurrence keeps its own
+ * position, and no preset headers, client hints or alphabetical tail are
+ * added. An object cannot express any of that, which is why this takes pairs.
+ * A Map or a plain object is accepted for convenience but cannot carry a
+ * repeated name, so the array form is the one to reach for.
+ *
+ * @param {Array<[string, string]>|Map<string, string>|Object|null} exactHeaders
+ * @returns {Array<[string, string]>|null}
+ */
+function normalizeExactHeaders(exactHeaders) {
+  if (exactHeaders === null || exactHeaders === undefined) return null;
+  let pairs;
+  if (Array.isArray(exactHeaders)) {
+    pairs = exactHeaders;
+  } else if (exactHeaders instanceof Map) {
+    pairs = Array.from(exactHeaders.entries());
+  } else if (typeof exactHeaders === "object") {
+    pairs = Object.entries(exactHeaders);
+  } else {
+    throw new TypeError("exactHeaders must be an array of [name, value] pairs, a Map, or an object");
+  }
+  if (pairs.length === 0) return null;
+  return pairs.map((pair) => {
+    if (!Array.isArray(pair) || pair.length < 2) {
+      throw new TypeError("each exactHeaders entry must be a [name, value] pair");
+    }
+    return [String(pair[0]), String(pair[1])];
+  });
+}
+
 function applyAuth(headers, auth) {
   if (!auth) {
     return headers;
@@ -1779,6 +1814,9 @@ class Session {
    * @returns {Response} Response object
    */
   getSync(url, options = {}) {
+    // The get_raw entry has no exact_headers field, so a caller asking for one
+    // goes down the generic request path instead of having it dropped in silence.
+    if (options.exactHeaders) return this.requestSync("GET", url, options);
     const { headers = null, params = null, cookies = null, auth = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
 
     url = addParamsToUrl(url, params);
@@ -1840,6 +1878,9 @@ class Session {
    * @returns {Response} Response object
    */
   postSync(url, options = {}) {
+    // The post_raw entry has no exact_headers field, so a caller asking for one
+    // goes down the generic request path instead of having it dropped in silence.
+    if (options.exactHeaders) return this.requestSync("POST", url, options);
     let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
 
     url = addParamsToUrl(url, params);
@@ -1924,7 +1965,9 @@ class Session {
    * @returns {Response} Response object
    */
   requestSync(method, url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, exactHeaders = null } = options;
+
+    const exact = normalizeExactHeaders(exactHeaders);
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -1964,10 +2007,12 @@ class Session {
       method: method.toUpperCase(),
       url,
     };
+    if (exact) requestConfig.exact_headers = exact;
     if (mergedHeaders) requestConfig.headers = mergedHeaders;
     if (timeout) requestConfig.timeout = timeout;
     if (fetchMode) requestConfig.fetch_mode = fetchMode;
     if (allowRedirects !== null && allowRedirects !== undefined) requestConfig.follow_redirects = !!allowRedirects;
+    if (disableRedirectReferer) requestConfig.disable_redirect_referer = true;
     if (disableConditionalCache) requestConfig.disable_conditional_cache = true;
     if (disableClientHints) requestConfig.disable_client_hints = true;
     if (disableHighEntropyClientHints) requestConfig.disable_high_entropy_client_hints = true;
@@ -2001,6 +2046,9 @@ class Session {
    * @returns {Promise<Response>} Response object
    */
   get(url, options = {}) {
+    // The get_async entry has no exact_headers field, so a caller asking for one
+    // goes down the generic request path instead of having it dropped in silence.
+    if (options.exactHeaders) return this.request("GET", url, options);
     const { headers = null, params = null, cookies = null, auth = null, fetchMode = null, timeout = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, signal = null } = options;
 
     url = addParamsToUrl(url, params);
@@ -2059,6 +2107,9 @@ class Session {
    * @returns {Promise<Response>} Response object
    */
   post(url, options = {}) {
+    // The post_async entry has no exact_headers field, so a caller asking for one
+    // goes down the generic request path instead of having it dropped in silence.
+    if (options.exactHeaders) return this.request("POST", url, options);
     let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, fetchMode = null, timeout = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, signal = null } = options;
 
     url = addParamsToUrl(url, params);
@@ -2158,7 +2209,9 @@ class Session {
    * @returns {Promise<Response>} Response object
    */
   request(method, url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, signal = null } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, exactHeaders = null, signal = null } = options;
+
+    const exact = normalizeExactHeaders(exactHeaders);
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -2209,12 +2262,14 @@ class Session {
       method: method.toUpperCase(),
       url,
     };
+    if (exact) requestConfig.exact_headers = exact;
     if (mergedHeaders) requestConfig.headers = mergedHeaders;
     if (body) requestConfig.body = body;
     if (bodyEncoding) requestConfig.body_encoding = bodyEncoding;
     if (timeout) requestConfig.timeout = timeout;
     if (fetchMode) requestConfig.fetch_mode = fetchMode;
     if (allowRedirects !== null && allowRedirects !== undefined) requestConfig.follow_redirects = !!allowRedirects;
+    if (disableRedirectReferer) requestConfig.disable_redirect_referer = true;
     if (disableConditionalCache) requestConfig.disable_conditional_cache = true;
     if (disableClientHints) requestConfig.disable_client_hints = true;
     if (disableHighEntropyClientHints) requestConfig.disable_high_entropy_client_hints = true;
@@ -2993,7 +3048,9 @@ class Session {
    * @returns {StreamResponse} - Streaming response for chunked reading
    */
   requestStream(method, url, options = {}) {
-    const { body, params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false } = options;
+    const { body, params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, exactHeaders = null } = options;
+
+    const exact = normalizeExactHeaders(exactHeaders);
 
     // Add params to URL
     if (params) {
@@ -3017,6 +3074,9 @@ class Session {
       method: method.toUpperCase(),
       url,
     };
+    if (exact) {
+      requestConfig.exact_headers = exact;
+    }
     if (Object.keys(mergedHeaders).length > 0) {
       requestConfig.headers = mergedHeaders;
     }

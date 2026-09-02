@@ -336,6 +336,41 @@ export interface RequestOptions {
   disableHighEntropyClientHints?: boolean;
 
   /**
+   * Per-request opt-out of the Referer httpcloak adds when it follows a
+   * redirect. When true no Referer is synthesised for the next hop; a Referer
+   * the caller set themselves still goes out.
+   */
+  disableRedirectReferer?: boolean;
+
+  /**
+   * Replace the whole header pipeline for this request.
+   *
+   * The pairs go on the wire in the order and casing given, and nothing else
+   * is added: no preset header block, no client hints, no Sec-Fetch inference,
+   * no alphabetical tail, and no merge of `headers` or the session cookie jar.
+   * A name may repeat and each occurrence keeps its own position, which an
+   * object cannot express and a captured request routinely needs.
+   *
+   * Host on HTTP/1.1 and the pseudo-header block on HTTP/2 and HTTP/3 are
+   * still written for you as protocol framing. Connection is not; list it
+   * yourself to send it.
+   *
+   * Honoured by `request`, `requestSync` and `requestStream`. It is an escape
+   * hatch: the caller takes on the entire request shape, including the headers
+   * a browser would always send.
+   *
+   * @example
+   * await session.request("GET", "https://example.com", {
+   *   exactHeaders: [
+   *     ["cookie", "a=1"],
+   *     ["accept", "*\/*"],
+   *     ["cookie", "b=2"],
+   *   ],
+   * });
+   */
+  exactHeaders?: Array<[string, string]> | Map<string, string> | Record<string, string>;
+
+  /**
    * AbortSignal for cancelling an in-flight request. Honored by the async
    * methods (get, post, put, patch, delete, head, options, request). When
    * the signal aborts, the underlying Go-side request is cancelled (DNS /
