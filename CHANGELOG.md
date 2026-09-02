@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A transient failure on the first request to a host no longer pins that host to HTTP/1.1 for the rest of the session**: in auto mode the transport learns which protocol a host speaks and caches it per session, so later requests skip the negotiation (added for #68). Two different facts were being written into that cache under the same key. "This host negotiated http/1.1 via ALPN" is a property of the host and is right to cache. "The HTTP/2 attempt failed this time and the HTTP/1.1 fallback got the request through" is a property of one attempt: a reset or timed-out handshake, a first dial that did not survive, anything transient. That second case was cached exactly like the first, and only the very first request to a host (or the first after `Refresh`) could hit it, because once a host is known as HTTP/2 a later transient failure serves one request over HTTP/1.1 without touching the cache. So the failure mode was silent and permanent: one bad handshake on the opening request and every following request to that host went out over HTTP/1.1, and with it a different fingerprint, with nothing that would ever re-probe. Long-lived sessions and anything that creates sessions frequently (each new session starts with an empty cache) were the most exposed. The fallback still happens and the request still succeeds; it just no longer writes the cache, so the next request attempts HTTP/2 again and, when that works, the host is cached as HTTP/2 like any other. ALPN downgrades are cached as before, so an HTTP/1.1-only host still pays the failed HTTP/2 attempt only once. Forced protocols bypass the cache entirely and are unaffected, and so is what each request does on the wire: the fallback runs exactly as before, only the cache write is gone.
+
 ## [1.7.0] - 2026-09-01
 
 ### Added
