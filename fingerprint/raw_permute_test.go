@@ -92,21 +92,51 @@ func TestRawHelloOrderIsFrozenByDefault(t *testing.T) {
 }
 
 // And with it declared, the order varies per connection the way Chromium's does.
+//
+// The seed is held FIXED here on purpose. Varying it only proved the shuffle
+// function responds to its argument, which was never in doubt, and it missed
+// the thing that mattered: a transport draws one seed and keeps it for its
+// whole life, so a seeded shuffle repeated one order on every connection in a
+// session, and the HTTP/1.1 call site passes a constant 0, which repeated one
+// order everywhere. Same seed, many calls, is what a session actually does.
 func TestRawHelloPermutesWhenDeclared(t *testing.T) {
 	raw := buildRawHelloBytes(t)
 	p := &Preset{RawClientHello: raw, RawPermuteExtensions: true}
 
+	const oneSessionsSeed = 12345
 	seen := map[string]bool{}
-	for _, seed := range []int64{1, 2, 3, 7, 99, 12345} {
-		spec, _, err := ResolveClientHelloSpec(p, "", nil, false, seed)
+	for i := 0; i < 8; i++ {
+		spec, _, err := ResolveClientHelloSpec(p, "", nil, false, oneSessionsSeed)
 		if err != nil {
-			t.Fatalf("resolve seed %d: %v", seed, err)
+			t.Fatalf("resolve %d: %v", i, err)
 		}
 		seen[orderKey(extIDs(t, spec))] = true
 	}
-	if len(seen) < 3 {
-		t.Errorf("6 seeds produced %d distinct extension orders; a declared "+
-			"permuting client should vary on nearly every one", len(seen))
+	if len(seen) < 4 {
+		t.Errorf("8 connections on one seed produced %d distinct extension "+
+			"orders; a declared permuting client permutes per handshake, so "+
+			"this should vary on nearly every one", len(seen))
+	}
+}
+
+// The HTTP/1.1 transport passes a literal 0 for the seed. That must not be a
+// special case: it was the value that pinned every raw-hello HTTP/1.1
+// connection to one order for every process on every machine.
+func TestRawHelloPermutesOnTheZeroSeed(t *testing.T) {
+	raw := buildRawHelloBytes(t)
+	p := &Preset{RawClientHello: raw, RawPermuteExtensions: true}
+
+	seen := map[string]bool{}
+	for i := 0; i < 8; i++ {
+		spec, _, err := ResolveClientHelloSpec(p, "", nil, false, 0)
+		if err != nil {
+			t.Fatalf("resolve %d: %v", i, err)
+		}
+		seen[orderKey(extIDs(t, spec))] = true
+	}
+	if len(seen) < 4 {
+		t.Errorf("8 connections on seed 0 produced %d distinct extension orders; "+
+			"the HTTP/1.1 path passes exactly this seed", len(seen))
 	}
 }
 

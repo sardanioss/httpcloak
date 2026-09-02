@@ -90,8 +90,22 @@ func ResolveClientHelloSpec(
 		// Chromium does; NSS, Apple's stack and Go do not. Blunt mimicry opts
 		// out either way: it passes through extensions with no model behind
 		// them, and those cannot be moved safely.
+		//
+		// Fresh randomness per call, not the caller's seed. Chromium permutes on
+		// every handshake, because BoringSSL keeps extension_permutation on the
+		// handshake rather than the context, and the ClientHelloID path already
+		// behaves that way: utlsIdToSpec shuffles a Chrome parrot's literal with
+		// fresh randomness every time a spec is built.
+		//
+		// Seeding this shuffle instead made the raw path the odd one out. The
+		// seed is drawn once per transport, so every connection in a session
+		// repeated one order, and the HTTP/1.1 call site passes a constant 0,
+		// which pinned the order for every process on every machine. A captured
+		// hello is exactly what a caller reaches for when they want to look like
+		// one specific build, so a permutation that never moves is the wrong
+		// answer twice over.
 		if p.RawPermuteExtensions && !p.RawBluntMimicry {
-			spec.Extensions = utls.ShuffleChromeTLSExtensionsWithSeed(spec.Extensions, seed)
+			spec.Extensions = utls.ShuffleChromeTLSExtensions(spec.Extensions)
 		}
 		return spec, SourceRaw, nil
 	}
