@@ -255,8 +255,18 @@ type RequestConfig struct {
 	// exactly what reproducing a captured request needs. Headers is ignored
 	// when this is set.
 	ExactHeaders [][]string `json:"exact_headers,omitempty"`
-	Body         string     `json:"body,omitempty"`
-	BodyEncoding string     `json:"body_encoding,omitempty"` // "text" (default) or "base64"
+
+	// HeaderOrder sets the order for this one request and overrides whatever
+	// the session-wide setter installed. Nothing is stored on the session and
+	// no lock is taken, so concurrent requests can each carry their own.
+	//
+	// It is a prefix rather than a replacement: names listed here go first, in
+	// this order, and anything left out keeps the preset's own position. Use it
+	// instead of setting a session-wide order around a request, which races
+	// with every other request in flight.
+	HeaderOrder  []string `json:"header_order,omitempty"`
+	Body         string   `json:"body,omitempty"`
+	BodyEncoding string   `json:"body_encoding,omitempty"` // "text" (default) or "base64"
 	// Timeout's UNIT DEPENDS ON THE ENTRY POINT: httpcloak_request_raw reads it
 	// as MILLISECONDS; httpcloak_request and httpcloak_request_async (and
 	// httpcloak_stream_request) read it as SECONDS. Bindings must convert to
@@ -318,6 +328,21 @@ type ResponseData struct {
 	Protocol     string              `json:"protocol"`
 	Cookies      []Cookie            `json:"cookies"`
 	History      []RedirectInfo      `json:"history"`
+
+	// The Go core records all three; they were simply never marshalled, so no
+	// binding could reach them however it was written.
+	//
+	// HeaderOrder is the order the peer sent its headers in and HeaderCasing is
+	// how it spelled them. A map carries neither, so anything relaying this
+	// response onward, a proxy or a MITM bridge, otherwise emits a different
+	// header block than the origin did. Both are nil on HTTP/1.1, which reads
+	// through textproto and loses the order and the casing before we see them.
+	//
+	// Trailer is the block that arrives after the body, which is where gRPC puts
+	// its status. Nil when there was none.
+	HeaderOrder  []string            `json:"header_order,omitempty"`
+	HeaderCasing []string            `json:"header_casing,omitempty"`
+	Trailer      map[string][]string `json:"trailer,omitempty"`
 }
 
 // ResponseMetadata for optimized responses - body is passed separately as raw bytes
@@ -329,6 +354,11 @@ type ResponseMetadata struct {
 	Protocol   string              `json:"protocol"`
 	Cookies    []Cookie            `json:"cookies"`
 	History    []RedirectInfo      `json:"history"`
+
+	// See ResponseData for what these are and when they are nil.
+	HeaderOrder  []string            `json:"header_order,omitempty"`
+	HeaderCasing []string            `json:"header_casing,omitempty"`
+	Trailer      map[string][]string `json:"trailer,omitempty"`
 }
 
 // RawResponse holds response data with body as raw bytes (not JSON encoded)
@@ -729,6 +759,9 @@ func makeResponseJSON(resp *httpcloak.Response) *C.char {
 	data := ResponseData{
 		StatusCode:   resp.StatusCode,
 		Headers:      resp.Headers,
+		HeaderOrder:  resp.HeaderOrder,
+		HeaderCasing: resp.HeaderCasing,
+		Trailer:      resp.Trailer,
 		Body:         body,
 		BodyEncoding: bodyEncoding,
 		FinalURL:     resp.FinalURL,
@@ -767,13 +800,16 @@ func makeRawResponse(resp *httpcloak.Response) int64 {
 
 	// Create metadata (without body)
 	meta := ResponseMetadata{
-		StatusCode: resp.StatusCode,
-		Headers:    resp.Headers,
-		BodyLen:    len(bodyBytes),
-		FinalURL:   resp.FinalURL,
-		Protocol:   resp.Protocol,
-		Cookies:    cookies,
-		History:    history,
+		StatusCode:   resp.StatusCode,
+		Headers:      resp.Headers,
+		HeaderOrder:  resp.HeaderOrder,
+		HeaderCasing: resp.HeaderCasing,
+		Trailer:      resp.Trailer,
+		BodyLen:      len(bodyBytes),
+		FinalURL:     resp.FinalURL,
+		Protocol:     resp.Protocol,
+		Cookies:      cookies,
+		History:      history,
 	}
 	metaJSON, _ := json.Marshal(meta)
 
@@ -1112,6 +1148,7 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 		URL:                           config.URL,
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
 		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
+		HeaderOrder:                   config.HeaderOrder,
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -1717,6 +1754,7 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) (hcRet *C.char) {
 		URL:                           config.URL,
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
 		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
+		HeaderOrder:                   config.HeaderOrder,
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -1890,6 +1928,9 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 		data := ResponseData{
 			StatusCode:   resp.StatusCode,
 			Headers:      resp.Headers,
+			HeaderOrder:  resp.HeaderOrder,
+			HeaderCasing: resp.HeaderCasing,
+			Trailer:      resp.Trailer,
 			Body:         body,
 			BodyEncoding: bodyEncoding,
 			FinalURL:     resp.FinalURL,
@@ -2008,6 +2049,9 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		data := ResponseData{
 			StatusCode:   resp.StatusCode,
 			Headers:      resp.Headers,
+			HeaderOrder:  resp.HeaderOrder,
+			HeaderCasing: resp.HeaderCasing,
+			Trailer:      resp.Trailer,
 			Body:         body,
 			BodyEncoding: bodyEncoding,
 			FinalURL:     resp.FinalURL,
@@ -2073,6 +2117,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 			URL:                           config.URL,
 			Headers:                       buildHeaders(config.Headers, config.FetchMode),
 			ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
+			HeaderOrder:                   config.HeaderOrder,
 			Body:                          bodyReader,
 			FollowRedirects:               config.FollowRedirects,
 			DisableConditionalCache:       config.DisableConditionalCache,
@@ -2116,6 +2161,9 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 		data := ResponseData{
 			StatusCode:   resp.StatusCode,
 			Headers:      resp.Headers,
+			HeaderOrder:  resp.HeaderOrder,
+			HeaderCasing: resp.HeaderCasing,
+			Trailer:      resp.Trailer,
 			Body:         body,
 			BodyEncoding: bodyEncoding,
 			FinalURL:     resp.FinalURL,
@@ -3561,6 +3609,11 @@ type StreamMetadata struct {
 	ContentLength int64               `json:"content_length"` // -1 if unknown
 	Cookies       []Cookie            `json:"cookies"`
 
+	// The order the peer sent its headers in, nil on HTTP/1.1. Trailers are not
+	// here: on a streamed response they have not arrived yet, so they are read
+	// after the body through httpcloak_stream_trailer.
+	HeaderOrder []string `json:"header_order,omitempty"`
+
 	// StreamHandle is set only by the async entry point, which has to hand the
 	// handle back through the callback because there is no return value to put
 	// it in. The synchronous path returns the handle directly and leaves this
@@ -3575,6 +3628,7 @@ func buildStreamMetadata(resp *httpcloak.StreamResponse) StreamMetadata {
 	return StreamMetadata{
 		StatusCode:    resp.StatusCode,
 		Headers:       resp.Headers,
+		HeaderOrder:   resp.HeaderOrder,
 		FinalURL:      resp.FinalURL,
 		Protocol:      resp.Protocol,
 		ContentLength: resp.ContentLength,
@@ -3760,6 +3814,7 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 		URL:                           config.URL,
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
 		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
+		HeaderOrder:                   config.HeaderOrder,
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -3784,8 +3839,6 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 	return C.int64_t(handle)
 }
 
-//export httpcloak_stream_request_async
-//
 // The async counterpart of httpcloak_stream_request. The synchronous entry
 // point blocks the calling thread until the response headers arrive, which for a
 // stream can be the whole point of the request: a caller opening several long
@@ -3802,6 +3855,8 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 // synchronous one is: it stays open, and its context stays uncancelled, until
 // stream_close. Cancelling before the callback fires is done through the
 // callback ID, the same way it is for the other async entry points.
+//
+//export httpcloak_stream_request_async
 func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char, callbackID C.int64_t) {
 	defer guardVoid("httpcloak_stream_request_async")
 	session := getSession(sessionHandle)
@@ -3877,6 +3932,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 			URL:                           config.URL,
 			Headers:                       buildHeaders(config.Headers, config.FetchMode),
 			ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
+			HeaderOrder:                   config.HeaderOrder,
 			Body:                          bodyReader,
 			FollowRedirects:               config.FollowRedirects,
 			DisableConditionalCache:       config.DisableConditionalCache,
@@ -3958,6 +4014,35 @@ func httpcloak_stream_read(streamHandle C.int64_t, bufferSize C.int) (hcRet *C.c
 
 	// No data and no error - return empty (shouldn't happen normally)
 	return C.CString("")
+}
+
+// httpcloak_stream_trailer returns the trailing header block as JSON, or "{}"
+// when there was none.
+//
+// Trailers arrive after the body, so unlike a buffered response this cannot be
+// part of the metadata handed over when the stream opens. Call it once the body
+// has been read to EOF; before then it reports what has arrived, which is
+// nothing. gRPC is the case that needs it, since it carries its status there.
+//
+// The returned C string is malloc'd and must be freed with
+// httpcloak_free_string.
+//
+//export httpcloak_stream_trailer
+func httpcloak_stream_trailer(streamHandle C.int64_t) (hcRet *C.char) {
+	defer guardCharP("httpcloak_stream_trailer", &hcRet)
+	stream := getStream(int64(streamHandle))
+	if stream == nil {
+		return C.CString("{}")
+	}
+	trailer := stream.Trailer()
+	if len(trailer) == 0 {
+		return C.CString("{}")
+	}
+	data, err := json.Marshal(trailer)
+	if err != nil {
+		return C.CString("{}")
+	}
+	return C.CString(string(data))
 }
 
 //export httpcloak_stream_read_raw
@@ -4223,6 +4308,9 @@ func httpcloak_upload_finish(uploadHandle C.int64_t) (hcRet *C.char) {
 	responseData := ResponseData{
 		StatusCode:   resp.StatusCode,
 		Headers:      resp.Headers,
+		HeaderOrder:  resp.HeaderOrder,
+		HeaderCasing: resp.HeaderCasing,
+		Trailer:      resp.Trailer,
 		Body:         body,
 		BodyEncoding: bodyEncoding,
 		FinalURL:     resp.FinalURL,

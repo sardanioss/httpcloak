@@ -38,7 +38,22 @@ var current = Describe(Assembly.LoadFrom(assemblyPath));
 
 if (update)
 {
-    File.WriteAllLines(baselinePath, current);
+    var header = new[]
+    {
+        "# Public surface of HttpCloak.dll, one line per member.",
+        "#",
+        "# Every line here must keep resolving, because a binary compiled against any",
+        "# shipped release recorded the exact shape it calls. Removing or reshaping a",
+        "# member breaks those callers with MissingMethodException at the call site.",
+        "#",
+        "# Regenerate ONLY when the shapes that disappeared were never released. If a",
+        "# shipped shape is missing, add a forwarding overload for it instead: see the",
+        "# forwarders at the end of Session.cs, which carry the 1.6.8 and 1.7.0 shapes.",
+        "#",
+        $"# {current.Count} members.",
+        "",
+    };
+    File.WriteAllLines(baselinePath, header.Concat(current));
     Console.WriteLine($"baseline written: {current.Count} public members");
     return 0;
 }

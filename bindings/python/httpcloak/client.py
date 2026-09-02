@@ -431,6 +431,9 @@ class Response:
         elapsed: float = 0.0,
         cookies: Optional[List[Cookie]] = None,
         history: Optional[List[RedirectInfo]] = None,
+        header_order: Optional[List[str]] = None,
+        header_casing: Optional[List[str]] = None,
+        trailer: Optional[Dict[str, List[str]]] = None,
     ):
         self.status_code = status_code
         self.headers = headers
@@ -441,6 +444,9 @@ class Response:
         self.elapsed = elapsed  # seconds as float
         self.cookies = cookies or []
         self.history = history or []
+        self.header_order = header_order or []
+        self.header_casing = header_casing or []
+        self.trailer = trailer or {}
 
         # Keep old names as aliases
         self.body = body
@@ -538,6 +544,9 @@ class Response:
             elapsed=elapsed,
             cookies=cookies,
             history=history,
+            header_order=data.get("header_order") or [],
+            header_casing=data.get("header_casing") or [],
+            trailer=data.get("trailer") or {},
         )
 
 
@@ -585,6 +594,9 @@ class FastResponse:
         elapsed: float = 0.0,
         cookies: Optional[List[Cookie]] = None,
         history: Optional[List[RedirectInfo]] = None,
+        header_order: Optional[List[str]] = None,
+        header_casing: Optional[List[str]] = None,
+        trailer: Optional[Dict[str, List[str]]] = None,
     ):
         self.status_code = status_code
         self.headers = headers
@@ -595,6 +607,9 @@ class FastResponse:
         self.elapsed = elapsed
         self.cookies = cookies or []
         self.history = history or []
+        self.header_order = header_order or []
+        self.header_casing = header_casing or []
+        self.trailer = trailer or {}
 
     @property
     def ok(self) -> bool:
@@ -729,6 +744,7 @@ class StreamResponse:
         protocol: str,
         content_length: int,
         cookies: Optional[List[Cookie]] = None,
+        header_order: Optional[List[str]] = None,
     ):
         self._handle = stream_handle
         self._lib = lib
@@ -739,7 +755,32 @@ class StreamResponse:
         self.protocol = protocol
         self.content_length = content_length
         self.cookies = cookies or []
+        self.header_order = header_order or []
         self._closed = False
+
+    def trailer(self) -> Dict[str, List[str]]:
+        """
+        Trailing header block, lowercase keys, or an empty dict when there was
+        none.
+
+        Call it once the body has been read to the end. Trailers arrive after
+        the body, so unlike the buffered Response this cannot be an attribute
+        set when the stream opens; before the body is finished it reports what
+        has arrived so far, which is nothing. gRPC is the case that needs it,
+        since it carries its status here.
+        """
+        if self._closed or self._handle is None:
+            return {}
+        ptr = self._lib.httpcloak_stream_trailer(c_int64(self._handle))
+        if not ptr:
+            return {}
+        try:
+            raw = ctypes.cast(ptr, c_char_p).value
+            return json.loads(raw.decode("utf-8")) if raw else {}
+        except (ValueError, AttributeError):
+            return {}
+        finally:
+            self._lib.httpcloak_free_string(ptr)
 
     @property
     def ok(self) -> bool:
@@ -1197,6 +1238,8 @@ def _setup_lib(lib):
     lib.httpcloak_stream_request.restype = c_int64
     lib.httpcloak_stream_request_async.argtypes = [c_int64, c_char_p, c_int64]
     lib.httpcloak_stream_request_async.restype = None
+    lib.httpcloak_stream_trailer.argtypes = [c_int64]
+    lib.httpcloak_stream_trailer.restype = c_void_p
     lib.httpcloak_stream_get_metadata.argtypes = [c_int64]
     lib.httpcloak_stream_get_metadata.restype = c_void_p
     lib.httpcloak_stream_read.argtypes = [c_int64, c_int64]
@@ -1531,6 +1574,9 @@ def _parse_fast_response(lib, response_handle: int, elapsed: float = 0.0) -> Fas
             elapsed=elapsed,
             cookies=cookies,
             history=history,
+            header_order=data.get("header_order") or [],
+            header_casing=data.get("header_casing") or [],
+            trailer=data.get("trailer") or {},
         )
 
     finally:
@@ -2187,6 +2233,7 @@ class Session:
         json: Optional[Dict] = None,
         files: Optional[FilesType] = None,
         exact_headers: Optional[Sequence[Tuple[str, str]]] = None,
+        header_order: Optional[Sequence[str]] = None,
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
@@ -2260,6 +2307,12 @@ class Session:
         }
         if _exact:
             request_config["exact_headers"] = _exact
+        # A per-request order overrides whatever set_header_order installed and
+        # stores nothing on the session, so concurrent requests can each carry
+        # their own. It is a prefix: names listed here go first, in this order,
+        # and anything left out keeps the preset's own position.
+        if header_order:
+            request_config["header_order"] = [str(h) for h in header_order]
         if merged_headers:
             request_config["headers"] = merged_headers
         if timeout:
@@ -2592,6 +2645,7 @@ class Session:
         disable_high_entropy_client_hints: bool = False,
         disable_redirect_referer: bool = False,
         exact_headers: Optional[Sequence[Tuple[str, str]]] = None,
+        header_order: Optional[Sequence[str]] = None,
         timeout: Optional[int] = None,
     ) -> Response:
         """
@@ -2652,6 +2706,12 @@ class Session:
         }
         if _exact:
             request_config["exact_headers"] = _exact
+        # A per-request order overrides whatever set_header_order installed and
+        # stores nothing on the session, so concurrent requests can each carry
+        # their own. It is a prefix: names listed here go first, in this order,
+        # and anything left out keeps the preset's own position.
+        if header_order:
+            request_config["header_order"] = [str(h) for h in header_order]
         if merged_headers:
             request_config["headers"] = merged_headers
         if body:
@@ -3516,6 +3576,7 @@ class Session:
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
         exact_headers: Optional[Sequence[Tuple[str, str]]] = None,
+        header_order: Optional[Sequence[str]] = None,
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         auth: Optional[Tuple[str, str]] = None,
@@ -3595,6 +3656,12 @@ class Session:
         }
         if _exact:
             request_config["exact_headers"] = _exact
+        # A per-request order overrides whatever set_header_order installed and
+        # stores nothing on the session, so concurrent requests can each carry
+        # their own. It is a prefix: names listed here go first, in this order,
+        # and anything left out keeps the preset's own position.
+        if header_order:
+            request_config["header_order"] = [str(h) for h in header_order]
         if merged_headers:
             request_config["headers"] = merged_headers
         if timeout:
@@ -3797,6 +3864,7 @@ class Session:
             protocol=metadata.get("protocol", ""),
             content_length=metadata.get("content_length", -1),
             cookies=cookies_list,
+            header_order=metadata.get("header_order") or [],
         )
 
     def post_stream(
@@ -3921,6 +3989,7 @@ class Session:
             protocol=metadata.get("protocol", ""),
             content_length=metadata.get("content_length", -1),
             cookies=cookies_list,
+            header_order=metadata.get("header_order") or [],
         )
 
     def request_stream(
@@ -4032,6 +4101,7 @@ class Session:
             protocol=metadata.get("protocol", ""),
             content_length=metadata.get("content_length", -1),
             cookies=cookies_list,
+            header_order=metadata.get("header_order") or [],
         )
 
     def get_stream(

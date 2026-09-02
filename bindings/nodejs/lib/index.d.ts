@@ -41,6 +41,26 @@ export class Response {
   statusCode: number;
   /** Response headers */
   headers: Record<string, string>;
+
+  /**
+   * The order the server sent its headers in, lowercase, one entry per
+   * occurrence. Empty on HTTP/1.1, which reads through a parser that
+   * canonicalises and reorders before the binding sees it.
+   */
+  headerOrder: string[];
+
+  /**
+   * The same names as the server spelled them. Pair with headerOrder to
+   * reproduce a response header block exactly, which an object cannot do.
+   * Empty on HTTP/2 and HTTP/3, where field names are lowercase by definition.
+   */
+  headerCasing: string[];
+
+  /**
+   * The trailing header block sent after the body, lowercase keys. Empty when
+   * there was none. gRPC carries its status here.
+   */
+  trailer: Record<string, string[]>;
   /** Raw response body as Buffer */
   body: Buffer;
   /** Response body as Buffer (alias for body) */
@@ -369,6 +389,20 @@ export interface RequestOptions {
    * });
    */
   exactHeaders?: Array<[string, string]> | Map<string, string> | Record<string, string>;
+
+  /**
+   * Header order for this one request, overriding any session-wide order.
+   * Nothing is stored on the session, so concurrent requests can each carry
+   * their own.
+   *
+   * It is a prefix rather than a replacement: names listed here go first, in
+   * this order, and anything left out keeps the preset's own position. Use it
+   * instead of setting a session-wide order around a request, which races with
+   * everything else in flight.
+   *
+   * Honoured by `request`, `requestSync` and `requestStream`.
+   */
+  headerOrder?: string[];
 
   /**
    * AbortSignal for cancelling an in-flight request. Honored by the async

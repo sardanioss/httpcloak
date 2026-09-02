@@ -318,6 +318,20 @@ class Response {
     this.protocol = data.protocol || "";
     this.elapsed = elapsed; // milliseconds
 
+    // headerOrder is the order the server sent its headers in, lowercase, one
+    // entry per occurrence; headerCasing is how it spelled them. An object
+    // carries neither, so relaying a response onward without these emits a
+    // different header block than the origin did. Order comes from HTTP/2 and
+    // HTTP/3, which decode an ordered field list; casing comes from HTTP/1.1,
+    // which is the only protocol where the names are not lowercase by
+    // definition. Each is empty on the protocols that cannot carry it.
+    this.headerOrder = data.header_order || [];
+    this.headerCasing = data.header_casing || [];
+
+    // The trailing header block sent after the body, lowercase keys. Empty
+    // when there was none. gRPC carries its status here.
+    this.trailer = data.trailer || {};
+
     // Parse cookies from response
     this._cookies = (data.cookies || []).map(c => new Cookie(c));
 
@@ -1985,9 +1999,10 @@ class Session {
    * @returns {Response} Response object
    */
   requestSync(method, url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, exactHeaders = null } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, exactHeaders = null, headerOrder = null } = options;
 
     const exact = normalizeExactHeaders(exactHeaders);
+    const hOrder = Array.isArray(headerOrder) && headerOrder.length ? headerOrder.map(String) : null;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -2028,6 +2043,7 @@ class Session {
       url,
     };
     if (exact) requestConfig.exact_headers = exact;
+    if (hOrder) requestConfig.header_order = hOrder;
     if (mergedHeaders) requestConfig.headers = mergedHeaders;
     if (timeout) requestConfig.timeout = timeout;
     if (fetchMode) requestConfig.fetch_mode = fetchMode;
@@ -2229,9 +2245,10 @@ class Session {
    * @returns {Promise<Response>} Response object
    */
   request(method, url, options = {}) {
-    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, exactHeaders = null, signal = null } = options;
+    let { body = null, json = null, data = null, files = null, headers = null, params = null, cookies = null, auth = null, timeout = null, fetchMode = null, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, exactHeaders = null, headerOrder = null, signal = null } = options;
 
     const exact = normalizeExactHeaders(exactHeaders);
+    const hOrder = Array.isArray(headerOrder) && headerOrder.length ? headerOrder.map(String) : null;
 
     url = addParamsToUrl(url, params);
     let mergedHeaders = this._mergeHeaders(headers);
@@ -2283,6 +2300,7 @@ class Session {
       url,
     };
     if (exact) requestConfig.exact_headers = exact;
+    if (hOrder) requestConfig.header_order = hOrder;
     if (mergedHeaders) requestConfig.headers = mergedHeaders;
     if (body) requestConfig.body = body;
     if (bodyEncoding) requestConfig.body_encoding = bodyEncoding;
@@ -3068,9 +3086,10 @@ class Session {
    * @returns {StreamResponse} - Streaming response for chunked reading
    */
   requestStream(method, url, options = {}) {
-    const { body, params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, exactHeaders = null } = options;
+    const { body, params, headers, cookies, timeout, allowRedirects = null, disableConditionalCache = false, disableClientHints = false, disableHighEntropyClientHints = false, disableRedirectReferer = false, exactHeaders = null, headerOrder = null } = options;
 
     const exact = normalizeExactHeaders(exactHeaders);
+    const hOrder = Array.isArray(headerOrder) && headerOrder.length ? headerOrder.map(String) : null;
 
     // Add params to URL
     if (params) {
@@ -3096,6 +3115,9 @@ class Session {
     };
     if (exact) {
       requestConfig.exact_headers = exact;
+    }
+    if (hOrder) {
+      requestConfig.header_order = hOrder;
     }
     if (Object.keys(mergedHeaders).length > 0) {
       requestConfig.headers = mergedHeaders;
