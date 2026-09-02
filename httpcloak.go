@@ -34,6 +34,7 @@ import (
 	"net"
 	"net/textproto"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -1828,4 +1829,37 @@ func parseCertCompression(names []string) []tls.CertCompressionAlgo {
 		return nil
 	}
 	return result
+}
+
+// TrimMemory returns freed memory to the operating system and blocks until it
+// has.
+//
+// Closing a session makes its memory collectable, which is a different thing
+// from giving it back. Go's scavenger releases pages lazily and on Linux it
+// does so with MADV_FREE, which lets the kernel reclaim the pages under
+// pressure but leaves them counted against the process until it does. So RSS
+// stays flat, or drifts slightly up, long after the sessions are gone. Measured
+// over 150 sessions each doing a real TLS request: 85MB resident, and closing
+// every one of them then forcing a garbage collection moved it by less than
+// three megabytes, in the wrong direction.
+//
+// This is a ceiling rather than a leak. It is bounded by how many sessions are
+// alive at once, and a long-running process reuses those pages for the next
+// batch instead of growing without limit. Reach for this when the ceiling
+// itself is the problem: a worker that has just finished a large batch and will
+// now sit idle, a process sharing a memory-capped container with something
+// else, or a fork-per-job model measuring RSS.
+//
+// It is deliberately NOT called by Close, and that is worth saying plainly
+// because it looks like the obvious home for it. This stops the world for the
+// length of a full collection, so a pool closing sessions steadily would pay
+// that on every single one, and the cost lands on exactly the workloads that
+// close sessions most. Calling it once between batches costs the same one
+// collection and gives back the same memory.
+//
+// It is process-wide, not per session, which is why it is a package function
+// and not a method: the runtime has one heap and this hands back all of the
+// free part of it, whoever allocated it.
+func TrimMemory() {
+	debug.FreeOSMemory()
 }

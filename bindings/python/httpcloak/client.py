@@ -1279,6 +1279,8 @@ def _setup_lib(lib):
     lib.httpcloak_stream_request_async.restype = None
     lib.httpcloak_stream_trailer.argtypes = [c_int64]
     lib.httpcloak_stream_trailer.restype = c_void_p
+    lib.httpcloak_trim_memory.argtypes = []
+    lib.httpcloak_trim_memory.restype = None
     lib.httpcloak_stream_get_metadata.argtypes = [c_int64]
     lib.httpcloak_stream_get_metadata.restype = c_void_p
     lib.httpcloak_stream_read.argtypes = [c_int64, c_int64]
@@ -5610,3 +5612,33 @@ def request(method: str, url: str, **kwargs) -> Response:
     finally:
         if is_temp:
             session.close()
+
+
+def trim_memory() -> None:
+    """
+    Return freed memory to the operating system, blocking until it has.
+
+    Closing a session makes its memory collectable, which is a different thing
+    from giving it back. Go's allocator releases pages lazily and on Linux does
+    so with MADV_FREE, which leaves them counted against the process until the
+    kernel actually wants them, so RSS stays flat long after the sessions are
+    gone. Measured over 150 sessions each doing a real TLS request: 85MB
+    resident, and closing all of them then collecting moved it by under three
+    megabytes, upward.
+
+    This is a ceiling rather than a leak. It is bounded by how many sessions are
+    alive at once, and a long-running process reuses those pages for the next
+    batch. Reach for it when the ceiling is itself the problem: a worker that
+    has finished a batch and will now idle, a memory-capped container, or a
+    fork-per-job model measuring RSS.
+
+    It is deliberately not part of Session.close(). It stops the world for a
+    full collection, so closing sessions in a loop would pay that every time,
+    which is worst for the callers that close the most. One call between
+    batches costs the same collection and returns the same memory.
+
+    Process-wide, not per session: the runtime has one heap and this hands back
+    all of the free part of it.
+    """
+    lib = _get_lib()
+    lib.httpcloak_trim_memory()

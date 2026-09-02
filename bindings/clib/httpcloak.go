@@ -2705,6 +2705,26 @@ func httpcloak_free_string(str *C.char) {
 // 1.7.0b2 wheel.
 const libVersion = "1.7.0"
 
+// httpcloak_trim_memory returns freed memory to the operating system and blocks
+// until it has.
+//
+// Freeing a session makes its memory collectable, which is a different thing
+// from giving it back: Go's scavenger releases pages lazily, and on Linux with
+// MADV_FREE they stay counted against the process until the kernel wants them.
+// So RSS stays flat long after the sessions are gone.
+//
+// Deliberately not called by httpcloak_session_free. It stops the world for a
+// full collection, so a caller closing sessions steadily would pay that every
+// time. Call it once between batches instead.
+//
+// Process-wide, not per session.
+//
+//export httpcloak_trim_memory
+func httpcloak_trim_memory() {
+	defer guardVoid("httpcloak_trim_memory")
+	httpcloak.TrimMemory()
+}
+
 //export httpcloak_version
 func httpcloak_version() (hcRet *C.char) {
 	defer guardCharP("httpcloak_version", &hcRet)

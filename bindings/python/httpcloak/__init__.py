@@ -52,6 +52,8 @@ from .client import (
     configure,
     configure_session_cache,
     clear_session_cache,
+    # Memory
+    trim_memory,
     # Module-level functions (requests-compatible)
     get,
     post,
@@ -89,6 +91,7 @@ __all__ = [
     "configure",
     "configure_session_cache",
     "clear_session_cache",
+    "trim_memory",
     "get",
     "post",
     "put",

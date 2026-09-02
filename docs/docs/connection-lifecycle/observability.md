@@ -167,3 +167,51 @@ Every Session-level observability method in this chapter is exposed in Python, N
 | `GetTransport() *transport.Transport` | not exposed (Go-only by design) | not exposed (Go-only by design) | not exposed (Go-only by design) |
 
 `LocalProxy` also exposes its own stats on every binding (`local_proxy.get_stats()` in Python, `localProxy.getStats()` in Node, `LocalProxy.GetStats()` in .NET), so proxy-level counters work cross-language alongside the Session-level methods above. For cross-process visibility you can still persist a session via `Save()`/`Marshal()` and read its counters back after a restart.
+
+## Returning memory to the operating system
+
+Closing a session makes its memory collectable. Handing it back to the OS is a
+separate step, and nothing does it for you.
+
+Go's allocator releases pages lazily, and on Linux it does so with `MADV_FREE`,
+which lets the kernel reclaim them under pressure but leaves them counted
+against the process until it does. So resident memory stays flat long after the
+sessions are gone. Measured over 150 sessions each doing a real TLS request: 85MB
+resident, and closing every one of them then forcing a collection moved it by
+under three megabytes, in the wrong direction.
+
+`TrimMemory` runs the scavenge to completion and blocks until it has:
+
+```go
+httpcloak.TrimMemory()
+```
+
+```python
+httpcloak.trim_memory()
+```
+
+```javascript
+httpcloak.trimMemory();
+```
+
+```csharp
+HttpCloakInfo.TrimMemory();
+```
+
+On the measurement above it returned 61MB.
+
+This is a ceiling rather than a leak. It is bounded by how many sessions are
+alive at once, and a long-running process reuses those pages for the next batch
+rather than growing without limit. Reach for it when the ceiling is itself the
+problem: a worker that has finished a batch and will now sit idle, a process
+sharing a memory-capped container with something else, or a fork-per-job model
+where resident size is what gets measured.
+
+It is deliberately not part of `Close`. A full scavenge stops the world, so a
+pool closing sessions steadily would pay that on every single close, and the
+cost would land hardest on exactly the callers that close most. One call between
+batches costs the same collection and gives back the same memory.
+
+It is process-wide rather than per session, which is why it is a package-level
+function and not a method. The runtime has one heap, and this hands back all of
+the free part of it.

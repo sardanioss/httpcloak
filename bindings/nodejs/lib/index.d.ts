@@ -1457,3 +1457,14 @@ export class PresetPool {
   /** Free the pool handle and unregister all its presets. */
   close(): void;
 }
+
+/**
+ * Return freed memory to the operating system, blocking until it has.
+ *
+ * Closing a session makes its memory collectable, which is not the same as
+ * giving it back: Go releases pages lazily and RSS stays flat long after the
+ * sessions are gone. Deliberately not part of close(), because it stops the
+ * world for a full collection and a loop closing sessions would pay that every
+ * time. Call it once between batches. Process-wide, not per session.
+ */
+export function trimMemory(): void;

@@ -973,6 +973,7 @@ function getLib() {
       httpcloak_stream_post: nativeLibHandle.func("httpcloak_stream_post", "int64", ["int64", "str", "str", "str"]),
       httpcloak_stream_request: nativeLibHandle.func("httpcloak_stream_request", "int64", ["int64", "str"]),
       httpcloak_stream_request_async: nativeLibHandle.func("httpcloak_stream_request_async", "void", ["int64", "str", "int64"]),
+      httpcloak_trim_memory: nativeLibHandle.func("httpcloak_trim_memory", "void", []),
       httpcloak_stream_get_metadata: nativeLibHandle.func("httpcloak_stream_get_metadata", HeapStr, ["int64"]),
       httpcloak_stream_read: nativeLibHandle.func("httpcloak_stream_read", HeapStr, ["int64", "int64"]),
       httpcloak_stream_close: nativeLibHandle.func("httpcloak_stream_close", "void", ["int64"]),
@@ -4548,7 +4549,36 @@ class PresetPool {
   }
 }
 
+
+/**
+ * Return freed memory to the operating system, blocking until it has.
+ *
+ * Closing a session makes its memory collectable, which is a different thing
+ * from giving it back. Go's allocator releases pages lazily and on Linux does
+ * so with MADV_FREE, so they stay counted against the process until the kernel
+ * wants them and RSS stays flat long after the sessions are gone. Measured over
+ * 150 sessions each doing a real TLS request: 85MB resident, and closing all of
+ * them then collecting moved it by under three megabytes, upward.
+ *
+ * This is a ceiling rather than a leak, bounded by how many sessions are alive
+ * at once, and a long-running process reuses those pages for the next batch.
+ * Reach for it when the ceiling itself is the problem: a worker that has
+ * finished a batch and will now idle, a memory-capped container, or a
+ * process-per-job model measuring RSS.
+ *
+ * Deliberately not part of Session.close(). It stops the world for a full
+ * collection, so closing sessions in a loop would pay that every time, which is
+ * worst for the callers closing the most. One call between batches costs the
+ * same collection and returns the same memory.
+ *
+ * Process-wide, not per session.
+ */
+function trimMemory() {
+  getLib().httpcloak_trim_memory();
+}
+
 module.exports = {
+  trimMemory,
   // Classes
   Session,
   LocalProxy,

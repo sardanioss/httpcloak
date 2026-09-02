@@ -3600,6 +3600,32 @@ public static class Presets
 /// </summary>
 public static class HttpCloakInfo
 {
+    /// <summary>
+    /// Return freed memory to the operating system, blocking until it has.
+    ///
+    /// Disposing a session makes its memory collectable, which is a different
+    /// thing from giving it back. Go's allocator releases pages lazily and on
+    /// Linux does so with MADV_FREE, so they stay counted against the process
+    /// until the kernel wants them and RSS stays flat long after the sessions
+    /// are gone. Measured over 150 sessions each doing a real TLS request: 85MB
+    /// resident, and disposing all of them then collecting moved it by under
+    /// three megabytes, upward.
+    ///
+    /// This is a ceiling rather than a leak, bounded by how many sessions are
+    /// alive at once, and a long-running process reuses those pages for the
+    /// next batch. Reach for it when the ceiling itself is the problem: a
+    /// worker that has finished a batch and will now idle, a memory-capped
+    /// container, or a process-per-job model measuring RSS.
+    ///
+    /// Deliberately not part of Dispose. It stops the world for a full
+    /// collection, so disposing sessions in a loop would pay that every time,
+    /// which is worst for the callers disposing the most. One call between
+    /// batches costs the same collection and returns the same memory.
+    ///
+    /// Process-wide, not per session.
+    /// </summary>
+    public static void TrimMemory() => Native.TrimMemory();
+
     /// <summary>Get the native library version.</summary>
     public static string Version()
     {
