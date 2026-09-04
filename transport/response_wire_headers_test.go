@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	http "github.com/sardanioss/http"
 )
 
 func driveWireHeaders(t *testing.T, cfg h2Config) *Response {
@@ -106,53 +105,5 @@ func TestGzipResponseDecompressesUnderWireCase(t *testing.T) {
 	resp.Body.Close()
 	if string(body) != "hello wire case" {
 		t.Fatalf("body = %q, want the decompressed text", body)
-	}
-}
-
-// The helper reads whichever key set the protocol path produced: canonical
-// from the HTTP/1.1 parse and from HTTP/3, wire case from HTTP/2.
-func TestResponseContentEncodingReadsBothKeySets(t *testing.T) {
-	if got := responseContentEncoding(http.Header{"Content-Encoding": {"br"}}); got != "br" {
-		t.Fatalf("canonical key: got %q, want br", got)
-	}
-	if got := responseContentEncoding(http.Header{"content-encoding": {"gzip"}}); got != "gzip" {
-		t.Fatalf("wire-case key: got %q, want gzip", got)
-	}
-	if got := responseContentEncoding(http.Header{}); got != "" {
-		t.Fatalf("absent: got %q, want empty", got)
-	}
-}
-
-// The conversion cost the wire-case map removes: every canonical key pays an
-// allocating ToLower on its way into the response map, an already-lowercase
-// key hands the same string back.
-func benchHeaders(canonical bool) http.Header {
-	names := []string{"content-type", "content-encoding", "date", "server", "vary",
-		"cache-control", "x-transaction-id", "x-rate-limit-limit", "x-rate-limit-remaining",
-		"x-rate-limit-reset", "x-response-time", "set-cookie", "strict-transport-security", "x-connection-hash"}
-	h := make(http.Header, len(names))
-	for _, n := range names {
-		if canonical {
-			h.Set(n, "v")
-		} else {
-			h[n] = []string{"v"}
-		}
-	}
-	return h
-}
-
-func BenchmarkBuildHeadersMapCanonical(b *testing.B) {
-	h := benchHeaders(true)
-	b.ReportAllocs()
-	for b.Loop() {
-		buildHeadersMap(h)
-	}
-}
-
-func BenchmarkBuildHeadersMapWireCase(b *testing.B) {
-	h := benchHeaders(false)
-	b.ReportAllocs()
-	for b.Loop() {
-		buildHeadersMap(h)
 	}
 }

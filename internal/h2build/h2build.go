@@ -77,7 +77,7 @@ func Transport(o Options) *http2.Transport {
 		// lowercases every response header for its own map anyway, so the
 		// canonical spelling was built per field only to be converted back
 		// out of. Everything that still reads the fork's map before the
-		// conversion goes through responseContentEncoding or addresses the
+		// conversion goes through internal/respheader or addresses the
 		// exact key, never http.Header's canonicalising accessors.
 		WireCaseResponseHeaders:   true,
 		MaxHeaderListSize:         s.MaxHeaderListSize,
