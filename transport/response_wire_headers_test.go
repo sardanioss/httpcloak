@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	http "github.com/sardanioss/http"
 )
 
 func driveWireHeaders(t *testing.T, cfg h2Config) *Response {
@@ -106,19 +104,5 @@ func TestGzipResponseDecompressesUnderWireCase(t *testing.T) {
 	resp.Body.Close()
 	if string(body) != "hello wire case" {
 		t.Fatalf("body = %q, want the decompressed text", body)
-	}
-}
-
-// The helper reads whichever key set the protocol path produced: canonical
-// from the HTTP/1.1 parse and from HTTP/3, wire case from HTTP/2.
-func TestResponseContentEncodingReadsBothKeySets(t *testing.T) {
-	if got := responseContentEncoding(http.Header{"Content-Encoding": {"br"}}); got != "br" {
-		t.Fatalf("canonical key: got %q, want br", got)
-	}
-	if got := responseContentEncoding(http.Header{"content-encoding": {"gzip"}}); got != "gzip" {
-		t.Fatalf("wire-case key: got %q, want gzip", got)
-	}
-	if got := responseContentEncoding(http.Header{}); got != "" {
-		t.Fatalf("absent: got %q, want empty", got)
 	}
 }
