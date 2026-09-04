@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	http "github.com/sardanioss/http"
+	"github.com/sardanioss/httpcloak/internal/respheader"
 	"io"
 	"net/url"
 	"sort"
@@ -1989,7 +1990,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := respheader.ContentEncoding(resp.Header)
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
@@ -2094,7 +2095,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := respheader.ContentEncoding(resp.Header)
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
@@ -2206,7 +2207,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := respheader.ContentEncoding(resp.Header)
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
@@ -2346,7 +2347,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := respheader.ContentEncoding(resp.Header)
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {

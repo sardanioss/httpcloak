@@ -136,6 +136,10 @@ type h2Config struct {
 	// Body is the response body. Nil means "ok".
 	Body []byte
 
+	// ResponseHeaders are extra fields sent after :status, in this order,
+	// name repeated per value. Names must be lowercase, as HTTP/2 requires.
+	ResponseHeaders [][2]string
+
 	// SendContentLength puts a content-length on the response. Without it the
 	// client sees an unknown length, which adds a trailing empty DATA frame.
 	SendContentLength bool
@@ -624,6 +628,9 @@ func (hc *h2Conn) respond(streamID uint32) {
 	var buf strings.Builder
 	enc := hpack.NewEncoder(&buf)
 	enc.WriteField(hpack.HeaderField{Name: ":status", Value: "200"})
+	for _, hv := range cfg.ResponseHeaders {
+		enc.WriteField(hpack.HeaderField{Name: hv[0], Value: hv[1]})
+	}
 	if cfg.SendContentLength {
 		enc.WriteField(hpack.HeaderField{
 			Name:  "content-length",

@@ -72,10 +72,18 @@ func Transport(o Options) *http2.Transport {
 		AllowHTTP:                  false,
 		DisableCompression:         o.TLSOnly,
 		StrictMaxConcurrentStreams: false,
-		MaxHeaderListSize:          s.MaxHeaderListSize,
-		MaxReadFrameSize:           s.MaxFrameSize,
-		MaxDecoderHeaderTableSize:  s.HeaderTableSize,
-		MaxEncoderHeaderTableSize:  encoderTableSizeLimit,
+
+		// Response header maps keep the wire's lowercase names. This library
+		// lowercases every response header for its own map anyway, so the
+		// canonical spelling was built per field only to be converted back
+		// out of. Everything that still reads the fork's map before the
+		// conversion goes through internal/respheader or addresses the
+		// exact key, never http.Header's canonicalising accessors.
+		WireCaseResponseHeaders:   true,
+		MaxHeaderListSize:         s.MaxHeaderListSize,
+		MaxReadFrameSize:          s.MaxFrameSize,
+		MaxDecoderHeaderTableSize: s.HeaderTableSize,
+		MaxEncoderHeaderTableSize: encoderTableSizeLimit,
 
 		// The periodic health-check ping, off for every shipped preset. It is
 		// a PING with no frame behind it on a fixed timer, and Chromium's

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	http "github.com/sardanioss/http"
+	"github.com/sardanioss/httpcloak/internal/respheader"
 	"io"
 	"net/url"
 	"strings"
@@ -204,7 +205,7 @@ func (c *HTTP3Client) Do(ctx context.Context, req *Request) (*Response, error) {
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := respheader.ContentEncoding(resp.Header)
 	body, err = decompressHTTP3(body, contentEncoding)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decompress response: %w", err)
