@@ -158,7 +158,7 @@ func TestApplyPresetHeadersSkipsSecFetchForNonBrowserPreset(t *testing.T) {
 			// An API-shaped POST, which is what sniffXHRMode classifies as XHR.
 			userHeaders := map[string][]string{"Content-Type": {"application/json"}}
 
-			applyPresetHeaders(req, tt.preset, nil, nil, false, "h2", userHeaders, false, nil)
+			applyPresetHeaders(req, newPresetWireHeaders(tt.preset), nil, nil, false, "h2", userHeaders, false, nil)
 
 			for _, key := range injected {
 				_, present := req.Header[key]

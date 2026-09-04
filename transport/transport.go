@@ -10,11 +10,12 @@ import (
 	http "github.com/sardanioss/http"
 	"io"
 	"net/url"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
@@ -599,6 +600,12 @@ type Transport struct {
 	protocol    Protocol
 	proxy       *ProxyConfig
 	config      *TransportConfig
+
+	// presetWire caches the request-invariant part of applyPresetHeaders for
+	// the current preset. It is its own synchronisation and is not guarded by
+	// fieldsMu: readers validate the entry against the preset they snapshot,
+	// so after SetPreset the first request simply rebuilds it.
+	presetWire atomic.Pointer[presetWireHeaders]
 
 	// fieldsMu guards the mutable fields that SetProxy/SetPreset/SetProtocol
 	// reassign while Do/doAuto/DoStream (and the Get*Transport getters) read
@@ -1966,7 +1973,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 
 	// Set preset headers (with ordering for fingerprinting)
 	// Pass "h1" protocol so Chrome presets don't send Priority header on HTTP/1.1
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	mergeCallerHeaders(httpReq, req)
 
@@ -2071,7 +2078,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	}
 
 	// Set preset headers - pass "h1" protocol so Chrome presets don't send Priority header
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	mergeCallerHeaders(httpReq, req)
 
@@ -2183,7 +2190,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	mergeCallerHeaders(httpReq, req)
 
@@ -2314,7 +2321,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, snap.preset, t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
 	mergeCallerHeaders(httpReq, req)
 
@@ -2642,16 +2649,21 @@ func isClientHintHeader(key string) bool {
 // fingerprint, and a strong one — no browser produces one. Sorted is not what a
 // browser sends either, but it is stable, which is the detectable part.
 func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header, userHeaders map[string][]string) []string {
-	seen := make(map[string]bool, len(explicitOrder)+len(presetOrder)+len(header)+len(userHeaders))
-	order := make([]string, 0, len(explicitOrder)+len(presetOrder)+len(header)+len(userHeaders))
+	total := len(explicitOrder) + len(presetOrder) + len(header) + len(userHeaders)
+	seen := make(map[string]bool, total)
+	// The named prefix and the sorted remainder are built end to end in one
+	// buffer: the remainder starts where the prefix stops, so sorting it in
+	// place leaves the finished list contiguous and the result needs neither
+	// a second allocation nor a copy.
+	buf := make([]string, 0, total)
 
 	place := func(name string) {
-		lower := strings.ToLower(name)
+		lower := lowerHeaderName(name)
 		if lower == "" || seen[lower] {
 			return
 		}
 		seen[lower] = true
-		order = append(order, lower)
+		buf = append(buf, lower)
 	}
 	for _, name := range explicitOrder {
 		place(name)
@@ -2660,19 +2672,19 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 		place(name)
 	}
 
-	rest := make([]string, 0, len(header)+len(userHeaders))
+	named := len(buf)
 	collect := func(name string) {
 		// The ordering keys are internal control entries, not headers, and must
 		// never reach the wire.
 		if strings.EqualFold(name, http.HeaderOrderKey) || strings.EqualFold(name, http.PHeaderOrderKey) {
 			return
 		}
-		lower := strings.ToLower(name)
+		lower := lowerHeaderName(name)
 		if lower == "" || seen[lower] {
 			return
 		}
 		seen[lower] = true
-		rest = append(rest, lower)
+		buf = append(buf, lower)
 	}
 	for name := range header {
 		collect(name)
@@ -2680,9 +2692,9 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 	for name := range userHeaders {
 		collect(name)
 	}
-	sort.Strings(rest)
+	slices.Sort(buf[named:])
 
-	return append(order, rest...)
+	return buf
 }
 
 // presetSendsSecFetch reports whether a preset describes a client that sends
@@ -2815,30 +2827,97 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request) {
 	}
 }
 
-func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool, exactHeaders []fingerprint.HeaderPair) {
+// wireHeaderPair is one preset header ready to write: the key is already in
+// the canonical form Header.Set would produce, so applying it is a direct map
+// assignment with no per-request canonicalisation.
+type wireHeaderPair struct {
+	key        string
+	value      string
+	clientHint bool // isClientHintHeader(key); skipped when the request strips client hints
+}
+
+// presetWireHeaders is the request-invariant part of applyPresetHeaders,
+// derived from a preset once and reused for every request that carries it.
+// The fields it distils (HeaderOrder, Headers, UserAgent) never change on a
+// preset once a Transport holds it, so validity is just pointer identity.
+type presetWireHeaders struct {
+	preset        *fingerprint.Preset // the preset this was derived from
+	pairs         []wireHeaderPair
+	sendsSecFetch bool
+}
+
+func newPresetWireHeaders(preset *fingerprint.Preset) *presetWireHeaders {
+	// One extra slot for the User-Agent pair appended below.
+	size := len(preset.Headers)
+	if len(preset.HeaderOrder) > 0 {
+		size = len(preset.HeaderOrder)
+	}
+	pairs := make([]wireHeaderPair, 0, size+1)
+	appendPair := func(key, value string) {
+		pairs = append(pairs, wireHeaderPair{
+			key:        http.CanonicalHeaderKey(key),
+			value:      value,
+			clientHint: isClientHintHeader(key),
+		})
+	}
+	if len(preset.HeaderOrder) > 0 {
+		for _, hp := range preset.HeaderOrder {
+			appendPair(hp.Key, hp.Value)
+		}
+	} else {
+		// Fallback for presets that carry only the backward-compatible map.
+		for key, value := range preset.Headers {
+			appendPair(key, value)
+		}
+	}
+	// The unconditional User-Agent write goes last so it overrides a
+	// user-agent entry from the preset table, exactly as the Header.Set
+	// call after the loop used to.
+	pairs = append(pairs, wireHeaderPair{key: "User-Agent", value: preset.UserAgent})
+	return &presetWireHeaders{
+		preset:        preset,
+		pairs:         pairs,
+		sendsSecFetch: presetSendsSecFetch(preset),
+	}
+}
+
+// wireHeaders returns the cached presetWireHeaders for preset, rebuilding it
+// when the transport's preset has been swapped. Concurrent first requests may
+// build it more than once; they store equivalent values.
+func (t *Transport) wireHeaders(preset *fingerprint.Preset) *presetWireHeaders {
+	if w := t.presetWire.Load(); w != nil && w.preset == preset {
+		return w
+	}
+	w := newPresetWireHeaders(preset)
+	t.presetWire.Store(w)
+	return w
+}
+
+func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool, exactHeaders []fingerprint.HeaderPair) {
+	preset := wire.preset
 	if applyExactHeaders(httpReq, exactHeaders, preset, customPseudoOrder, protocol) {
 		return
 	}
 	// In TLS-only mode, skip applying preset headers but still set header order
 	if !tlsOnly {
-		if len(preset.HeaderOrder) > 0 {
-			// Use ordered headers for HTTP/2 and HTTP/3 fingerprinting
-			for _, hp := range preset.HeaderOrder {
-				if stripClientHints && isClientHintHeader(hp.Key) {
-					continue // full opt-out: don't apply the preset sec-ch-* trio
-				}
-				httpReq.Header.Set(hp.Key, hp.Value)
+		// The precomputed keys are canonical, so direct assignment writes the
+		// same entries Header.Set would, minus the per-request
+		// CanonicalMIMEHeaderKey. The User-Agent write rides at the end of
+		// the pair list.
+		//
+		// The single-element value slices come out of one backing array,
+		// one allocation for the whole preset rather than one per header.
+		// Full slice expressions keep each entry's capacity at its own
+		// element, so an append through one cannot reach the next; Set and
+		// Del below replace or drop whole entries and are unaffected.
+		values := make([]string, 0, len(wire.pairs))
+		for _, p := range wire.pairs {
+			if stripClientHints && p.clientHint {
+				continue // full opt-out: don't apply the preset sec-ch-* trio
 			}
-		} else {
-			// Fallback to unordered headers map
-			for key, value := range preset.Headers {
-				if stripClientHints && isClientHintHeader(key) {
-					continue
-				}
-				httpReq.Header.Set(key, value)
-			}
+			values = append(values, p.value)
+			httpReq.Header[p.key] = values[len(values)-1 : len(values) : len(values)]
 		}
-		httpReq.Header.Set("User-Agent", preset.UserAgent)
 
 		// Auto-detect CORS mode from the request shape. Real browsers use
 		// cors/empty Sec-Fetch-* for fetch()/XHR and navigate/document for
@@ -2850,7 +2929,7 @@ func applyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset, custo
 		// Skipped for presets that describe a client sending no Sec-Fetch-* at
 		// all; see presetSendsSecFetch for why inferring that from the preset
 		// leaves every browser preset untouched.
-		if presetSendsSecFetch(preset) && sniffXHRMode(httpReq.Method, userHeaders) {
+		if wire.sendsSecFetch && sniffXHRMode(httpReq.Method, userHeaders) {
 			// Preserve any explicitly user-supplied Sec-Fetch-Mode/Dest/Site;
 			// the sniff coercion is for "user said nothing, infer XHR" — once
 			// they pin a value (e.g. mode=no-cors, dest=image, site=same-origin)
@@ -3085,6 +3164,61 @@ func extractHost(urlStr string) string {
 	return parsed.Hostname()
 }
 
+// lowerHeaderNameCache memoises lowerHeaderName for names that are not
+// already lowercase, typically the canonical-cased form the H1 textproto and
+// H2/H3 hpack read paths produce ("Content-Type"). Names reaching it come
+// from a peer's response or a caller's request, so the cache is bounded; past
+// the cap unseen names fall back to allocating, which keeps either from
+// growing it without bound. The cap is far above the name variety real
+// servers and callers emit.
+var (
+	lowerHeaderNameCache     sync.Map // string -> string
+	lowerHeaderNameCacheSize atomic.Int64
+)
+
+const lowerHeaderNameCacheMax = 1024
+
+// lowerHeaderName returns strings.ToLower(name), without allocating for the
+// two shapes response header names actually arrive in: already-lowercase
+// names return as-is, and canonical-cased names hit the memo after their
+// first conversion.
+func lowerHeaderName(name string) string {
+	lowerASCII := true
+	for i := range len(name) {
+		// Non-ASCII goes through ToLower too: it never appears in a valid
+		// header name, but strings.ToLower folds it ("Ü" to "ü"), so taking
+		// the fast path on it would change the output.
+		if c := name[i]; c >= utf8.RuneSelf || ('A' <= c && c <= 'Z') {
+			lowerASCII = false
+			break
+		}
+	}
+	if lowerASCII {
+		return name
+	}
+	if lower, ok := lowerHeaderNameCache.Load(name); ok {
+		return lower.(string)
+	}
+	lower := strings.ToLower(name)
+	if lowerHeaderNameCacheSize.Load() >= lowerHeaderNameCacheMax {
+		return lower
+	}
+	// Both entries must own their memory: name can share backing with a
+	// read buffer, and ToLower returns its input unchanged when nothing
+	// folds, which happens here for a name whose only non-lowercase byte is
+	// non-ASCII. Caching either without copying would pin that buffer for
+	// the process's life. The cap is soft under concurrent stores, which
+	// can overshoot it by at most one entry each.
+	key := strings.Clone(name)
+	if lower == name {
+		lower = key
+	}
+	if _, loaded := lowerHeaderNameCache.LoadOrStore(key, lower); !loaded {
+		lowerHeaderNameCacheSize.Add(1)
+	}
+	return lower
+}
+
 // buildHeadersMap converts http.Header to map[string][]string.
 // Preserves all values for multi-value headers (Set-Cookie, etc.)
 // buildTrailerMap is buildHeadersMap for the trailing block, returning nil
@@ -3102,7 +3236,19 @@ func buildTrailerMap(h http.Header) map[string][]string {
 }
 
 func buildHeadersMap(h http.Header) map[string][]string {
-	headers := make(map[string][]string)
+	headers := make(map[string][]string, len(h))
+	// Every entry's copy is carved out of one shared backing array, one
+	// allocation instead of one per header. Full slice expressions pin each
+	// entry's capacity to its own values, so appending through one entry
+	// cannot reach into the next; element writes stay confined to that
+	// entry, exactly as with per-entry copies.
+	//
+	// One slot per header covers the common case of a single value each.
+	// A repeated header (Set-Cookie) can push past that and reallocate, and
+	// the entries already handed out keep pointing into the old array. That
+	// stays correct: their values were copied there, and nothing writes to
+	// that array again.
+	backing := make([]string, 0, len(h))
 	for key, values := range h {
 		// The order key is transport bookkeeping, not a header the peer sent.
 		// It reaches the response map because the H2 read path records the
@@ -3111,11 +3257,9 @@ func buildHeadersMap(h http.Header) map[string][]string {
 			key == h1HeaderCasingKey || key == exactHeadersKey {
 			continue
 		}
-		lowerKey := strings.ToLower(key)
-		// Copy values to avoid sharing underlying array
-		headerValues := make([]string, len(values))
-		copy(headerValues, values)
-		headers[lowerKey] = headerValues
+		start := len(backing)
+		backing = append(backing, values...)
+		headers[lowerHeaderName(key)] = backing[start:len(backing):len(backing)]
 	}
 	return headers
 }
