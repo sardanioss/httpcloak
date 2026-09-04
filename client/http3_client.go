@@ -2,8 +2,6 @@ package client
 
 import (
 	"bytes"
-	"compress/flate"
-	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -14,8 +12,10 @@ import (
 	"time"
 
 	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/flate"
 	"github.com/klauspost/compress/zstd"
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/internal/gunzip"
 	"github.com/sardanioss/httpcloak/pool"
 	"github.com/sardanioss/httpcloak/protocol"
 )
@@ -273,7 +273,7 @@ func decompressHTTP3(data []byte, encoding string) ([]byte, error) {
 		return io.ReadAll(reader)
 
 	case "gzip":
-		return decompressGzip(data)
+		return gunzip.Bytes(data)
 
 	case "zstd":
 		decoder, err := zstd.NewReader(bytes.NewReader(data))
@@ -294,14 +294,4 @@ func decompressHTTP3(data []byte, encoding string) ([]byte, error) {
 	default:
 		return data, nil
 	}
-}
-
-// decompressGzip decompresses gzip data
-func decompressGzip(data []byte) ([]byte, error) {
-	reader, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-	return io.ReadAll(reader)
 }
