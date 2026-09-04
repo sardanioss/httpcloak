@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **HTTP/2 response header names are no longer canonicalised only to be lowercased again**: the fork's read loop converted every field name from the wire's lowercase into canonical case, one allocated string per field, and `buildHeadersMap` immediately converted each one back for the lowercase map this library hands its callers. The transport now asks the fork for the map keyed as the wire carried it (`WireCaseResponseHeaders`), so the names flow through untouched: the fork allocates nothing per name and `buildHeadersMap`'s `ToLower` hands the same string back. Every reader of the raw map between the transport and the conversion was audited: `Content-Encoding`, the one header the transport reads there, now resolves through a helper that addresses both key sets, because HTTP/1.1 parses names into canonical case and HTTP/3 still canonicalises, and the fork's own content-length parse, gzip unwrap and trailer detection were taught the same. Nothing observable changes for callers: response `Headers` were lowercase before and after, `HeaderOrder` is unchanged, and decompression still triggers, now locked by a wire-level test. Measured per call on a fourteen-header response: `buildHeadersMap` 33 allocations to 19 on wire-case input (1616 B to 1368 B), with the canonicalisation the fork no longer performs on top of that.
+
 ## [1.7.2] - 2026-09-03
 
 Worth taking if you use HTTP/3 with a custom fingerprint. A preset built from a
