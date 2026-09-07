@@ -347,12 +347,12 @@ func (p *LocalProxy) Stats() map[string]interface{} {
 	p.sessionRegistryMu.RUnlock()
 
 	return map[string]interface{}{
-		"running":           p.running.Load(),
-		"port":              p.port,
-		"active_conns":      p.activeConns.Load(),
-		"total_requests":    p.totalReqs.Load(),
-		"preset":            p.preset,
-		"max_connections":   p.maxConnections,
+		"running":             p.running.Load(),
+		"port":                p.port,
+		"active_conns":        p.activeConns.Load(),
+		"total_requests":      p.totalReqs.Load(),
+		"preset":              p.preset,
+		"max_connections":     p.maxConnections,
 		"registered_sessions": sessionCount,
 	}
 }
@@ -630,7 +630,7 @@ func (p *LocalProxy) handleHTTPWithSession(ctx context.Context, clientConn net.C
 		Method:  req.Method,
 		URL:     targetURL,
 		Headers: headers,
-		Body:    req.Body,    // Streaming request body
+		Body:    req.Body, // Streaming request body
 		TLSOnly: tlsOnlyOverride,
 	}
 
@@ -752,6 +752,9 @@ func (p *LocalProxy) handleHTTPDirect(ctx context.Context, clientConn net.Conn, 
 		if isHopByHopHeader(key) {
 			continue
 		}
+		// The HTTP/2 path keys this map in wire case; canonicalise on the
+		// way out so the relayed bytes stay what they always were.
+		key = http.CanonicalHeaderKey(key)
 		for _, value := range values {
 			fmt.Fprintf(bufWriter, "%s: %s\r\n", key, value)
 		}
@@ -807,7 +810,7 @@ func (p *LocalProxy) createProxyClient(proxyURL string) *http.Client {
 	}
 
 	transport := &http.Transport{
-		Proxy: http.ProxyURL(parsed),
+		Proxy:               http.ProxyURL(parsed),
 		MaxIdleConns:        10,
 		MaxIdleConnsPerHost: 2,
 		IdleConnTimeout:     30 * time.Second,

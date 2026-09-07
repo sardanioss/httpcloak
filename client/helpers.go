@@ -6,8 +6,9 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
 	http "github.com/sardanioss/http"
+	"github.com/sardanioss/httpcloak/internal/respheader"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -103,7 +104,7 @@ func processResponse(resp *http.Response, originalURL string, startTime time.Tim
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := respheader.ContentEncoding(resp.Header)
 	body, err = Decompress(body, contentEncoding)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decompress response: %w", err)

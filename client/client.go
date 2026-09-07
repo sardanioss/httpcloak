@@ -52,6 +52,7 @@ import (
 	"errors"
 	"fmt"
 	http "github.com/sardanioss/http"
+	"github.com/sardanioss/httpcloak/internal/respheader"
 	"io"
 	"math"
 	"math/rand"
@@ -1202,7 +1203,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	}
 
 	// Store cookies from response
-	setCookies := resp.Header["Set-Cookie"]
+	setCookies := respheader.SetCookie(resp.Header)
 	if c.cookies != nil && len(setCookies) > 0 {
 		c.cookies.SetCookiesFromHeaderList(parsedURL, setCookies)
 	}
@@ -1230,7 +1231,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 			}
 
 			// Get redirect location
-			location := resp.Header.Get("Location")
+			location := respheader.Location(resp.Header)
 			if location == "" {
 				return nil, fmt.Errorf("redirect response missing Location header")
 			}
@@ -1379,7 +1380,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := respheader.ContentEncoding(resp.Header)
 	respBody, err = decompress(respBody, contentEncoding)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decompress response: %w", err)

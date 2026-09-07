@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"github.com/sardanioss/httpcloak/internal/respheader"
 	"io"
 	"net/url"
 	"strings"
@@ -443,7 +444,7 @@ func (t *Transport) doStreamHTTP1(ctx context.Context, req *Request) (*StreamRes
 	headers := buildHeadersMap(resp.Header)
 
 	// Setup decompression reader
-	reader, decompressor := setupStreamDecompressor(resp.Body, resp.Header.Get("Content-Encoding"))
+	reader, decompressor := setupStreamDecompressor(resp.Body, respheader.ContentEncoding(resp.Header))
 
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
@@ -537,16 +538,18 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	timing.FirstByte = float64(time.Since(reqStart).Milliseconds())
 	timing.Total = float64(time.Since(startTime).Milliseconds())
 
-	// Build response headers map
-	headers := buildHeadersMap(resp.Header)
+	// Adopt the fork's wire-case header map; the order read must come first,
+	// adoption strips the bookkeeping entry it answers from.
+	headerOrder := responseHeaderOrder(resp.Header)
+	headers := adoptWireHeaders(resp.Header)
 
 	// Setup decompression reader
-	reader, decompressor := setupStreamDecompressor(resp.Body, resp.Header.Get("Content-Encoding"))
+	reader, decompressor := setupStreamDecompressor(resp.Body, respheader.ContentEncoding(resp.Header))
 
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
 		Headers:       headers,
-		HeaderOrder:   responseHeaderOrder(resp.Header),
+		HeaderOrder:   headerOrder,
 		httpResp:      resp,
 		FinalURL:      req.URL,
 		Timing:        timing,
@@ -639,7 +642,7 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 	headers := buildHeadersMap(resp.Header)
 
 	// Setup decompression reader
-	reader, decompressor := setupStreamDecompressor(resp.Body, resp.Header.Get("Content-Encoding"))
+	reader, decompressor := setupStreamDecompressor(resp.Body, respheader.ContentEncoding(resp.Header))
 
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
