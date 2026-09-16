@@ -3,10 +3,10 @@ package transport
 import (
 	"bufio"
 	"bytes"
-	"compress/flate"
 	"compress/gzip"
 	"context"
 	"errors"
+	"github.com/sardanioss/httpcloak/internal/compress"
 	"io"
 	"net/url"
 	"strings"
@@ -670,7 +670,7 @@ func setupStreamDecompressor(body io.ReadCloser, encoding string) (io.ReadCloser
 	case "br":
 		return &brotliStreamReader{brotli.NewReader(body)}, nil
 	case "deflate":
-		return &deflateStreamReader{flate.NewReader(body)}, nil
+		return &deflateStreamReader{compress.NewInflateReader(body)}, nil
 	case "zstd":
 		decoder, err := zstd.NewReader(body)
 		if err != nil {

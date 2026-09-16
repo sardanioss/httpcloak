@@ -2,12 +2,12 @@ package client
 
 import (
 	"bytes"
-	"compress/flate"
 	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
 	http "github.com/sardanioss/http"
+	"github.com/sardanioss/httpcloak/internal/compress"
 	"io"
 	"net/url"
 	"strings"
@@ -284,7 +284,7 @@ func decompressHTTP3(data []byte, encoding string) ([]byte, error) {
 		return io.ReadAll(decoder)
 
 	case "deflate":
-		reader := flate.NewReader(bytes.NewReader(data))
+		reader := compress.NewInflateReader(bytes.NewReader(data))
 		defer reader.Close()
 		return io.ReadAll(reader)
 
