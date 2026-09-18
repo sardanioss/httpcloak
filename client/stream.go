@@ -304,7 +304,10 @@ func setupDecompressor(body io.ReadCloser, encoding string) (io.ReadCloser, io.C
 		if err != nil {
 			return body, nil
 		}
-		return &zstdReadCloser{decoder}, nil
+		// The decoder runs goroutines until it is closed, and StreamResponse
+		// only closes what comes back as the closer. IOReadCloser closes the
+		// decoder alone; the body is closed separately as rawReader.
+		return &zstdReadCloser{decoder}, decoder.IOReadCloser()
 	default:
 		return body, nil
 	}
