@@ -14,6 +14,7 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+	"github.com/sardanioss/httpcloak/internal/compress"
 	"github.com/sardanioss/httpcloak/protocol"
 )
 
@@ -299,6 +300,8 @@ func setupDecompressor(body io.ReadCloser, encoding string) (io.ReadCloser, io.C
 		return reader, reader
 	case "br":
 		return &brotliReadCloser{brotli.NewReader(body)}, nil
+	case "deflate":
+		return compress.NewInflateReader(body), nil
 	case "zstd":
 		decoder, err := zstd.NewReader(body)
 		if err != nil {
