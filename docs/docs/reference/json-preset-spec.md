@@ -137,6 +137,8 @@ over the bytes of a real one.
 "tls": {
   "raw_client_hello":     "FgMBAgA...",
   "raw_psk_client_hello": "FgMBAiA...",
+  "raw_quic_client_hello":     "FgMBAfA...",
+  "raw_quic_psk_client_hello": "FgMBAhA...",
   "allow_blunt_mimicry":  true,
   "permute_raw_hello":    true
 }
@@ -146,8 +148,15 @@ over the bytes of a real one.
 |---|---|---|
 | `raw_client_hello` | string | Base64 of a captured ClientHello, starting at the TLS record header. Everything it contains goes on the wire as captured. |
 | `raw_psk_client_hello` | string | The same client's resumption-shaped hello. Without it a resuming session sends a first-handshake shape with a ticket bolted on, which that client never sends. |
-| `allow_blunt_mimicry` | bool | Passes through extensions this library has no model for. Without it an unmodelled extension is a load-time error, which is how a captured curl hello fails. |
-| `permute_raw_hello` | bool | Shuffles the extension order per connection. |
+| `raw_quic_client_hello` | string | The same kind of capture taken from a QUIC handshake, used for HTTP/3. It must carry `quic_transport_parameters`, which every QUIC hello has and no TCP one does. It replaces the inherited `quic_client_hello` and `quic_psk_client_hello`. |
+| `raw_quic_psk_client_hello` | string | The QUIC capture's resumption-shaped hello. Without it HTTP/3 does not resume. |
+| `allow_blunt_mimicry` | bool | Passes through extensions this library has no model for. Without it an unmodelled extension is a load-time error, which is how a captured curl hello fails. Applies to both captures. |
+| `permute_raw_hello` | bool | Shuffles the extension order per connection. Applies to both captures. |
+
+`raw_client_hello` decides TCP and `raw_quic_client_hello` decides QUIC, so one
+preset can replay a client on HTTP/1.1, HTTP/2 and HTTP/3 at once. Either can also
+stand alone next to a `client_hello`. A QUIC capture in `raw_client_hello` still
+works on HTTP/3 when `raw_quic_client_hello` is not set.
 
 `permute_raw_hello` has to be declared because it cannot be detected. A capture is
 one connection, so its extension order is a single sample, and nothing in the
@@ -221,7 +230,11 @@ The build step rejects the following combinations:
 - `ja3_extras` without `ja3`.
 - Any of `psk_client_hello`, `quic_client_hello`, `quic_psk_client_hello` when there's no primary `client_hello` or `ja3` to anchor them.
 - `quic_client_hello` / `quic_psk_client_hello` / `psk_client_hello` paired with `ja3` (JA3 doesn't control QUIC TLS, use `client_hello` mode for QUIC).
-- `alpn`, `cert_compression`, `record_size_limit` or `permute_extensions` in a `tls` block without `ja3`, whether the hello comes from `client_hello`, from `based_on`, or from a `raw_client_hello` (which fixes them already; `permute_extensions` is allowed there). They are only read alongside `ja3`, so the build refuses them instead of dropping them. `signature_algorithms` is the exception: on the `client_hello` path it overrides the extension on top of the inherited hello.
+- `raw_quic_client_hello` on a preset that uses `ja3`, set here or inherited. Pair it with `raw_client_hello` or `client_hello` instead.
+- `raw_quic_client_hello` with `quic_client_hello` or `quic_psk_client_hello` in the same spec.
+- `raw_psk_client_hello` without `raw_client_hello`, and `raw_quic_psk_client_hello` without `raw_quic_client_hello`.
+- A `raw_quic_client_hello` or `raw_quic_psk_client_hello` with no `quic_transport_parameters` extension. That is a TCP capture and belongs in `raw_client_hello`. A `quic_transport_parameters` body that does not decode as a parameter list is refused too.
+- `alpn`, `cert_compression`, `record_size_limit` or `permute_extensions` in a `tls` block without `ja3`, whether the hello comes from `client_hello`, from `based_on`, or from a `raw_client_hello` or `raw_quic_client_hello` (which fix them already; `permute_extensions` is allowed there). They are only read alongside `ja3`, so the build refuses them instead of dropping them. `signature_algorithms` is the exception: on the `client_hello` path it overrides the extension on top of the inherited hello.
 - Any top-level TLS extension field (`signature_algorithms`, `delegated_credential_algorithms`, `alpn`, `cert_compression`, `permute_extensions`, `record_size_limit`, `key_share_curves`) next to a `ja3_extras` block. `ja3_extras` replaces them, so put them inside it.
 
 ---
@@ -425,6 +438,12 @@ currently sends `["ORIG"]`, and this is a preset key rather than a constant
 because the value comes from a server-side experiment and can change without a
 Chrome release. An explicitly empty list sends none; omitting the field entirely
 falls back to the default.
+
+When HTTP/3 uses a captured hello (`raw_quic_client_hello`, or a QUIC capture in
+`raw_client_hello`), the capture decides whether `version_information` and the
+connection options are sent at all: each goes out only if the captured
+`quic_transport_parameters` carries it. Omitting this field then sends the
+captured tags rather than `["ORIG"]`.
 
 ## `headers` object
 

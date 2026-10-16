@@ -353,7 +353,7 @@ Don't use JA3 hash equality as a CI pass criterion. It will flake. Use JA4 inste
 
 - **TLS extension order changes.** When a new Chrome major adds an extension or reshuffles the order, JSON edits cannot reach into the ClientHello. The fix is a utls profile bump.
 - **HTTP/2 frame ordering.** The shipped presets cover the common Chrome shapes. A frame shape the shipped preset does not have is worth an issue, not a JSON workaround.
-- **HTTP/3.** Same constraint as the TLS layer. The shipped `quic_client_hello` profiles define the QUIC handshake bytes; JSON only edits headers.
+- **HTTP/3 from a profile.** The shipped `quic_client_hello` profiles define their QUIC handshake bytes and JSON cannot edit them. To match a QUIC hello exactly, capture it and set `raw_quic_client_hello` instead (see [Captured ClientHello mode](../reference/json-preset-spec#captured-clienthello-mode)).
 
 The path for any of those is a utls and sardanioss/net update, not a custom JSON preset.
 

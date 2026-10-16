@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`raw_quic_client_hello`: one preset can replay a captured client on TCP and on QUIC at once**: `raw_client_hello` holds one capture, and since 1.7.2 which transport it describes is read off the bytes. That made a QUIC capture usable on HTTP/3, but only at the cost of the TCP one, so a client that moves to HTTP/3 after an `alt-svc` header could be mirrored exactly on one transport and had to borrow the nearest shipped `quic_client_hello` profile on the other. The new `tls.raw_quic_client_hello` sits beside `raw_client_hello`, and `raw_quic_psk_client_hello` is its resumption counterpart. HTTP/3 takes the QUIC capture first, then a QUIC-shaped `raw_client_hello` as before, then a QUIC `ja3`, then `quic_client_hello`; HTTP/1.1 and HTTP/2 are unchanged. `allow_blunt_mimicry` and `permute_raw_hello` apply to both captures.
+
+  The capture is the whole QUIC fingerprint, so it replaces the inherited `quic_client_hello` and `quic_psk_client_hello`, and a later `quic_client_hello` replaces an inherited capture in turn. It is checked when the preset loads: a capture with no `quic_transport_parameters` is a TCP hello and is refused, as are a QUIC capture on a `ja3` preset and one next to `quic_client_hello` in the same block. `describePreset` now writes both captures out, so a described preset carrying them loads back with the same bytes.
+
+  The HTTP/3 transport used to attach its session cache, and ask for a resumption hello, only when the preset named a `quic_psk_client_hello`. Both decisions now ask the hello resolver's own question, so `raw_quic_psk_client_hello` is sent whenever a session for the host exists, and a QUIC capture without one does not resume rather than resuming with another client's hello.
+
+  Whether HTTP/3 sends Chrome's `version_information` and `google_connection_options` transport parameters is read off the capture. It used to follow the QUIC identity, which a capture clears, so a preset carrying both captures sent neither even when its captured Chrome hello carried both. Each is now sent exactly when the captured `quic_transport_parameters` has it, and `google_connection_options` takes the captured tags unless `http3.quic_connection_options` is set. A capture whose parameter list does not decode is refused at load.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added

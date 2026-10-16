@@ -77,6 +77,15 @@ type TLSSpec struct {
 	AllowBluntMimicry    *bool  `json:"allow_blunt_mimicry,omitempty"`
 	RawPermuteExtensions *bool  `json:"permute_raw_hello,omitempty"`
 
+	// RawQUICClientHello is the same kind of capture taken from a QUIC
+	// handshake, so it carries quic_transport_parameters. It sits beside
+	// raw_client_hello rather than replacing it, which lets one preset replay
+	// a client byte for byte on both transports. RawQUICPSKClientHello is its
+	// resumption counterpart. allow_blunt_mimicry and permute_raw_hello apply
+	// to both captures.
+	RawQUICClientHello    string `json:"raw_quic_client_hello,omitempty"`
+	RawQUICPSKClientHello string `json:"raw_quic_psk_client_hello,omitempty"`
+
 	// PSKJA3 is a JA3 captured from a resuming connection, i.e. one whose
 	// extension list contains 41. It is the JA3-mode counterpart of
 	// psk_client_hello, which JA3 mode was forbidden from using.
@@ -677,7 +686,70 @@ func clonePreset(src *Preset) *Preset {
 
 // --- Apply Functions ---
 
+// applyRawPermute reads the permutation keys for a captured hello.
+//
+// permute_extensions means the same thing here, and is the name someone
+// reaches for first because it is what the other two TLS modes call it. It
+// feeds JA3Extras, which the raw path never consults, so accepting it and
+// doing nothing would be the exact failure this key exists to avoid: a preset
+// that looks configured and goes on the wire unchanged. permute_raw_hello wins
+// when both are given.
+func applyRawPermute(p *Preset, spec *TLSSpec) {
+	if spec.PermuteExtensions != nil {
+		p.RawPermuteExtensions = *spec.PermuteExtensions
+	}
+	if spec.RawPermuteExtensions != nil {
+		p.RawPermuteExtensions = *spec.RawPermuteExtensions
+	}
+}
+
+// applyRawQUIC applies raw_quic_client_hello. It runs ahead of the TCP sources
+// because it is independent of them: a TCP capture, a JA3 or a client_hello in
+// the same block decide TCP and leave this one to decide QUIC.
+func applyRawQUIC(p *Preset, spec *TLSSpec) error {
+	if spec.RawQUICClientHello == "" {
+		// A declared QUIC identity replaces an inherited QUIC capture, or the
+		// capture would keep winning in ResolveQUICClientHelloSpec.
+		if spec.QUICClientHello != "" {
+			p.RawQUICClientHello = nil
+			p.RawQUICPSKClientHello = nil
+		}
+		return nil
+	}
+
+	blunt := spec.AllowBluntMimicry != nil && *spec.AllowBluntMimicry
+	raw, err := DecodeRawQUICClientHello("tls.raw_quic_client_hello", spec.RawQUICClientHello, blunt)
+	if err != nil {
+		return err
+	}
+	var pskRaw []byte
+	if spec.RawQUICPSKClientHello != "" {
+		pskRaw, err = DecodeRawQUICClientHello("tls.raw_quic_psk_client_hello", spec.RawQUICPSKClientHello, blunt)
+		if err != nil {
+			return err
+		}
+	}
+	p.RawQUICClientHello = raw
+	p.RawQUICPSKClientHello = pskRaw
+	// Only when declared: the flag is shared with raw_client_hello, and an
+	// inherited TCP capture may depend on it.
+	if spec.AllowBluntMimicry != nil {
+		p.RawBluntMimicry = blunt
+	}
+	applyRawPermute(p, spec)
+
+	// The capture is the whole QUIC fingerprint. An inherited PSK id left
+	// behind would pair a resumption hello from a different client with it.
+	p.QUICClientHelloID = tls.ClientHelloID{}
+	p.QUICPSKClientHelloID = tls.ClientHelloID{}
+	return nil
+}
+
 func applyTLS(p *Preset, spec *TLSSpec) error {
+	if err := applyRawQUIC(p, spec); err != nil {
+		return err
+	}
+
 	// raw_client_hello wins over both other sources. It is the only one that
 	// can carry GREASE, so a preset that has it never wants to fall back.
 	if spec.RawClientHello != "" {
@@ -688,18 +760,7 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 		}
 		p.RawClientHello = raw
 		p.RawBluntMimicry = blunt
-		// permute_extensions means the same thing here, and is the name someone
-		// reaches for first because it is what the other two TLS modes call it.
-		// It feeds JA3Extras, which the raw path never consults, so accepting it
-		// and doing nothing would be the exact failure this key exists to avoid:
-		// a preset that looks configured and goes on the wire unchanged.
-		// permute_raw_hello wins when both are given.
-		if spec.PermuteExtensions != nil {
-			p.RawPermuteExtensions = *spec.PermuteExtensions
-		}
-		if spec.RawPermuteExtensions != nil {
-			p.RawPermuteExtensions = *spec.RawPermuteExtensions
-		}
+		applyRawPermute(p, spec)
 		if spec.RawPSKClientHello != "" {
 			pskRaw, err := DecodeRawClientHello("tls.raw_psk_client_hello", spec.RawPSKClientHello, blunt)
 			if err != nil {
@@ -1373,15 +1434,34 @@ func validatePreset(p *Preset, spec *PresetSpec) error {
 		if named > 1 {
 			return fmt.Errorf("%s are mutually exclusive, pick one", strings.Join(which, " and "))
 		}
+		// raw_quic_client_hello is QUIC's whole hello, so it excludes the named
+		// QUIC ids the same way the three TCP sources exclude each other.
+		if spec.TLS.RawQUICClientHello != "" {
+			for _, f := range []struct {
+				name string
+				set  bool
+			}{
+				{"quic_client_hello", spec.TLS.QUICClientHello != ""},
+				{"quic_psk_client_hello", spec.TLS.QUICPSKClientHello != ""},
+			} {
+				if f.set {
+					return fmt.Errorf("raw_quic_client_hello and %s are mutually exclusive, pick one", f.name)
+				}
+			}
+		}
 		// A resumption hello is meaningless without the source it resumes.
 		if spec.TLS.RawPSKClientHello != "" && spec.TLS.RawClientHello == "" {
 			return fmt.Errorf("raw_psk_client_hello requires raw_client_hello")
 		}
+		if spec.TLS.RawQUICPSKClientHello != "" && spec.TLS.RawQUICClientHello == "" {
+			return fmt.Errorf("raw_quic_psk_client_hello requires raw_quic_client_hello")
+		}
 		if spec.TLS.PSKJA3 != "" && p.JA3 == "" {
 			return fmt.Errorf("psk_ja3 requires ja3 to be set (directly or via based_on)")
 		}
-		if spec.TLS.AllowBluntMimicry != nil && spec.TLS.RawClientHello == "" {
-			return fmt.Errorf("allow_blunt_mimicry only applies to raw_client_hello")
+		hasCapture := spec.TLS.RawClientHello != "" || spec.TLS.RawQUICClientHello != ""
+		if spec.TLS.AllowBluntMimicry != nil && !hasCapture {
+			return fmt.Errorf("allow_blunt_mimicry only applies to raw_client_hello and raw_quic_client_hello")
 		}
 		// PSK/QUIC hello IDs require a primary client_hello or JA3 on the built preset
 		// (could come from based_on inheritance, not just the spec)
@@ -1405,6 +1485,12 @@ func validatePreset(p *Preset, spec *PresetSpec) error {
 			}
 			if spec.TLS.QUICPSKClientHello != "" {
 				return fmt.Errorf("quic_psk_client_hello cannot be used with ja3; JA3 does not control QUIC TLS fingerprinting — use client_hello mode instead")
+			}
+			// Checked on the built preset, so a capture inherited through
+			// based_on is caught too.
+			if len(p.RawQUICClientHello) > 0 {
+				return fmt.Errorf("raw_quic_client_hello cannot be used with ja3; " +
+					"pair it with raw_client_hello or client_hello for TCP instead")
 			}
 			if spec.TLS.PSKClientHello != "" {
 				return fmt.Errorf("psk_client_hello cannot be used with ja3; use psk_ja3, " +
@@ -1471,14 +1557,14 @@ func validatePreset(p *Preset, spec *PresetSpec) error {
 			if spec.TLS.RecordSizeLimit != nil {
 				ignored = append(ignored, "record_size_limit")
 			}
-			if spec.TLS.PermuteExtensions != nil && spec.TLS.RawClientHello == "" {
+			if spec.TLS.PermuteExtensions != nil && !hasCapture {
 				ignored = append(ignored, "permute_extensions")
 			}
 			if len(ignored) > 0 {
 				mode := "a client_hello inherited through based_on"
 				switch {
-				case spec.TLS.RawClientHello != "":
-					mode = "raw_client_hello, whose captured bytes already fix them"
+				case hasCapture:
+					mode = "a captured hello, whose bytes already fix them"
 				case spec.TLS.ClientHello != "":
 					mode = "client_hello"
 				}
