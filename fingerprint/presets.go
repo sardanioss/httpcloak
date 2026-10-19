@@ -3525,6 +3525,42 @@ func IOSSafari18() *Preset {
 	}
 }
 
+// IOSSafari26 returns the Safari 26 iOS HTTP/2 fingerprint, captured from
+// Safari 26.6.1 on 2026-10-19. The UA reports the frozen iPhone OS 18_7 value.
+// TLS stays HelloIOS_18: JA3 ecdf4f49dd59effc439639da29186671 and Peetprint
+// 62b834de729e78a9f0ebd1dd099314a7 already match. See the sanitized capture
+// in testdata/safari-26-ios-capture.json. Locale remains the library's en-US
+// default; the capture's en-AU preference is a caller override.
+func IOSSafari26() *Preset {
+	p := IOSSafari18()
+	p.Name = "safari-26-ios"
+	p.UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1"
+	delete(p.Headers, "Sec-Fetch-User")
+	p.Headers["Accept-Encoding"] = "gzip, deflate, br, zstd"
+	p.Headers["Priority"] = "u=0, i"
+	p.HeaderOrder = []HeaderPair{
+		{"sec-fetch-dest", "document"}, {"user-agent", ""},
+		{"accept", p.Headers["Accept"]}, {"sec-fetch-site", "none"},
+		{"sec-fetch-mode", "navigate"}, {"accept-language", p.Headers["Accept-Language"]},
+		{"priority", "u=0, i"}, {"accept-encoding", p.Headers["Accept-Encoding"]},
+	}
+	p.HTTP2Settings.ConnectionWindowUpdate = 10420225
+	p.HTTP2Settings.MaxFrameSize = 0 // Do not advertise SETTINGS_MAX_FRAME_SIZE.
+	p.HTTP2Settings.StreamWeight = 0 // No legacy PRIORITY data on HEADERS.
+	p.H2Config = safariH2Config()
+	p.H2Config.SettingsOrder = []uint16{2, 3, 4, 9}
+	p.H2Config.PseudoHeaderOrder = []string{":method", ":scheme", ":authority", ":path"}
+	p.H2Config.HPACKHeaderOrder = []string{
+		"sec-fetch-dest", "user-agent", "accept", "sec-fetch-site", "sec-fetch-mode",
+		"accept-language", "priority", "accept-encoding",
+		"referer", "cookie", "content-type", "content-length", "origin",
+	}
+	// The supplied capture is h2 only. Do not infer HTTP/3 settings from it.
+	p.SupportHTTP3 = false
+	p.H3Config = nil
+	return p
+}
+
 // AndroidChrome143 returns Chrome 143 on Android fingerprint preset
 // Note: Chrome on Android uses Chrome's TLS fingerprint (not WebKit restricted like iOS)
 func AndroidChrome143() *Preset {
@@ -3840,6 +3876,7 @@ var presets = map[string]func() *Preset{
 	"chrome-146-ios":      IOSChrome146,
 	"safari-17-ios":       IOSSafari17,
 	"safari-18-ios":       IOSSafari18,
+	"safari-26-ios":       IOSSafari26,
 	"chrome-143-android":  AndroidChrome143,
 	"chrome-144-android":  AndroidChrome144,
 	"chrome-145-android":  AndroidChrome145,
@@ -3905,7 +3942,7 @@ var presets = map[string]func() *Preset{
 	"firefox-latest-macos":   Firefox148macOS,
 	"safari-latest":          Safari18,
 	"chrome-latest-ios":      IOSChrome155,
-	"safari-latest-ios":      IOSSafari18,
+	"safari-latest-ios":      IOSSafari26,
 	"chrome-latest-android":  AndroidChrome155,
 
 	// Backwards compatibility aliases (old naming convention). The -latest
@@ -3919,6 +3956,7 @@ var presets = map[string]func() *Preset{
 	"ios-chrome-148":        IOSChrome148,
 	"ios-safari-17":         IOSSafari17,
 	"ios-safari-18":         IOSSafari18,
+	"ios-safari-26":         IOSSafari26,
 	"android-chrome-143":    AndroidChrome143,
 	"android-chrome-144":    AndroidChrome144,
 	"android-chrome-145":    AndroidChrome145,
@@ -3926,7 +3964,7 @@ var presets = map[string]func() *Preset{
 	"android-chrome-147":    AndroidChrome147,
 	"android-chrome-148":    AndroidChrome148,
 	"ios-chrome-latest":     IOSChrome155,
-	"ios-safari-latest":     IOSSafari18,
+	"ios-safari-latest":     IOSSafari26,
 	"android-chrome-latest": AndroidChrome155,
 }
 

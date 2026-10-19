@@ -1,0 +1,23 @@
+{
+  "source": "User-supplied iPhone Safari tls.peet.ws/api/all capture, 2026-10-19. IPs and ephemeral TLS material omitted.",
+  "tls": {
+    "ja3_hash": "ecdf4f49dd59effc439639da29186671",
+    "ja4": "t13d2013h2_a09f3c656075_7f0f34a4126d",
+    "peetprint_hash": "62b834de729e78a9f0ebd1dd099314a7"
+  },
+  "http2Fingerprint": "2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p",
+  "headers": [
+    ":method: GET",
+    ":scheme: https",
+    ":authority: tls.peet.ws",
+    ":path: /api/all",
+    "sec-fetch-dest: document",
+    "user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1",
+    "accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "sec-fetch-site: none",
+    "sec-fetch-mode: navigate",
+    "accept-language: en-AU,en;q=0.9",
+    "priority: u=0, i",
+    "accept-encoding: gzip, deflate, br, zstd"
+  ]
+}

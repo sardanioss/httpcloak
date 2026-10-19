@@ -92,7 +92,7 @@ func WithProxy(proxyURL string) Option {
 //   - "chrome-155" down to "chrome-143", then "chrome-141" and "chrome-133"
 //   - "firefox-latest", "firefox-133"
 //   - "safari-latest", "safari-18"
-//   - "chrome-latest-ios", "safari-latest-ios"
+//   - "chrome-latest-ios", "safari-latest-ios", "safari-26-ios"
 //   - "chrome-latest-android"
 //
 // The -latest aliases always resolve to the newest version in the library.

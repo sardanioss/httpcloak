@@ -1031,7 +1031,9 @@ response.Protocol
 | Chrome | 133, 141 | none | yes | no |
 | Firefox | 148, `latest` | `-windows` `-linux` `-macos` | yes | no |
 | Firefox | 133 | `-windows` `-linux` `-macos` | no | no |
-| Safari | 18, `latest` | none, `-ios` | yes | yes |
+| Safari | 18 | none, `-ios` | yes | yes |
+| Safari | 26, `latest` | `-ios` | yes | no (h2 capture only) |
+| Safari | `latest` | none | yes | yes |
 | Safari | 17 | `-ios` | no | no |
 
 **PQ** = post-quantum key exchange (X25519MLKEM768). `Presets()` returns the full list.
