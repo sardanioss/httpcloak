@@ -160,6 +160,8 @@ func NewClient(presetName string, opts ...Option) *Client {
 	} else {
 		h2Manager = pool.NewManagerWithTLSConfig(preset, config.InsecureSkipVerify)
 	}
+	// This client reads response maps through respheader, so its pool skips the canonical-key conversion.
+	respheader.KeepWireCase(h2Manager)
 
 	// Set IPv4 preference on DNS cache if configured
 	if config.PreferIPv4 {
@@ -1356,6 +1358,10 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 
 	// Handle 401 with Digest auth (challenge-response)
 	if resp.StatusCode == http.StatusUnauthorized && auth != nil {
+		// Auth is an interface a caller can implement, so the response it is
+		// handed is keyed canonically, as it was before this client took the
+		// HTTP/2 map in wire case.
+		respheader.Canonical(resp.Header)
 		shouldRetry, err := auth.HandleChallenge(resp, httpReq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to handle auth challenge: %w", err)

@@ -140,6 +140,14 @@ type h2Config struct {
 	// name repeated per value. Names must be lowercase, as HTTP/2 requires.
 	ResponseHeaders [][2]string
 
+	// Informational, when non-empty, is sent as a 103 response ahead of the
+	// final one, with these fields in this order. Names must be lowercase.
+	Informational [][2]string
+
+	// Trailers, when non-empty, end the stream with a HEADERS frame carrying
+	// these fields instead of an empty DATA frame. Names must be lowercase.
+	Trailers [][2]string
+
 	// SendContentLength puts a content-length on the response. Without it the
 	// client sees an unknown length, which adds a trailing empty DATA frame.
 	SendContentLength bool
@@ -625,6 +633,16 @@ func (hc *h2Conn) respond(streamID uint32) {
 		body = []byte("ok")
 	}
 
+	if len(cfg.Informational) > 0 {
+		var ib strings.Builder
+		ienc := hpack.NewEncoder(&ib)
+		ienc.WriteField(hpack.HeaderField{Name: ":status", Value: "103"})
+		for _, hv := range cfg.Informational {
+			ienc.WriteField(hpack.HeaderField{Name: hv[0], Value: hv[1]})
+		}
+		hc.writeFrame(frHeaders, flEndHeaders, streamID, []byte(ib.String()))
+	}
+
 	var buf strings.Builder
 	enc := hpack.NewEncoder(&buf)
 	enc.WriteField(hpack.HeaderField{Name: ":status", Value: "200"})
@@ -677,7 +695,16 @@ func (hc *h2Conn) respond(streamID uint32) {
 	if cfg.HoldEndStream != nil {
 		<-cfg.HoldEndStream
 	}
-	hc.writeFrame(frData, flEndStream, streamID, nil)
+	if len(cfg.Trailers) > 0 {
+		var tb strings.Builder
+		tenc := hpack.NewEncoder(&tb)
+		for _, hv := range cfg.Trailers {
+			tenc.WriteField(hpack.HeaderField{Name: hv[0], Value: hv[1]})
+		}
+		hc.writeFrame(frHeaders, flEndHeaders|flEndStream, streamID, []byte(tb.String()))
+	} else {
+		hc.writeFrame(frData, flEndStream, streamID, nil)
+	}
 
 	hc.doneMu.Lock()
 	hc.responded++

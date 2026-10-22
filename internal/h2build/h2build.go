@@ -87,7 +87,9 @@ func Transport(o Options) *http2.Transport {
 		// canonical spelling was built per field only to be converted back
 		// out of. Everything that still reads the fork's map before the
 		// conversion goes through internal/respheader or addresses the
-		// exact key, never http.Header's canonicalising accessors.
+		// exact key, never http.Header's canonicalising accessors. The
+		// exported RoundTrip methods that hand a raw response to outside
+		// code convert it back to canonical keys (respheader.Canonical).
 		WireCaseResponseHeaders:   true,
 		MaxHeaderListSize:         s.MaxHeaderListSize,
 		MaxReadFrameSize:          s.MaxFrameSize,

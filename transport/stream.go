@@ -547,7 +547,10 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	finishEstablishment := boundStreamEstablishment(t.streamEffectiveTimeout(req), cancel)
 
 	// Make request
-	resp, err := snap.h2.RoundTrip(httpReq)
+	// roundTrip, not RoundTrip: the exported one converts the header map to
+	// canonical keys for outside callers, and adoption below wants it as the
+	// wire carried it.
+	resp, _, err := snap.h2.roundTrip(httpReq)
 	finishEstablishment()
 	if err != nil {
 		cancel()

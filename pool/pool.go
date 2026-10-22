@@ -18,6 +18,7 @@ import (
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/internal/h2build"
+	"github.com/sardanioss/httpcloak/internal/respheader"
 	"github.com/sardanioss/httpcloak/transport"
 	"github.com/sardanioss/net/http2"
 	tls "github.com/sardanioss/utls"
@@ -61,6 +62,13 @@ type Conn struct {
 	// meaningful while inFlight > 0, where it separates a slow-but-live download
 	// from a body the caller walked away from without closing.
 	lastProgress atomic.Int64
+
+	// wireCase leaves response maps keyed as the wire carried them; see
+	// Manager.wireCase.
+	wireCase bool
+
+	// canonicalHeadersForTest is copied from the HostPool; see there.
+	canonicalHeadersForTest bool
 }
 
 // release marks one request as finished with the connection. If a close was
@@ -109,6 +117,13 @@ func (c *Conn) requestClose() {
 // UseCount is deliberately NOT bumped here. It is still incremented only by
 // MarkUsed() at acquisition, so the `UseCount == 1` timing branches in
 // client/ keep firing exactly when they used to.
+//
+// The response's Header is keyed in canonical form, as it was before the
+// connection asked the HTTP/2 layer for the wire's lowercase names, so
+// Header.Get, Cookies and Location work as on any net/http response; trailers
+// and the 1xx maps a ClientTrace receives are canonical too. A Manager that
+// httpcloak's own client builds skips that conversion, since the client reads
+// the map through accessors that take either key set.
 func (c *Conn) RoundTrip(req *http.Request) (*http.Response, error) {
 	c.mu.Lock()
 	// Retired or dead: reject BEFORE anything is written, so the caller can
@@ -122,6 +137,15 @@ func (c *Conn) RoundTrip(req *http.Request) (*http.Response, error) {
 	h2Conn := c.HTTP2Conn
 	c.mu.Unlock()
 	c.lastProgress.Store(time.Now().UnixNano())
+
+	// A 1xx map reaches a caller's trace during the round trip, so the trace is
+	// set up to see canonical names before the request goes out.
+	orig := req
+	if !c.canonicalHeadersForTest {
+		if ctx, ok := respheader.WithCanonical1xx(req.Context()); ok {
+			req = req.WithContext(ctx)
+		}
+	}
 
 	resp, err := h2Conn.RoundTrip(req)
 	if err != nil {
@@ -144,6 +168,12 @@ func (c *Conn) RoundTrip(req *http.Request) (*http.Response, error) {
 		c.release()
 	} else {
 		resp.Body = &connBodyGuard{ReadCloser: resp.Body, conn: c}
+	}
+	if !c.wireCase {
+		respheader.Canonical(resp.Header)
+	}
+	if req != orig {
+		respheader.RestoreRequest(resp, req, orig)
 	}
 	return resp, nil
 }
@@ -296,6 +326,15 @@ type HostPool struct {
 	// ECH (Encrypted Client Hello) configuration
 	echConfig       []byte // Custom ECH configuration
 	echConfigDomain string // Domain to fetch ECH config from
+
+	// wireCase is copied onto every connection; see Manager.wireCase.
+	wireCase bool
+
+	// canonicalHeadersForTest makes the connections behave as releases before
+	// WireCaseResponseHeaders did: built with it off and no trace layered for
+	// 1xx maps. Tests set it to get the reference that Conn.RoundTrip is
+	// compared against; nothing else does.
+	canonicalHeadersForTest bool
 }
 
 // NewHostPool creates a new pool for a specific host
@@ -728,6 +767,9 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 	// drifted: this side set no HeaderPriorityFunc, so a Session never emitted
 	// the per-resource stream weights that Chrome 147+ desktop does.
 	h2Transport := h2build.Transport(h2build.Options{Preset: p.preset})
+	if p.canonicalHeadersForTest {
+		h2Transport.WireCaseResponseHeaders = false
+	}
 
 	h2Conn, err := h2Transport.NewClientConn(tlsConn)
 	if err != nil {
@@ -743,6 +785,9 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 		CreatedAt:  time.Now(),
 		LastUsedAt: time.Now(),
 		UseCount:   0,
+		wireCase:   p.wireCase,
+
+		canonicalHeadersForTest: p.canonicalHeadersForTest,
 	}
 
 	return conn, nil
@@ -1294,9 +1339,22 @@ type Manager struct {
 	// This allows session persistence to work across Save/Load
 	sessionCache utls.ClientSessionCache
 
+	// wireCase leaves the response maps Conn.RoundTrip returns keyed as the wire
+	// carried them instead of converting them to canonical keys. Only
+	// httpcloak's own client sets it, through respheader.KeepWireCase, because
+	// it reads those maps through accessors that take either key set.
+	wireCase bool
+
 	// Background cleanup
 	cleanupInterval time.Duration
 	stopCleanup     chan struct{}
+}
+
+// The client package reads response maps through respheader, so the Manager
+// it builds can skip the conversion; this lets it say so without exporting
+// anything.
+func init() {
+	respheader.KeepWireCase = func(m any) { m.(*Manager).wireCase = true }
 }
 
 // NewManager creates a new connection pool manager
@@ -1456,6 +1514,7 @@ func (m *Manager) GetPool(host, port string) (*HostPool, error) {
 	}
 	pool = NewHostPoolWithConfig(connectHost, sniHost, port, m.preset, m.dnsCache, m.insecureSkipVerify, m.proxyURL, m.cachedSpec, m.cachedPSKSpec, m.shuffleSeed, m.sessionCache)
 	pool.tlsVerify = m.tlsVerify
+	pool.wireCase = m.wireCase
 	if m.maxConnsPerHost > 0 {
 		pool.SetMaxConns(m.maxConnsPerHost)
 	}
