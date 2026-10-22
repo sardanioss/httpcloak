@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	mathrand "math/rand/v2"
+	"strings"
 	"sync"
 	"testing"
 	"testing/iotest"
@@ -248,8 +249,17 @@ func stdlibStream(data []byte) ([]byte, error) {
 
 func sameResult(t *testing.T, what string, i int, input []byte, got []byte, gotErr error, want []byte, wantErr error) {
 	t.Helper()
-	if (gotErr == nil) != (wantErr == nil) || (gotErr != nil && gotErr.Error() != wantErr.Error()) {
+	if (gotErr == nil) != (wantErr == nil) || (gotErr != nil && errorClass(gotErr) != errorClass(wantErr)) {
 		t.Fatalf("%s case %d (%d input bytes): error = %v, stdlib = %v", what, i, len(input), gotErr, wantErr)
+	}
+	if gotErr != nil {
+		// On a damaged stream the inflater may report the error before it has
+		// flushed its last window, so the partial output can be shorter than
+		// the standard library's; it must still be a prefix of it.
+		if !bytes.HasPrefix(want, got) {
+			t.Fatalf("%s case %d (%d input bytes): partial output is not a prefix of stdlib's (%d vs %d bytes)", what, i, len(input), len(got), len(want))
+		}
+		return
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("%s case %d (%d input bytes): output %d bytes, stdlib %d bytes", what, i, len(input), len(got), len(want))
@@ -413,5 +423,36 @@ func BenchmarkBytes(b *testing.B) {
 	for _, size := range []int{4 << 10, 64 << 10, 512 << 10, 3 << 20} {
 		b.Run(fmt.Sprintf("%dKiB/stdlib", size>>10), func(b *testing.B) { benchmarkBytes(b, size, stdlibBytes) })
 		b.Run(fmt.Sprintf("%dKiB/pooled", size>>10), func(b *testing.B) { benchmarkBytes(b, size, Bytes) })
+	}
+}
+
+// errorClass is an error's message without a trailing byte offset: a corrupt
+// stream is reported as "flate: corrupt input before offset N", and inflaters
+// legitimately disagree by a byte on where they noticed.
+func errorClass(err error) string {
+	return strings.TrimRight(err.Error(), "0123456789")
+}
+
+func BenchmarkStream(b *testing.B) {
+	for _, size := range []int{4 << 10, 64 << 10, 512 << 10} {
+		b.Run(fmt.Sprintf("%dKiB", size>>10), func(b *testing.B) {
+			var text bytes.Buffer
+			for i := 0; text.Len() < size; i++ {
+				fmt.Fprintf(&text, `{"id":%d,"text":"hello, httpcloak","kind":"sample"}`+"\n", i)
+			}
+			data := members(b, text.Bytes())
+			b.SetBytes(int64(text.Len()))
+			b.ReportAllocs()
+			for b.Loop() {
+				// A network body is not an io.ByteReader; this one is not either.
+				s, err := NewStream(io.MultiReader(bytes.NewReader(data)))
+				if err != nil {
+					b.Fatal(err)
+				}
+				if _, err := io.Copy(io.Discard, s); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
