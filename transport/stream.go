@@ -462,7 +462,7 @@ func (t *Transport) doStreamHTTP1(ctx context.Context, req *Request) (*StreamRes
 	headers := buildHeadersMap(resp.Header)
 
 	// Setup decompression reader
-	reader, decompressor := setupStreamDecompressor(resp.Body, resp.Header.Get("Content-Encoding"))
+	reader, decompressor := setupStreamDecompressor(resp.Body, responseContentEncoding(resp.Header))
 
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
@@ -560,7 +560,7 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	headers := buildHeadersMap(resp.Header)
 
 	// Setup decompression reader
-	reader, decompressor := setupStreamDecompressor(resp.Body, resp.Header.Get("Content-Encoding"))
+	reader, decompressor := setupStreamDecompressor(resp.Body, responseContentEncoding(resp.Header))
 
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
@@ -662,7 +662,7 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 	headers := buildHeadersMap(resp.Header)
 
 	// Setup decompression reader
-	reader, decompressor := setupStreamDecompressor(resp.Body, resp.Header.Get("Content-Encoding"))
+	reader, decompressor := setupStreamDecompressor(resp.Body, responseContentEncoding(resp.Header))
 
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,

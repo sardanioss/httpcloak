@@ -2056,7 +2056,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := responseContentEncoding(resp.Header)
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
@@ -2161,7 +2161,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := responseContentEncoding(resp.Header)
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
@@ -2276,7 +2276,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := responseContentEncoding(resp.Header)
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
@@ -2420,7 +2420,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := responseContentEncoding(resp.Header)
 	if contentEncoding != "" {
 		decompressed, err := decompress(body, contentEncoding)
 		if err != nil {
@@ -3384,6 +3384,21 @@ func buildTrailerMap(h http.Header) map[string][]string {
 		return nil
 	}
 	return m
+}
+
+// responseContentEncoding returns the response's Content-Encoding under
+// whichever key the protocol path stored it: HTTP/1.1 parses names into
+// canonical case, HTTP/3 canonicalises in quic-go, and HTTP/2 keeps the
+// wire's lowercase names (h2build sets WireCaseResponseHeaders, and
+// http.Header.Get canonicalises its argument so it cannot find those keys).
+func responseContentEncoding(h http.Header) string {
+	if vv := h["Content-Encoding"]; len(vv) > 0 {
+		return vv[0]
+	}
+	if vv := h["content-encoding"]; len(vv) > 0 {
+		return vv[0]
+	}
+	return ""
 }
 
 func buildHeadersMap(h http.Header) map[string][]string {

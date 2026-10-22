@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **HTTP/2 response header names are no longer canonicalised only to be lowercased again** (#113): the HTTP/2 layer converted every response field name from the wire's lowercase into canonical case, and `buildHeadersMap` converted each one straight back for the lowercase map this library hands its callers. The transport now asks for the map keyed as the wire carried it (`WireCaseResponseHeaders`, sardanioss/net v1.2.12), which saves the HTTP/2 layer one allocation per field whose name is outside its common header table. `Content-Encoding`, the one header the transport reads from that map before converting it, resolves under both key sets, because HTTP/1.1 parses names into canonical case and HTTP/3 still canonicalises. `Headers` and `HeaderOrder` are unchanged and decompression still triggers, locked by a wire-level test. On a synthetic fourteen-field response, a request through `Transport` to an in-process HTTP/2 server goes from 147 allocations to 142.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added
