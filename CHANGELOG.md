@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **gzip and deflate bodies are inflated by `klauspost/compress` instead of the standard library**: the module already depended on it for zstd. Its inflater reads its input in blocks where the standard library's reads a byte at a time. On the package benchmarks a buffered gzip body of 64KiB decodes in 68.6µs instead of 87.5µs and one of 512KiB in 575µs instead of 664µs, each with 2 allocations instead of 9, and a streamed body allocates 112 bytes instead of about 4.4KiB, because its reader keeps its input buffer across bodies where `gzip.Reader` allocated a fresh `bufio.Reader` for every network body. The gzip header is not read by `klauspost/compress`'s `gzip.Reader`, which refuses a header with RFC 1952's reserved flag bits set, but as Chrome reads it: `net/filter/gzip_header.cc` masks the flag byte to FHCRC, FEXTRA, FNAME and FCOMMENT before acting on it, so those bits are ignored, as the standard library also ignores them. The rest of the gzip framing, the optional fields, the header CRC, the trailer CRC and length and any further members, is read as `compress/gzip` reads it, with its error values. Deciding whether a deflate body is zlib or raw still uses the standard library's inflater, which like Chrome's zlib gives output as early as its input allows. zlib errors are `klauspost/compress`'s own values; nothing in this module compared against the standard library's.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added

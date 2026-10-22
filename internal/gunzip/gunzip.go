@@ -8,28 +8,30 @@
 // the pool is empty. A pooled reader keeps a reference to the body it last
 // read until it is reused, but sync.Pool drops its contents on every GC, so
 // that reference cannot outlive a GC cycle.
+//
+// The members are inflated by klauspost/compress, with the gzip framing read
+// here; see inflater.
 package gunzip
 
 import (
 	"bytes"
-	"compress/gzip"
 	"io"
 	"sync"
 )
 
 var readerPool sync.Pool
 
-// reader returns a gzip.Reader positioned at the start of the stream in r,
+// reader returns an inflater positioned at the start of the stream in r,
 // taking it from the pool when one is available.
 //
 // A failed Reset returns the reader to the pool rather than dropping it: Reset
 // reassigns all of the reader's state, so it stays reusable, and a body that
 // cannot be read (an empty body reads as an unexpected EOF) must not drain the
 // pool one reader at a time.
-func reader(r io.Reader) (*gzip.Reader, error) {
-	zr, _ := readerPool.Get().(*gzip.Reader)
+func reader(r io.Reader) (*inflater, error) {
+	zr, _ := readerPool.Get().(*inflater)
 	if zr == nil {
-		zr = new(gzip.Reader)
+		zr = new(inflater)
 	}
 	if err := zr.Reset(r); err != nil {
 		readerPool.Put(zr)
@@ -101,7 +103,7 @@ func Bytes(data []byte) ([]byte, error) {
 	return out, err
 }
 
-// Stream decompresses a streaming body through a pooled gzip.Reader and
+// Stream decompresses a streaming body through a pooled inflater and
 // recycles the reader once the body has been fully decompressed.
 //
 // The reader is recycled when Read returns io.EOF, never on Close: a stream's
@@ -112,8 +114,8 @@ func Bytes(data []byte) ([]byte, error) {
 // Read, like that of any io.Reader, must not be called concurrently on the
 // same stream.
 type Stream struct {
-	zr   *gzip.Reader // nil once recycled
-	zerr error        // returned by every Read after zr is recycled
+	zr   *inflater // nil once recycled
+	zerr error     // returned by every Read after zr is recycled
 }
 
 // NewStream reads the gzip header from body and returns a stream over the
