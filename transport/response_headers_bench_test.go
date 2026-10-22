@@ -85,3 +85,47 @@ func BenchmarkHTTP2TransportRoundTrip(b *testing.B) {
 		do()
 	}
 }
+
+// benchHeader builds the map the HTTP/2 read loop produces for benchFields,
+// keyed canonically or as the wire carried the names.
+func benchHeader(wire bool) http.Header {
+	h := make(http.Header, len(benchFields)+1)
+	order := make([]string, 0, len(benchFields))
+	for _, f := range benchFields {
+		k := f[0]
+		if !wire {
+			k = http.CanonicalHeaderKey(k)
+		}
+		h[k] = append(h[k], f[1])
+		order = append(order, f[0])
+	}
+	h[http.HeaderOrderKey] = order
+	return h
+}
+
+// BenchmarkResponseHeaderConversionCopy is the HTTP/2 conversion as it was:
+// the order copy, the casing read and a lowercase copy of the canonical map.
+func BenchmarkResponseHeaderConversionCopy(b *testing.B) {
+	h := benchHeader(false)
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = responseHeaderOrder(h)
+		_ = takeHeaderCasing(h)
+		_ = buildHeadersMap(h)
+	}
+}
+
+// BenchmarkResponseHeaderConversionAdopt is the conversion now: the same two
+// reads, then the wire-case map adopted. Adoption deletes the order entry, so
+// each iteration puts it back, which is one map assignment of overhead.
+func BenchmarkResponseHeaderConversionAdopt(b *testing.B) {
+	h := benchHeader(true)
+	order := h[http.HeaderOrderKey]
+	b.ReportAllocs()
+	for b.Loop() {
+		h[http.HeaderOrderKey] = order
+		_ = responseHeaderOrder(h)
+		_ = takeHeaderCasing(h)
+		_ = adoptWireHeaders(h)
+	}
+}

@@ -557,8 +557,10 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	timing.FirstByte = float64(time.Since(reqStart).Milliseconds())
 	timing.Total = float64(time.Since(startTime).Milliseconds())
 
-	// Build response headers map
-	headers := buildHeadersMap(resp.Header)
+	// Adopt the fork's wire-case header map; the order read must come first,
+	// adoption strips the bookkeeping entry it answers from.
+	headerOrder := responseHeaderOrder(resp.Header)
+	headers := adoptWireHeaders(resp.Header)
 
 	// Setup decompression reader
 	reader, decompressor := setupStreamDecompressor(resp.Body, respheader.ContentEncoding(resp.Header))
@@ -566,7 +568,7 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	return &StreamResponse{
 		StatusCode:    resp.StatusCode,
 		Headers:       headers,
-		HeaderOrder:   responseHeaderOrder(resp.Header),
+		HeaderOrder:   headerOrder,
 		httpResp:      resp,
 		FinalURL:      req.URL,
 		Timing:        timing,

@@ -2307,14 +2307,17 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 		}
 	}
 
-	// Build response headers map
-	headers := buildHeadersMap(resp.Header)
+	// Adopt the fork's wire-case header map; the order and casing reads must
+	// come first, adoption strips the bookkeeping entries they answer from.
+	headerOrder := responseHeaderOrder(resp.Header)
+	headerCasing := takeHeaderCasing(resp.Header)
+	headers := adoptWireHeaders(resp.Header)
 
 	return &Response{
 		StatusCode:   resp.StatusCode,
 		Headers:      headers,
-		HeaderOrder:  responseHeaderOrder(resp.Header),
-		HeaderCasing: takeHeaderCasing(resp.Header),
+		HeaderOrder:  headerOrder,
+		HeaderCasing: headerCasing,
 		Trailer:      buildTrailerMap(resp.Trailer),
 		Body:         io.NopCloser(bytes.NewReader(body)),
 		FinalURL:     req.URL,
@@ -3414,6 +3417,34 @@ func buildHeadersMap(h http.Header) map[string][]string {
 		headers[lowerHeaderName(key)] = backing[start:len(backing):len(backing)]
 	}
 	return headers
+}
+
+// adoptWireHeaders returns h itself as the response header map, with the
+// transport's bookkeeping keys removed. Only the HTTP/2 path may use it: with
+// WireCaseResponseHeaders on, the fork keys the map by the wire's field names,
+// and its framer rejects a response field name that is not lowercase (RFC 9113
+// 8.2.1), so the map already has exactly the shape buildHeadersMap would copy
+// it into. The fork hands the map over without keeping a reader or writer on
+// it afterwards: trailers accumulate in their own map, and its content-length
+// and content-encoding looks happen while the response is still being built.
+// The entry values keep the fork's single shared backing array; every entry's
+// capacity is pinned there, so appending through one cannot reach another,
+// the same isolation a fresh copy gives.
+//
+// HTTP/1.1 header names arrive canonical-cased through textproto and HTTP/3's
+// are canonicalised by quic-go, so both still take the lowercase copy.
+//
+// The caller must read responseHeaderOrder and takeHeaderCasing before
+// adopting; the bookkeeping entries they answer from are deleted here.
+func adoptWireHeaders(h http.Header) map[string][]string {
+	if h == nil {
+		return map[string][]string{}
+	}
+	delete(h, http.HeaderOrderKey)
+	delete(h, http.PHeaderOrderKey)
+	delete(h, h1HeaderCasingKey)
+	delete(h, exactHeadersKey)
+	return h
 }
 
 // responseHeaderOrder returns the order the peer sent its headers in, or nil

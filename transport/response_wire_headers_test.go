@@ -106,3 +106,61 @@ func TestGzipResponseDecompressesUnderWireCase(t *testing.T) {
 		t.Fatalf("body = %q, want the decompressed text", body)
 	}
 }
+
+// The streaming HTTP/2 path adopts the fork's map while the stream's read
+// loop is still alive; the caller-visible contract must not differ from the
+// buffered path: lowercase keys only (which also proves no bookkeeping entry
+// shows through), values per occurrence, the wire order separate, and the
+// body intact.
+func TestStreamResponseHeadersArriveLowercaseWithOrder(t *testing.T) {
+	s := startH2Server(t, h2Config{
+		Body: []byte("streamed"),
+		ResponseHeaders: [][2]string{
+			{"x-custom-thing", "v1"},
+			{"set-cookie", "a=1"},
+			{"content-type", "text/plain"},
+			{"set-cookie", "b=2"},
+		},
+	})
+
+	tr := NewTransport("chrome-latest")
+	tr.SetProtocol(ProtocolHTTP2)
+	tr.SetInsecureSkipVerify(true)
+	defer tr.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	resp, err := tr.DoStream(ctx, &Request{Method: "GET", URL: s.url("/")})
+	if err != nil {
+		t.Fatalf("stream request: %v", err)
+	}
+	defer resp.Close()
+
+	if got := resp.Headers["x-custom-thing"]; len(got) != 1 || got[0] != "v1" {
+		t.Fatalf("x-custom-thing = %v, want [v1]", got)
+	}
+	if got := resp.Headers["set-cookie"]; len(got) != 2 || got[0] != "a=1" || got[1] != "b=2" {
+		t.Fatalf("set-cookie = %v, want [a=1 b=2]", got)
+	}
+	for k := range resp.Headers {
+		if strings.ToLower(k) != k {
+			t.Fatalf("Headers key %q is not lowercase", k)
+		}
+	}
+	want := []string{"x-custom-thing", "set-cookie", "content-type", "set-cookie"}
+	if len(resp.HeaderOrder) != len(want) {
+		t.Fatalf("HeaderOrder = %v, want %v", resp.HeaderOrder, want)
+	}
+	for i := range want {
+		if resp.HeaderOrder[i] != want[i] {
+			t.Fatalf("HeaderOrder = %v, want %v", resp.HeaderOrder, want)
+		}
+	}
+	body, err := readWithin(t, resp, 5*time.Second)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if string(body) != "streamed" {
+		t.Fatalf("body = %q, want %q", body, "streamed")
+	}
+}
