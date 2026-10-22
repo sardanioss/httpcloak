@@ -78,7 +78,11 @@ func TestHeaderPipelineMatchesThePreviousOne(t *testing.T) {
 								frozenApplyPresetHeaders(old, preset, order, nil, tlsOnly, proto, req.Headers, strip, exact)
 								frozenMergeCallerHeaders(old, req)
 								applyPresetHeaders(cur, tr.wireHeaders(preset), order, nil, tlsOnly, proto, req.Headers, strip, exact)
-								mergeCallerHeaders(cur, req)
+								// The frozen merge canonicalises every name. HTTP/1.1
+								// has since kept a caller's own spelling (see
+								// TestCallerHeaderCasingOverHTTP1), so the merge is
+								// compared in the form the other protocols use.
+								mergeCallerHeaders(cur, req, "h2")
 								cases++
 								if !reflect.DeepEqual(old.Header, cur.Header) {
 									t.Fatalf("%s %s tlsOnly=%v strip=%v exact=%v order=%d %s:\nold %v\nnew %v",

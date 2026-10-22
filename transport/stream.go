@@ -436,7 +436,8 @@ func (t *Transport) doStreamHTTP1(ctx context.Context, req *Request) (*StreamRes
 	// Set preset headers
 	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	mergeCallerHeaders(httpReq, req)
+	mergeCallerHeaders(httpReq, req, "h1")
+	stripH1Priority(httpReq, req, snap.preset, effectiveTLSOnly)
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -536,7 +537,7 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	// Set preset headers
 	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	mergeCallerHeaders(httpReq, req)
+	mergeCallerHeaders(httpReq, req, "h2")
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -638,7 +639,7 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 	// Set preset headers
 	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	mergeCallerHeaders(httpReq, req)
+	mergeCallerHeaders(httpReq, req, "h3")
 
 	// Record timing before request
 	reqStart := time.Now()
