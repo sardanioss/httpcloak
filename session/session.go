@@ -153,7 +153,7 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 
 	// Create transport config with ConnectTo, ECH, TLS-only, QUIC timeout, localAddr, and session cache settings
 	var transportConfig *transport.TransportConfig
-	needsConfig := len(config.ConnectTo) > 0 || config.ECHConfigDomain != "" || config.TLSOnly || config.QuicIdleTimeout > 0 || config.LocalAddress != "" || keyLogWriter != nil || config.EnableSpeculativeTLS
+	needsConfig := len(config.ConnectTo) > 0 || config.ECHConfigDomain != "" || config.TLSOnly || config.QuicIdleTimeout > 0 || config.LocalAddress != "" || keyLogWriter != nil || config.EnableSpeculativeTLS || config.DisableHTTP2Retries
 	if opts != nil && (opts.SessionCacheBackend != nil || opts.CustomJA3 != "" || opts.CustomH2Settings != nil || len(opts.CustomPseudoOrder) > 0 || opts.CustomTCPFingerprint != nil) {
 		needsConfig = true
 	}
@@ -167,6 +167,7 @@ func NewSessionWithOptions(id string, config *protocol.SessionConfig, opts *Sess
 			LocalAddr:            config.LocalAddress,
 			KeyLogWriter:         keyLogWriter,
 			EnableSpeculativeTLS: config.EnableSpeculativeTLS,
+			DisableHTTP2Retries:  config.DisableHTTP2Retries,
 		}
 		// Add session cache backend if provided
 		if opts != nil {

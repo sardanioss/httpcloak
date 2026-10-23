@@ -189,6 +189,10 @@ type SessionConfig struct {
 	RetryWaitMax  int   `json:"retryWaitMax,omitempty"`  // Milliseconds
 	RetryOnStatus []int `json:"retryOnStatus,omitempty"` // Status codes to retry
 
+	// DisableHTTP2Retries disables HTTP/2 transport retries before response
+	// headers. It is independent of RetryEnabled and defaults to false.
+	DisableHTTP2Retries bool `json:"disableHttp2Retries,omitempty"`
+
 	// TLS options
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 

@@ -592,6 +592,25 @@ client := client.NewClient("chrome-latest",
 )
 ```
 
+For `httpcloak.NewSession`, the HTTP/2 transport can independently retry a
+request up to twice before response headers arrive, for example after
+`REFUSED_STREAM` or graceful `GOAWAY`. To make the caller decide whether to
+resubmit such requests:
+
+```go
+session := httpcloak.NewSession("chrome-latest",
+    httpcloak.WithForceHTTP2(),
+    httpcloak.WithDisableHTTP2Retries(),
+)
+defer session.Close()
+```
+
+This option applies to both `Do` and `DoStream`, and is preserved by `Fork`,
+`Refresh`, and session save/restore. It is separate from `WithRetry` /
+`WithoutRetry`: application retries, redirects, connection-establishment
+retries, and HTTP/1.1 or HTTP/3 recovery are unaffected. The default behavior
+is unchanged. This option belongs to the Session API, not `client.Client`.
+
 ### 🚫 Redirect Control
 
 ```go
