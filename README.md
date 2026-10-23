@@ -592,6 +592,23 @@ client := client.NewClient("chrome-latest",
 )
 ```
 
+### HTTP/2 connection age (Go Session)
+
+```go
+session := httpcloak.NewSession("chrome-latest",
+    httpcloak.WithHTTP2MaxConnAge(15 * time.Minute),
+)
+defer session.Close()
+```
+
+Omitting this option or passing `0` keeps the five-minute default. A positive
+duration sets the maximum age for reusing a connection; a negative duration
+(for example, `-1`) disables age-based retirement. Responses already in flight
+can finish after the limit, while idle timeouts and connection/session closure
+still apply. The setting survives `Fork`, `Refresh`, and session save/load;
+saved JSON stores `http2MaxConnAge` as integer nanoseconds. This option applies
+to `Session` HTTP/2 connections, not the separate `Client` pool or HTTP/1.1/3.
+
 ### 🚫 Redirect Control
 
 ```go

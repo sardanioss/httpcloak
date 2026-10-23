@@ -134,6 +134,11 @@ type TransportConfig struct {
 	// QuicIdleTimeout is the idle timeout for QUIC connections (default: 30s)
 	QuicIdleTimeout time.Duration
 
+	// HTTP2MaxConnAge limits the age for reusing HTTP/2 connections. Zero keeps
+	// the five-minute default; negative values disable age-based retirement.
+	// In-flight responses still drain, and idle/abandoned-body limits still apply.
+	HTTP2MaxConnAge time.Duration
+
 	// LocalAddr is the local IP address to bind outgoing connections to.
 	// Used for IPv6 rotation with IP_FREEBIND on Linux.
 	LocalAddr string
