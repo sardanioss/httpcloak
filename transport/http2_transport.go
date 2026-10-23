@@ -302,6 +302,9 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		connectTimeout:       30 * time.Second,
 		stopCleanup:          make(chan struct{}),
 	}
+	if config != nil && config.HTTP2MaxConnAge != 0 {
+		t.maxConnAge = config.HTTP2MaxConnAge
+	}
 
 	// Apply localAddr from config
 	if config != nil && config.LocalAddr != "" {
@@ -626,7 +629,7 @@ func (t *HTTP2Transport) isConnUsable(conn *persistentConn) bool {
 	}
 
 	// Check age
-	if time.Since(conn.createdAt) > t.maxConnAge {
+	if t.maxConnAge > 0 && time.Since(conn.createdAt) > t.maxConnAge {
 		return false
 	}
 
@@ -670,7 +673,7 @@ func (t *HTTP2Transport) isConnDestroyable(conn *persistentConn) bool {
 	if h2Conn == nil {
 		return true
 	}
-	if time.Since(conn.createdAt) > t.maxConnAge {
+	if t.maxConnAge > 0 && time.Since(conn.createdAt) > t.maxConnAge {
 		return true
 	}
 	return time.Since(lastUsedAt) > t.maxIdleTime
