@@ -166,6 +166,13 @@ type h2Config struct {
 	// a response, at the point it would otherwise have replied, so a request
 	// with a body has finished sending it first.
 	ResetStreams map[int]uint32
+
+	// GoAwayRequests maps request ordinals to the last accepted stream ID.
+	// These requests receive GOAWAY(NO_ERROR) instead of response headers.
+	GoAwayRequests map[int]uint32
+
+	// CloseRequests closes the connection before response headers are sent.
+	CloseRequests map[int]bool
 }
 
 // ------------------------------------------------------------------- server
@@ -608,6 +615,17 @@ func (hc *h2Conn) respond(streamID uint32) {
 	hc.s.requests++
 	ordinal := hc.s.requests
 	hc.s.mu.Unlock()
+
+	if cfg.CloseRequests[ordinal] {
+		hc.c.Close()
+		return
+	}
+	if lastStreamID, ok := cfg.GoAwayRequests[ordinal]; ok {
+		var p [8]byte
+		binary.BigEndian.PutUint32(p[:4], lastStreamID)
+		hc.writeFrame(frGoAway, 0, 0, p[:])
+		return
+	}
 
 	if code, ok := cfg.ResetStreams[ordinal]; ok {
 		var p [4]byte

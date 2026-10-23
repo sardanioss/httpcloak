@@ -79,6 +79,7 @@ type HTTP2Transport struct {
 	insecureSkipVerify   bool
 	tlsVerify            *TLSVerify
 	localAddr            string // Local IP to bind outgoing connections
+	disableHTTP2Retries  bool   // Immutable after construction; independent of session retries.
 
 	// Cleanup
 	stopCleanup     chan struct{}
@@ -307,6 +308,9 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 	if config != nil && config.LocalAddr != "" {
 		t.localAddr = config.LocalAddr
 	}
+	if config != nil {
+		t.disableHTTP2Retries = config.DisableHTTP2Retries
+	}
 
 	// Start background cleanup
 	go t.cleanupLoop()
@@ -406,8 +410,9 @@ func (t *HTTP2Transport) roundTrip(req *http.Request) (resp *http.Response, sent
 			return nil, true, req.Context().Err()
 		}
 
-		// Chrome's budget: kMaxRetryAttempts in http_network_transaction.cc.
-		if attempt == maxHTTP2Retries {
+		// Explicit opt-out or Chrome's budget: kMaxRetryAttempts in
+		// http_network_transaction.cc. Cleanup and cancellation still apply.
+		if t.disableHTTP2Retries || attempt == maxHTTP2Retries {
 			return nil, true, err
 		}
 

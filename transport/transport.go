@@ -117,6 +117,11 @@ type ProxyConfig struct {
 
 // TransportConfig contains advanced transport configuration
 type TransportConfig struct {
+	// DisableHTTP2Retries returns the first HTTP/2 request error without an
+	// automatic retry. False preserves the default of up to two retries before
+	// response headers. Other retry layers and protocols are unaffected.
+	DisableHTTP2Retries bool
+
 	// ConnectTo maps request hosts to connection hosts (domain fronting).
 	// Key: request host, Value: connection host for DNS resolution
 	ConnectTo map[string]string

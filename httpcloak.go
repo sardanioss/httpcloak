@@ -598,6 +598,7 @@ type sessionConfig struct {
 	forceHTTP2                    bool
 	forceHTTP3                    bool
 	disableHTTP3                  bool
+	disableHTTP2Retries           bool
 	insecureSkipVerify            bool
 	tlsVerifyPeerCertificate      func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 	tlsVerifyConnection           func(cs stdtls.ConnectionState) error
@@ -777,6 +778,17 @@ func WithRedirects(follow bool, maxRedirects int) SessionOption {
 	return func(c *sessionConfig) {
 		c.disableRedirects = !follow
 		c.maxRedirects = maxRedirects
+	}
+}
+
+// WithDisableHTTP2Retries disables automatic request retries in the session's
+// HTTP/2 transport, including recovery from REFUSED_STREAM and graceful GOAWAY.
+// The transport returns its first error to the caller. The default is unchanged:
+// up to two retries before response headers. This does not disable WithRetry,
+// redirects, connection-establishment retries, or HTTP/1.1 and HTTP/3 retries.
+func WithDisableHTTP2Retries() SessionOption {
+	return func(c *sessionConfig) {
+		c.disableHTTP2Retries = true
 	}
 }
 
@@ -1124,6 +1136,7 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 		WithoutConditionalCache:       cfg.withoutConditionalCache,
 		WithoutClientHints:            cfg.withoutClientHints,
 		WithoutHighEntropyClientHints: cfg.withoutHighEntropyClientHints,
+		DisableHTTP2Retries:           cfg.disableHTTP2Retries,
 	}
 
 	// Retry configuration

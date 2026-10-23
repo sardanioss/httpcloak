@@ -58,6 +58,7 @@ internal_tests/
 !/zstd_stream_close_test.go
 !/disable_h3_test.go
 !/h2_trailing_endstream_test.go
+!/http2_retry_option_test.go
 !/gzip_session_test.go
 
 # Python regression locks. The repo tracked no Python tests until the fast-path

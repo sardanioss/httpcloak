@@ -60,7 +60,7 @@ func (s *Session) forkOne() *Session {
 	} else {
 		needsConfig := len(cfgCopy.ConnectTo) > 0 || cfgCopy.ECHConfigDomain != "" ||
 			cfgCopy.TLSOnly || cfgCopy.QuicIdleTimeout > 0 || cfgCopy.LocalAddress != "" ||
-			cfgCopy.EnableSpeculativeTLS
+			cfgCopy.EnableSpeculativeTLS || cfgCopy.DisableHTTP2Retries
 		if needsConfig {
 			transportConfig = &transport.TransportConfig{
 				ConnectTo:            cfgCopy.ConnectTo,
@@ -69,6 +69,7 @@ func (s *Session) forkOne() *Session {
 				QuicIdleTimeout:      time.Duration(cfgCopy.QuicIdleTimeout) * time.Second,
 				LocalAddr:            cfgCopy.LocalAddress,
 				EnableSpeculativeTLS: cfgCopy.EnableSpeculativeTLS,
+				DisableHTTP2Retries:  cfgCopy.DisableHTTP2Retries,
 			}
 		}
 	}
