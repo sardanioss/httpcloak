@@ -1422,7 +1422,9 @@ func (t *Transport) getPreset() *fingerprint.Preset {
 }
 
 // Do executes an HTTP request
-func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
+func (t *Transport) Do(ctx context.Context, req *Request) (response *Response, err error) {
+	defer func() { closeUnusedALPNConn(err) }()
+
 	// Parse URL to determine scheme
 	parsedURL, err := url.Parse(req.URL)
 	if err != nil {

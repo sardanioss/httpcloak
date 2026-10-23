@@ -162,7 +162,9 @@ func (r *StreamResponse) IsSuccess() bool {
 
 // DoStream executes an HTTP request and returns a streaming response
 // The caller is responsible for closing the response when done
-func (t *Transport) DoStream(ctx context.Context, req *Request) (*StreamResponse, error) {
+func (t *Transport) DoStream(ctx context.Context, req *Request) (response *StreamResponse, err error) {
+	defer func() { closeUnusedALPNConn(err) }()
+
 	// Parse URL to determine scheme
 	parsedURL, err := url.Parse(req.URL)
 	if err != nil {
