@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -855,7 +856,9 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 					cookie.Expires = &t
 				}
 			case "max-age":
-				cookie.MaxAge = parseIntSimple(attrValue)
+				if maxAge, ok := parseMaxAge(attrValue); ok {
+					cookie.MaxAge = maxAge
+				}
 			case "samesite":
 				// Normalize to capitalized form
 				sameSiteLower := toLowerASCII(attrValue)
@@ -895,26 +898,29 @@ func splitBySemicolon(s string) []string {
 	return result
 }
 
-// parseIntSimple parses an integer from a string, returns 0 on error
-func parseIntSimple(s string) int {
-	result := 0
-	negative := false
+// parseMaxAge maps zero and negative values to the deletion sentinel (-1).
+// Invalid attributes (including integer overflow) are ignored.
+func parseMaxAge(s string) (int, bool) {
 	start := 0
 	if len(s) > 0 && s[0] == '-' {
-		negative = true
 		start = 1
 	}
+	if start == len(s) {
+		return 0, false
+	}
 	for i := start; i < len(s); i++ {
-		if s[i] >= '0' && s[i] <= '9' {
-			result = result*10 + int(s[i]-'0')
-		} else {
-			break
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
 		}
 	}
-	if negative {
-		result = -result
+	seconds, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
 	}
-	return result
+	if seconds <= 0 {
+		seconds = -1
+	}
+	return seconds, true
 }
 
 // parseHTTPDate parses an HTTP date string (RFC1123 format)
