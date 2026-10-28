@@ -504,7 +504,12 @@ rather than part of the default header block.
 
 `full_version_list` is worth taking from a real capture rather than composing:
 it carries the exact build number, which cannot be derived from the major
-version. `model` is empty on desktop and set on Android.
+version. Left out, it is derived from `sec-ch-ua` with every version as
+`<major>.0.0.0`, which Chrome itself never sends. A pinned list is used only
+while its brands and major versions match the preset's `sec-ch-ua`, so a preset
+that moves `sec-ch-ua` through `based_on` gets the derived list until it pins its
+own, rather than the old build beside the new major. `model` is empty on desktop
+and set on Android.
 
 ## `tcp` object
 

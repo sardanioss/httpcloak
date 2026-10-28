@@ -91,6 +91,37 @@ func TestChromeBrandListFollowsChromiumThrough158(t *testing.T) {
 	}
 }
 
+// Chrome sends its real build in sec-ch-ua-full-version-list, never the reduced
+// N.0.0.0 its User-Agent carries, so a derived list is a value no Chrome sends.
+// Each desktop preset from 155 on pins the build it was measured on:
+// 155.0.8059.39, where the 155 Accept change was measured, and the builds named
+// above for 156 to 158. The desktop -latest aliases follow 158. Android was not
+// measured and keeps the derived list.
+func TestChromeFullVersionListCarriesTheMeasuredBuild(t *testing.T) {
+	for _, tc := range []struct {
+		names []string
+		want  string
+	}{
+		{[]string{"chrome-155", "chrome-155-windows", "chrome-155-linux", "chrome-155-macos"},
+			`"Google Chrome";v="155.0.8059.39", "Chromium";v="155.0.8059.39", "Not(A:Brand";v="24.0.0.0"`},
+		{[]string{"chrome-156", "chrome-156-windows", "chrome-156-linux", "chrome-156-macos"},
+			`"Not:A-Brand";v="8.0.0.0", "Chromium";v="156.0.8078.80", "Google Chrome";v="156.0.8078.80"`},
+		{[]string{"chrome-157", "chrome-157-windows", "chrome-157-linux", "chrome-157-macos"},
+			`"Not-A.Brand";v="99.0.0.0", "Google Chrome";v="157.0.8103.50", "Chromium";v="157.0.8103.50"`},
+		{[]string{"chrome-158", "chrome-158-windows", "chrome-158-linux", "chrome-158-macos",
+			"chrome-latest", "chrome-latest-windows", "chrome-latest-linux", "chrome-latest-macos"},
+			`"Chromium";v="158.0.8127.18", "Not.A/Brand";v="24.0.0.0", "Google Chrome";v="158.0.8127.18"`},
+		{[]string{"chrome-158-android", "chrome-latest-android", "android-chrome-latest"},
+			`"Chromium";v="158.0.0.0", "Not.A/Brand";v="24.0.0.0", "Google Chrome";v="158.0.0.0"`},
+	} {
+		for _, name := range tc.names {
+			if got := Get(name).ResolveClientHints().UAFullVersionList; got != tc.want {
+				t.Errorf("%s: sec-ch-ua-full-version-list = %s, want %s", name, got, tc.want)
+			}
+		}
+	}
+}
+
 // No iOS preset for 156, 157 or 158 until a capture gives the CriOS build number;
 // see TestChrome153HasNoIOSPresetYet.
 func TestChrome156To158HaveNoIOSPresetYet(t *testing.T) {

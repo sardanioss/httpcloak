@@ -273,7 +273,11 @@ func (p *Preset) ResolveClientHints() ClientHints {
 		UAPlatform: p.Headers["sec-ch-ua-platform"],
 	}
 
-	if p.ClientHints.FullVersionList != "" {
+	// A pinned list wins only while it still describes this preset's sec-ch-ua.
+	// based_on inherits the pin, so a preset that moves sec-ch-ua to a newer Chrome
+	// would otherwise send the old build beside the new major, which no browser
+	// does. It gets the derived list instead until it pins its own.
+	if p.ClientHints.FullVersionList != "" && fullVersionListMatches(p.ClientHints.FullVersionList, secChUa) {
 		ch.UAFullVersionList = p.ClientHints.FullVersionList
 	} else {
 		ch.UAFullVersionList = expandSecChUaVersions(secChUa)
@@ -340,6 +344,51 @@ func splitBrandList(s string) []string {
 	}
 	parts = append(parts, strings.TrimSpace(s[start:]))
 	return parts
+}
+
+// fullVersionListMatches reports whether a full version list names the same
+// brands, in the same order, at the same major versions as sec-ch-ua, which is
+// how Chrome builds the two from one brand list.
+func fullVersionListMatches(list, secChUa string) bool {
+	full, low := splitBrandList(list), splitBrandList(secChUa)
+	if len(full) != len(low) {
+		return false
+	}
+	for i := range full {
+		fb, fv, ok := splitBrandEntry(full[i])
+		lb, lv, ok2 := splitBrandEntry(low[i])
+		if !ok || !ok2 || fb != lb {
+			return false
+		}
+		if major, _, _ := strings.Cut(fv, "."); major != lv {
+			return false
+		}
+	}
+	return true
+}
+
+// splitBrandEntry splits one brand-list entry, `"Chromium";v="155"`, into the
+// brand and the version.
+func splitBrandEntry(entry string) (brand, version string, ok bool) {
+	if len(entry) < 2 || entry[0] != '"' {
+		return "", "", false
+	}
+	end := strings.IndexByte(entry[1:], '"')
+	if end < 0 {
+		return "", "", false
+	}
+	brand = entry[1 : 1+end]
+	const marker = `;v="`
+	idx := strings.Index(entry, marker)
+	if idx < 0 {
+		return "", "", false
+	}
+	vStart := idx + len(marker)
+	vEnd := strings.IndexByte(entry[vStart:], '"')
+	if vEnd < 0 {
+		return "", "", false
+	}
+	return brand, entry[vStart : vStart+vEnd], true
 }
 
 // expandBrandVersion expands the v="N" inside a single brand entry to

@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`sec-ch-ua-platform-version` reports current Windows 11**: the Windows default was `"15.0.0"`, which is what Windows 11 22H2 and 23H2 report. Chrome sends the UniversalApiContract version, and 24H2 and 25H2 report `"19.0.0"`, measured against Chrome 156. Neither 22H2 nor 23H2 still gets updates on Home or Pro, so the old value described a machine few Chrome users run. It only goes out to a host that asks for it with `Accept-CH`, and a preset that pins its own value keeps it.
 
+- **The Chrome 155 to 158 presets send Chrome's real build in `sec-ch-ua-full-version-list`**: every Chrome preset derived the list from `sec-ch-ua`, as `"Google Chrome";v="158.0.0.0"`, and Chrome always sends its real build there; only the User-Agent is reduced to `.0.0.0`. The desktop presets from 155 to 158 now send the build each was measured on: `155.0.8059.39` (where the 155 Accept change was measured), `156.0.8078.80`, `157.0.8103.50` and `158.0.8127.18`. `chrome-latest` and the other desktop `-latest` aliases follow 158. Android was not measured and keeps the derived list, as do the older versions. A pinned list is used only while its brands and major versions match `sec-ch-ua`, so a custom preset that moves `sec-ch-ua` with `based_on` gets a derived list rather than the old build beside the new major. `Describe` now writes out a preset's pinned client hints, which it used to drop.
+
 ## [1.7.4] - 2026-11-15
 
 ### Added
