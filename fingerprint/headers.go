@@ -389,10 +389,15 @@ func defaultClientHintBitness(isMobile bool) string {
 // for a platform. Linux is "" (real Chrome behavior). Windows/macOS values are
 // best-effort defaults; a preset should pin the exact value via ClientHints from a
 // real capture.
+//
+// On Windows Chrome reports the UniversalApiContract version, not the marketing
+// one: 19.0.0 on Windows 11 24H2 and 25H2, measured against Chrome 156, where
+// 22H2 and 23H2 reported 15.0.0. Neither of those still gets updates on Home or
+// Pro, so 15.0.0 described a machine few Chrome users still run.
 func defaultClientHintPlatformVersion(platformName string) string {
 	switch platformName {
 	case "Windows":
-		return `"15.0.0"`
+		return `"19.0.0"`
 	case "macOS":
 		return `"14.5.0"`
 	case "Android":

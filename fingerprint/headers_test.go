@@ -167,6 +167,26 @@ func TestGenerateClientHints(t *testing.T) {
 	}
 }
 
+// Chrome on Windows sends the UniversalApiContract version, which is 19.0.0 on
+// current Windows 11 (24H2 and 25H2), measured against Chrome 156. The default
+// was 15.0.0, which is 22H2 and 23H2.
+func TestResolveClientHintsWindowsPlatformVersion(t *testing.T) {
+	checked := 0
+	for _, name := range Available() {
+		p := Get(name)
+		if p.Headers["sec-ch-ua-platform"] != `"Windows"` || p.ClientHints.PlatformVersion != "" {
+			continue
+		}
+		checked++
+		if got := p.ResolveClientHints().UAPlatformVersion; got != `"19.0.0"` {
+			t.Errorf("%s: sec-ch-ua-platform-version %s, want \"19.0.0\"", name, got)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no built-in Windows preset to check")
+	}
+}
+
 func TestNewHeaderCoherence(t *testing.T) {
 	p := Chrome146()
 	hc := NewHeaderCoherence(p)

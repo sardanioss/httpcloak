@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`sec-ch-ua-platform-version` reports current Windows 11**: the Windows default was `"15.0.0"`, which is what Windows 11 22H2 and 23H2 report. Chrome sends the UniversalApiContract version, and 24H2 and 25H2 report `"19.0.0"`, measured against Chrome 156. Neither 22H2 nor 23H2 still gets updates on Home or Pro, so the old value described a machine few Chrome users run. It only goes out to a host that asks for it with `Accept-CH`, and a preset that pins its own value keeps it.
+
 ## [1.7.4] - 2026-11-15
 
 ### Added
