@@ -516,6 +516,12 @@ the list when left out, so pinning the list pins both. Pinned on its own, it is
 used only while its major version matches the list's, for the same reason.
 `model` is empty on desktop and set on Android.
 
+Write the string hints bare, as above. `platform_version`, `arch`, `bitness` and
+`model` go out as structured-field strings, quoted the way Chrome sends them, so
+`"19.0.0"` here becomes `sec-ch-ua-platform-version: "19.0.0"`. A value you have
+already quoted (`"\"19.0.0\""`) is used as it is. `wow64` is a boolean and
+`full_version_list` a list, so both go out exactly as written.
+
 ## `tcp` object
 
 The TCP/IP layer fingerprint. TTL, MSS, window size and scale, the Don't Fragment bit.

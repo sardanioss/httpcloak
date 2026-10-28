@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`Sec-CH-UA-Full-Version` is answered when a host asks for it**: the session had no value for it, so a host whose `Accept-CH` named it got every other hint it asked for and not this one. Cloudflare's challenge names it in both `Accept-CH` and `Critical-CH`, and Chrome 156 sent `"156.0.8078.48"` in a side-by-side capture where it was the one header missing. It is the browser brand's version from `sec-ch-ua-full-version-list`, so a preset that pins the list pins it too, and a JSON preset can set `client_hints.full_version` on its own. On a navigation the high-entropy hints now go out in the order Chromium adds them (ua, mobile, full-version, arch, platform, platform-version, model, bitness, wow64, full-version-list) rather than alphabetically, which matched no Chrome; the order of a request that carries only the low-entropy trio is unchanged.
 
+- **A JSON preset's client hints go out quoted**: the JSON spec documents bare values such as `"platform_version": "19.0.0"` and `"arch": "x86"`, and they went out as `sec-ch-ua-platform-version: 19.0.0` and `sec-ch-ua-arch: x86`. Chrome sends both as structured-field strings, `"19.0.0"` and `"x86"`, and so do the built-in presets. The loader now quotes a bare `platform_version`, `arch`, `bitness` or `model`, and keeps a value that is already quoted. `wow64` and `full_version_list` are used as written.
+
 ## [1.7.4] - 2026-11-15
 
 ### Added
