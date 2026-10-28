@@ -7,7 +7,7 @@ sidebar_position: 1
 
 `Refresh()` closes every live connection on a session and leaves the rest of the state alone. Cookies stay in the jar. TLS tickets stay cached. ECH config holds. The preset name and any fingerprint overrides remain in place. Only the open sockets go.
 
-The next request opens new TCP or QUIC connections and the TLS handshake resumes from a cached ticket, so it lands on the 0-RTT early-data path on TLS 1.3 or session-ID resumption on TLS 1.2. The cookie header on the new connection is byte-identical to the cookie header on the old one. From the server's side, the visible signal is one connection closing and another opening with the same cookies, which is what a browser tab reload looks like.
+The next request opens new TCP or QUIC connections and the TLS handshake resumes from a cached ticket: a PSK resumption on TLS 1.3, which over HTTP/3 also sends the first request as 0-RTT early data when the server's ticket allows it, or session-ID resumption on TLS 1.2. The cookie header on the new connection is byte-identical to the cookie header on the old one. From the server's side, the visible signal is one connection closing and another opening with the same cookies, which is what a browser tab reload looks like.
 
 ## Why this exists
 
@@ -35,7 +35,7 @@ Calling `Refresh()` while a streaming download is in flight kills that stream. T
 
 ## The 0-RTT story
 
-Tickets stay in the cache across the refresh, so the next handshake resumes from the previous TLS state. TLS 1.3 takes the 0-RTT early-data path; TLS 1.2 falls back to session-ID resumption, which skips the certificate roundtrip but doesn't ship request bytes early. Either way, the first request after a refresh is faster by a wide margin than the first request on a brand-new session.
+Tickets stay in the cache across the refresh, so the next handshake resumes from the previous TLS state. Over HTTP/3, TLS 1.3 takes the 0-RTT early-data path when the server's ticket allows early data and resumes without it otherwise, as Chrome does; TLS 1.2 falls back to session-ID resumption, which skips the certificate roundtrip but doesn't ship request bytes early. Either way, the first request after a refresh is faster by a wide margin than the first request on a brand-new session.
 
 :::tip
 Long-running scrapers benefit from a `Refresh()` every few minutes. A connection that's been alive for hours is one of the cheaper signals an anti-bot stack can use against you, and the cost of refreshing is one resumed handshake.

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An HTTP/3 resumption offers early data only when the ticket allows it**: a Chrome preset's resuming hello always carried the `early_data` extension and sent the first request as 0-RTT, whatever the server's ticket said. A server whose tickets don't allow early data rejected the 0-RTT, and the connection was abandoned with `H3_INTERNAL_ERROR` before it carried anything. That happened twice, and then the ticket was dropped and the next dial did a full handshake. So the first request after `Refresh`, after an idle reconnect, or from a restored or shared ticket cache cost three handshakes and lost the resumption, on both `Session` and `client.Client`. Chrome 156 and Firefox 159, captured against tickets with and without early data, offer `early_data` only on a ticket that allows it, and otherwise resume in one handshake with the pre-shared key alone. The resuming hello now does the same, and it also leaves the extension out when the preset turns 0-RTT off. A resumption against a server that allows early data is unchanged.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added

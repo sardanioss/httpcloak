@@ -505,17 +505,19 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	var clientHelloID *utls.ClientHelloID
 
 	// Check if we have a cached session for this host
-	// PSK spec (with early_data extension) should ONLY be used for session resumption
+	// PSK spec should ONLY be used for session resumption
 	// Using PSK spec on fresh connections causes handshake failures on some servers
 	// Note: There's a small TOCTOU window here (another goroutine could add a session
 	// after this check), but this matches the proxy path behavior and the window is
 	// small enough that it rarely causes issues in practice.
-	hasSession := p.hasSessionForHost()
+	session := p.sessionForHost()
 
 	// Use PSK spec ONLY when resuming a session (matches proxy path behavior)
-	if hasSession && p.cachedPSKSpec != nil && p.preset != nil && p.preset.QUICPSKClientHelloID.Client != "" {
+	if session != nil && p.cachedPSKSpec != nil && p.preset != nil && p.preset.QUICPSKClientHelloID.Client != "" {
 		// Generate fresh PSK spec for this connection
 		if spec, err := quicClientHelloSpec(p.preset, p.preset.QUICPSKClientHelloID, p.shuffleSeed); err == nil {
+			// early_data only on a ticket that allows it, as the transport does
+			h3build.DropEarlyDataUnlessAllowed(spec, p.preset, session)
 			selectedSpec = spec
 		}
 		clientHelloID = &p.preset.QUICPSKClientHelloID
@@ -731,17 +733,21 @@ func (p *QUICHostPool) CloseConnections() {
 	p.connections = make([]*QUICConn, 0)
 }
 
-// hasSessionForHost checks if there's a cached TLS session for the given host
-// This is used to determine whether to use PSK spec (for resumption) or regular spec
-// Returns false if no valid session exists (fresh connection should use regular spec)
-func (p *QUICHostPool) hasSessionForHost() bool {
+// sessionForHost returns the cached TLS session for the host, or nil.
+// This is used to determine whether to use PSK spec (for resumption) or regular spec,
+// and whether that spec may offer early data
+// Returns nil if no valid session exists (fresh connection should use regular spec)
+func (p *QUICHostPool) sessionForHost() *tls.ClientSessionState {
 	if p.sessionCache == nil {
-		return false
+		return nil
 	}
 	// TLS 1.3 session key is typically just the server name (use sniHost for consistency)
 	session, ok := p.sessionCache.Get(p.sniHost)
 	// Must have both a valid lookup AND a non-nil session state
-	return ok && session != nil
+	if !ok {
+		return nil
+	}
+	return session
 }
 
 // Stats returns pool statistics

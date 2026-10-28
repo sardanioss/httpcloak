@@ -427,16 +427,24 @@ func (t *HTTP3Transport) SetDisableECH(disable bool) {
 // hasSessionForHost checks if there's a cached TLS session for the given host
 // This is used to determine whether to use PSK spec (for resumption) or regular spec
 func (t *HTTP3Transport) hasSessionForHost(host string) bool {
+	return t.sessionForHost(host) != nil
+}
+
+// sessionForHost returns the cached ticket a dial to host will resume, or nil.
+func (t *HTTP3Transport) sessionForHost(host string) *utls.ClientSessionState {
 	if t.sessionCache == nil {
-		return false
+		return nil
 	}
 	// Session key format is just the server name in TLS 1.3
 	cache, ok := t.sessionCache.(*PersistableSessionCache)
 	if !ok {
-		return false
+		return nil
 	}
-	_, found := cache.Get(host)
-	return found
+	session, found := cache.Get(host)
+	if !found {
+		return nil
+	}
+	return session
 }
 
 // getSpecForHost returns a FRESH ClientHelloSpec for this dial. utls ApplyPreset
@@ -448,9 +456,9 @@ func (t *HTTP3Transport) hasSessionForHost(host string) bool {
 // connections from one session carry a byte-identical order, which is visible
 // without any statistics at all. See fingerprint.FreshShuffleSeed.
 //
-// The PSK variant (which carries the early_data + pre_shared_key extensions) is
-// used only when there is a cached session to resume; Chrome does not send
-// early_data on a fresh connection.
+// The PSK variant (which carries pre_shared_key, and early_data when the ticket
+// allows 0-RTT) is used only when there is a cached session to resume; Chrome
+// does not send early_data on a fresh connection.
 func (t *HTTP3Transport) getSpecForHost(host string) *utls.ClientHelloSpec {
 	spec, err := t.resolveQUICSpec(host)
 	if err != nil {
@@ -471,8 +479,13 @@ func (t *HTTP3Transport) getSpecForHost(host string) *utls.ClientHelloSpec {
 // next time a source cannot be used it is visible rather than inferred from a
 // fingerprint that looks wrong.
 func (t *HTTP3Transport) resolveQUICSpec(host string) (*utls.ClientHelloSpec, error) {
-	wantPSK := t.preset.QUICPSKClientHelloID.Client != "" && t.hasSessionForHost(host)
+	ticket := t.sessionForHost(host)
+	wantPSK := t.preset.QUICPSKClientHelloID.Client != "" && ticket != nil
 	spec, _, err := fingerprint.ResolveQUICClientHelloSpec(t.preset, wantPSK, fingerprint.FreshShuffleSeed())
+	if err == nil && wantPSK {
+		// The resuming hello offers early_data only on a ticket that allows it.
+		h3build.DropEarlyDataUnlessAllowed(spec, t.preset, ticket)
+	}
 	return spec, err
 }
 
