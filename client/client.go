@@ -1039,10 +1039,22 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		applyModeHeaders(httpReq, c.preset, req, parsedURL, c.effectiveHeaderOrder(req))
 	}
 
-	// Apply authentication
+	// Apply authentication. The client's own auth goes only to the origin a
+	// redirect chain started on, and not even there once a hop has left it:
+	// Request.Auth and a caller's Authorization header are dropped the same
+	// way, as Fetch drops Authorization. A hop that had dropped Request.Auth
+	// used to fall back to the client's here, which sent it to every host the
+	// chain reached. redirectHistory holds every earlier request of the chain.
+	// With auth nil, a Digest challenge from such a hop also goes unanswered.
 	auth := req.Auth
 	if auth == nil {
 		auth = c.auth
+		for _, prev := range redirectHistory {
+			if !sameOriginClient(prev.URL, reqURL) {
+				auth = nil
+				break
+			}
+		}
 	}
 	if auth != nil {
 		if err := auth.Apply(httpReq); err != nil {

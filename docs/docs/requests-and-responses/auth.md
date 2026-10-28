@@ -232,4 +232,4 @@ resp, _ := c.Do(ctx, &client.Request{
 })
 ```
 
-One safety bit lives in the redirect handler: a redirect that crosses origins drops `Authorization` and `Proxy-Authorization` before following. The same rule applies to HTTPS-to-HTTP downgrades. Browsers behave the same way, and httpcloak matches that, so credentials don't leak to whatever domain the response bounces to.
+One safety bit lives in the redirect handler: a redirect that crosses origins drops `Authorization` and `Proxy-Authorization` before following. The same rule applies to HTTPS-to-HTTP downgrades. It holds for both scopes: once a hop leaves the origin the request started on, neither the client's Auth nor `Request.Auth` is applied to it or to any hop after it, even one that comes back to that origin. Browsers behave the same way, and httpcloak matches that, so credentials don't leak to whatever domain the response bounces to.

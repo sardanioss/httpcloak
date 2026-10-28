@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`client.Client` no longer sends one host's cookies to another on a redirect**: since 1.5.8, each hop of a followed redirect carried the `Cookie` header the request before it had sent. So a redirect to another host sent it cookies the jar holds only for the first host, and a cookie the redirect response had just deleted went out again on the next hop. Each hop now takes its cookies from the jar for its own URL, as browsers and the session do. A `Cookie` header you set yourself goes on with every hop that stays on the first request's origin, as `Authorization` does, so a client without a jar keeps its login across a same-origin redirect. The first hop off that origin drops it, and no later hop carries it, even one back on the origin. The root package's `Client` wraps `client.Client` and gets the same fix.
 
+- **`client.Client` no longer sends the client's own credentials to another origin on a redirect**: auth set with `SetAuth`, `SetBasicAuth` or `SetBearerAuth` went on every hop of a followed redirect, whatever host or port the hop went to. The fix for issue #52 in 1.6.5 made such a hop drop `Request.Auth` and a caller's `Authorization` header, but the hop then fell back to the client's auth. Now a hop that leaves the origin the request started on gets no auth at all, and neither does any hop after it, even one that comes back to that origin: as `Request.Auth` already did, and as Fetch and Go's `net/http` do. This covers `DigestAuth` too, which no longer answers such a hop's challenge or sends it an answer to an earlier one.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added
