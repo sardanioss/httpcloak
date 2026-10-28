@@ -31,6 +31,15 @@ type SessionState struct {
 	// when resuming as was used when creating the session ticket
 	ECHConfigs map[string]string `json:"ech_configs,omitempty"`
 
+	// AcceptCH holds the client hints each host asked for in Accept-CH, keyed
+	// by host like the session's own map, so a restored session sends them on
+	// its first request to that host. Chrome keeps the same thing in the
+	// profile, as a durable CLIENT_HINTS content setting per origin, and a
+	// restarted Chrome sends the hints before the host has asked again.
+	// Absent on files written before this existed, which load as nothing
+	// learned, as they always did.
+	AcceptCH map[string][]string `json:"accept_ch,omitempty"`
+
 	// TLSVerify records which certificate verification hooks the session had
 	// configured when it was saved. The hooks themselves are Go functions and a
 	// *x509.CertPool, so JSON cannot carry them; this records that they existed

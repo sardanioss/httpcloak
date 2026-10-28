@@ -169,6 +169,20 @@ Pass `includeHighEntropy: true` when you've already seen the server's `Accept-CH
 
 In normal use you don't call this directly. `Session` parses incoming `Accept-CH` response headers via `parseAcceptCH` and starts emitting the matching high-entropy hints on subsequent requests to the same origin. `GenerateClientHints` is for cases where you want to construct the bundle outside of a `Session` (e.g. injecting it into a different transport, building a fixture for tests, or pre-warming a header set before opening a session).
 
+## What a session learned from Accept-CH
+
+Three `Session` methods read and set what each host asked for:
+
+```go
+s.AcceptCH("example.com")       // []string{"sec-ch-ua-arch", "sec-ch-ua-platform-version"}, or nil
+s.ClientHintsFor("example.com") // map[string]string{"sec-ch-ua-arch": `"x86"`, ...}, or nil
+s.SetAcceptCH("example.com", []string{"Sec-CH-UA-Arch", "Sec-CH-UA-Platform-Version"})
+```
+
+`AcceptCH` is the host's last `Accept-CH`, lowercase and sorted. `ClientHintsFor` is what the session adds to its next request to that host, lowercase header name to value. The request path reads the same map, so it is what goes on the wire, unless the session has the hints turned off (then it is nil) or the request sets one of them itself. `SetAcceptCH` replaces what the session has from the host, as a new `Accept-CH` would, and an empty list forgets the host. Each takes a host name or a URL.
+
+Chrome keeps every host's `Accept-CH` in the profile, so a host that asked last week gets the hints on the first request of the next visit. `Save` and `Marshal` keep them the same way. A session rebuilt from state you store yourself, cookies in your own database say, can be given them with `SetAcceptCH` before its first request, or the first request goes without hints the second one carries.
+
 ## HeaderCoherence
 
 `HeaderCoherence` is a higher-level wrapper around the two generators above plus the rest of a preset's headers. It binds them to a specific preset so you can ask for a complete header map for a given request type:

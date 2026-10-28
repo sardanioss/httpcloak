@@ -11,9 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1135,19 +1137,18 @@ func (s *Session) applyClientHintPolicy(host string, req *transport.Request) {
 	s.applyClientHints(host, req.Headers)
 }
 
-// applyClientHints adds the high-entropy client hints to the request if the host
-// has previously advertised them via Accept-CH. The values come from the resolved
-// preset (Preset.ResolveClientHints), so they stay coherent with the preset's
-// sec-ch-ua trio and User-Agent. A hint the caller already set explicitly is never
-// overwritten (matched case-insensitively), which makes per-request overrides
-// deterministic.
-func (s *Session) applyClientHints(host string, headers map[string][]string) {
+// clientHintsFor returns the high-entropy client hints host has advertised via
+// Accept-CH, header name to value. The values come from the resolved preset
+// (Preset.ResolveClientHints), so they stay coherent with the preset's sec-ch-ua
+// trio and User-Agent. applyClientHints sends exactly these and ClientHintsFor
+// reports them, so the injector and the getter cannot drift apart.
+func (s *Session) clientHintsFor(host string) map[string]string {
 	s.mu.RLock()
 	hints, exists := s.clientHints[host]
 	s.mu.RUnlock()
 
 	if !exists || len(hints) == 0 {
-		return
+		return nil
 	}
 
 	ch := s.resolveClientHints()
@@ -1166,15 +1167,27 @@ func (s *Session) applyClientHints(host string, headers map[string][]string) {
 		"sec-ch-ua-wow64":             {"Sec-Ch-Ua-Wow64", ch.UAWow64},
 	}
 
+	out := make(map[string]string, len(hints))
 	for hintName, hintInfo := range hintValues {
 		if !hints[hintName] || hintInfo.value == "" {
 			continue
 		}
+		out[hintInfo.header] = hintInfo.value
+	}
+	return out
+}
+
+// applyClientHints adds the high-entropy client hints to the request if the host
+// has previously advertised them via Accept-CH; see clientHintsFor. A hint the
+// caller already set explicitly is never overwritten (matched
+// case-insensitively), which makes per-request overrides deterministic.
+func (s *Session) applyClientHints(host string, headers map[string][]string) {
+	for name, value := range s.clientHintsFor(host) {
 		// Don't clobber a value the caller supplied (any header case).
-		if headerKeyPresent(headers, hintInfo.header) {
+		if headerKeyPresent(headers, name) {
 			continue
 		}
-		headers[hintInfo.header] = []string{hintInfo.value}
+		headers[name] = []string{value}
 	}
 }
 
@@ -1237,6 +1250,96 @@ func (s *Session) HighEntropyClientHintsEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.highEntropyClientHintsEnabled
+}
+
+// AcceptCH returns the client hints host asked for in Accept-CH, lowercase and
+// sorted, or nil when it has asked for none. host is a host name, or a URL,
+// matched the way a request's URL is.
+func (s *Session) AcceptCH(host string) []string {
+	host = extractHost(host)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.clientHints[host]) == 0 {
+		return nil
+	}
+	return slices.Sorted(maps.Keys(s.clientHints[host]))
+}
+
+// SetAcceptCH records hints as what host asked for in Accept-CH, replacing what
+// the session had from it, as a new Accept-CH does. Chrome keeps each host's
+// Accept-CH across restarts, so a host that asked last week gets the hints on
+// the first request of the next visit; this is how a session rebuilt from
+// stored state does the same, or how one is warmed for a host that is known to
+// ask. Empty forgets the host.
+func (s *Session) SetAcceptCH(host string, hints []string) {
+	host = extractHost(host)
+	set := make(map[string]bool, len(hints))
+	for _, hint := range hints {
+		if hint = trim(toLowerASCII(hint)); hint != "" {
+			set[hint] = true
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(set) == 0 {
+		delete(s.clientHints, host)
+		return
+	}
+	s.clientHints[host] = set
+}
+
+// ClientHintsFor returns the high-entropy client hints the session adds to a
+// request to host, lowercase header name to value: what host asked for in
+// Accept-CH, with the preset's values. It is nil when host asked for none, or
+// when the session's client hints or high-entropy hints are turned off. A
+// request's own DisableClientHints or DisableHighEntropyClientHints, and a hint
+// it sets itself, still take precedence on that request.
+func (s *Session) ClientHintsFor(host string) map[string]string {
+	s.mu.RLock()
+	on := s.clientHintsEnabled && s.highEntropyClientHintsEnabled
+	s.mu.RUnlock()
+	if !on {
+		return nil
+	}
+	hints := s.clientHintsFor(extractHost(host))
+	if len(hints) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(hints))
+	for name, value := range hints {
+		out[strings.ToLower(name)] = value
+	}
+	return out
+}
+
+// exportAcceptCH returns what each host asked for in Accept-CH, for the saved
+// state. The caller holds s.mu.
+func (s *Session) exportAcceptCH() map[string][]string {
+	if len(s.clientHints) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(s.clientHints))
+	for host, hints := range s.clientHints {
+		if len(hints) > 0 {
+			out[host] = slices.Sorted(maps.Keys(hints))
+		}
+	}
+	return out
+}
+
+// importAcceptCH restores what exportAcceptCH saved. The caller holds s.mu.
+func (s *Session) importAcceptCH(saved map[string][]string) {
+	for host, hints := range saved {
+		set := make(map[string]bool, len(hints))
+		for _, hint := range hints {
+			if hint = trim(toLowerASCII(hint)); hint != "" {
+				set[hint] = true
+			}
+		}
+		if len(set) > 0 {
+			s.clientHints[host] = set
+		}
+	}
 }
 
 // Helper functions for client hints
@@ -2320,6 +2423,7 @@ func (s *Session) Marshal() ([]byte, error) {
 		Cookies:     cookies,
 		TLSSessions: tlsSessions,
 		ECHConfigs:  echConfigs,
+		AcceptCH:    s.exportAcceptCH(),
 		TLSVerify:   tlsVerifyStateOf(config),
 	}
 
@@ -2508,9 +2612,10 @@ func UnmarshalSessionWithOptions(data []byte, opts *SessionLoadOptions) (*Sessio
 	session := NewSession("", config)
 	session.CreatedAt = state.CreatedAt
 
-	// Import cookies (v5 format)
+	// Import cookies (v5 format) and what each host asked for in Accept-CH
 	session.mu.Lock()
 	session.importCookies(state.Cookies)
+	session.importAcceptCH(state.AcceptCH)
 	session.mu.Unlock()
 
 	// Import ECH configs FIRST - this must be done before TLS sessions

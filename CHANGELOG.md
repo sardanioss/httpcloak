@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Session.AcceptCH`, `Session.ClientHintsFor` and `Session.SetAcceptCH`**: what a session learned from each host's `Accept-CH` can now be read and set. `AcceptCH(host)` is the hint names the host asked for; `ClientHintsFor(host)` is the high-entropy hints, with their values, that the session adds to its next request there, from the same map the request path reads; `SetAcceptCH(host, hints)` replaces what the session has from the host, and an empty list forgets it. A session rebuilt from state kept elsewhere can be given what its hosts asked for before its first request. Go only for now.
+
 ### Fixed
 
 - **`sec-ch-ua-platform-version` reports current Windows 11**: the Windows default was `"15.0.0"`, which is what Windows 11 22H2 and 23H2 report. Chrome sends the UniversalApiContract version, and 24H2 and 25H2 report `"19.0.0"`, measured against Chrome 156. Neither 22H2 nor 23H2 still gets updates on Home or Pro, so the old value described a machine few Chrome users run. It only goes out to a host that asks for it with `Accept-CH`, and a preset that pins its own value keeps it.
@@ -16,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Sec-CH-UA-Full-Version` is answered when a host asks for it**: the session had no value for it, so a host whose `Accept-CH` named it got every other hint it asked for and not this one. Cloudflare's challenge names it in both `Accept-CH` and `Critical-CH`, and Chrome 156 sent `"156.0.8078.48"` in a side-by-side capture where it was the one header missing. It is the browser brand's version from `sec-ch-ua-full-version-list`, so a preset that pins the list pins it too, and a JSON preset can set `client_hints.full_version` on its own. On a navigation the high-entropy hints now go out in the order Chromium adds them (ua, mobile, full-version, arch, platform, platform-version, model, bitness, wow64, full-version-list) rather than alphabetically, which matched no Chrome; the order of a request that carries only the low-entropy trio is unchanged.
 
 - **A JSON preset's client hints go out quoted**: the JSON spec documents bare values such as `"platform_version": "19.0.0"` and `"arch": "x86"`, and they went out as `sec-ch-ua-platform-version: 19.0.0` and `sec-ch-ua-arch: x86`. Chrome sends both as structured-field strings, `"19.0.0"` and `"x86"`, and so do the built-in presets. The loader now quotes a bare `platform_version`, `arch`, `bitness` or `model`, and keeps a value that is already quoted. `wow64` and `full_version_list` are used as written.
+
+- **A saved session keeps what each host asked for in `Accept-CH`**: `Save` and `Marshal` dropped it, so the first request after `LoadSession` or `UnmarshalSession` went to a host without the high-entropy client hints it had asked for, and the second carried them. Chrome keeps each host's `Accept-CH` in the profile across restarts and sends the hints on the first request. The session file gains an optional `accept_ch` key; older files load as before, with nothing learned.
 
 ## [1.7.4] - 2026-11-15
 
