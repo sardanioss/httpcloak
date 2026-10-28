@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -96,15 +97,59 @@ func int64Ptr(v int64) *int64    { return &v }
 func TestH2HeaderOrderDefault(t *testing.T) {
 	p := Chrome146()
 	order := p.H2HeaderOrder()
-	// 27 = base Chrome order + the high-entropy UA client hints (sec-ch-ua-arch,
-	// -bitness, -full-version-list, -model, -platform-version, -wow64) and the
+	// 28 = base Chrome order + the high-entropy UA client hints (sec-ch-ua-full-version,
+	// -arch, -platform-version, -model, -bitness, -wow64, -full-version-list) and the
 	// conditional-cache validators (if-none-match, if-modified-since) the session
 	// injects. They live in the HPACK table so the wire order stays deterministic.
-	if len(order) != 27 {
-		t.Fatalf("expected 27 headers in Chrome default order, got %d", len(order))
+	if len(order) != 28 {
+		t.Fatalf("expected 28 headers in Chrome default order, got %d", len(order))
 	}
 	if order[0] != "cache-control" {
 		t.Fatalf("expected first header 'cache-control', got %q", order[0])
+	}
+}
+
+// Chromium adds the UA client hints to a navigation in one fixed order, in
+// UpdateNavigationRequestClientUaHeadersImpl
+// (content/browser/client_hints/client_hints.cc). The navigation table has to
+// list them in that order, the trio included, or a request carrying the
+// high-entropy hints comes out in an order Chrome does not send. Every preset
+// that sends sec-ch-ua is checked, and a bare one, which falls back to Chrome's.
+func TestH2HeaderOrderClientHintsFollowChromium(t *testing.T) {
+	chromium := []string{
+		"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-full-version", "sec-ch-ua-arch",
+		"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-model",
+		"sec-ch-ua-bitness", "sec-ch-ua-wow64", "sec-ch-ua-full-version-list",
+	}
+	names := []string{"bare"}
+	for _, name := range Available() {
+		if Get(name).Headers["sec-ch-ua"] != "" {
+			names = append(names, name)
+		}
+	}
+	for _, name := range names {
+		p := Get(name)
+		if name == "bare" {
+			p = &Preset{Name: "bare"}
+		}
+		var got []string
+		for _, h := range p.H2HeaderOrder() {
+			if strings.HasPrefix(h, "sec-ch-ua") {
+				got = append(got, h)
+			}
+		}
+		if !reflect.DeepEqual(got, chromium) {
+			t.Errorf("%s: navigation hint order %v, want Chromium's %v", name, got, chromium)
+		}
+		var sub []string
+		for _, h := range p.H2HeaderOrderFor("script") {
+			if strings.HasPrefix(h, "sec-ch-ua") {
+				sub = append(sub, h)
+			}
+		}
+		if len(sub) != len(chromium) {
+			t.Errorf("%s: subresource order places %d of the %d hints: %v", name, len(sub), len(chromium), sub)
+		}
 	}
 }
 
@@ -603,7 +648,7 @@ func TestAndroidChromeH2Config(t *testing.T) {
 func TestChromeH2ConfigNoRegression(t *testing.T) {
 	p := Chrome146()
 	order := p.H2HeaderOrder()
-	if len(order) != 27 || order[0] != "cache-control" {
+	if len(order) != 28 || order[0] != "cache-control" {
 		t.Fatalf("Chrome HPACK order regression: got %d headers, first=%q", len(order), order[0])
 	}
 	// Lockstep lock: the nil-H2Config fallback (H2HeaderOrder) must stay
@@ -651,8 +696,8 @@ func TestAllPresetsHaveH2Config(t *testing.T) {
 func TestH2GettersWithNilConfig(t *testing.T) {
 	p := &Preset{Name: "bare"}
 	// All should return Chrome defaults without panicking
-	if len(p.H2HeaderOrder()) != 27 {
-		t.Fatal("expected 27 element Chrome header order")
+	if len(p.H2HeaderOrder()) != 28 {
+		t.Fatal("expected 28 element Chrome header order")
 	}
 	if p.H2HPACKIndexingPolicy() != "chrome" {
 		t.Fatal("expected 'chrome'")

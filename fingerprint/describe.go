@@ -261,6 +261,7 @@ func flattenClientHints(p *Preset) *ClientHintsSpec {
 	}
 	return &ClientHintsSpec{
 		FullVersionList: ch.FullVersionList,
+		FullVersion:     ch.FullVersion,
 		PlatformVersion: ch.PlatformVersion,
 		Arch:            ch.Arch,
 		Bitness:         ch.Bitness,

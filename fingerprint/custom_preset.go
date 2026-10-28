@@ -46,6 +46,7 @@ type PresetSpec struct {
 // differs from the coherent default. Inherited via based_on like other blocks.
 type ClientHintsSpec struct {
 	FullVersionList string `json:"full_version_list,omitempty"` // sec-ch-ua-full-version-list (exact build from a real capture)
+	FullVersion     string `json:"full_version,omitempty"`      // sec-ch-ua-full-version; omitted follows full_version_list
 	PlatformVersion string `json:"platform_version,omitempty"`  // sec-ch-ua-platform-version override
 	Arch            string `json:"arch,omitempty"`              // sec-ch-ua-arch
 	Bitness         string `json:"bitness,omitempty"`           // sec-ch-ua-bitness
@@ -1352,6 +1353,12 @@ func applyClientHintsSpec(p *Preset, spec *ClientHintsSpec) {
 	if spec.FullVersionList != "" {
 		p.ClientHints.FullVersionList = spec.FullVersionList
 	}
+	// A structured-field string on the wire, quotes included, as Chrome sends
+	// it; the spec takes the bare version, the way it is written everywhere
+	// else, and a value already in quotes is kept.
+	if spec.FullVersion != "" {
+		p.ClientHints.FullVersion = sfString(spec.FullVersion)
+	}
 	if spec.PlatformVersion != "" {
 		p.ClientHints.PlatformVersion = spec.PlatformVersion
 	}
@@ -1367,6 +1374,26 @@ func applyClientHintsSpec(p *Preset, spec *ClientHintsSpec) {
 	if spec.Wow64 != "" {
 		p.ClientHints.Wow64 = spec.Wow64
 	}
+}
+
+// sfString returns v as a structured-field string (RFC 8941 3.3.3): in double
+// quotes, with backslash and double quote escaped. A value already in quotes is
+// returned as it is.
+func sfString(v string) string {
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		return v
+	}
+	var b strings.Builder
+	b.Grow(len(v) + 2)
+	b.WriteByte('"')
+	for i := range len(v) {
+		if c := v[i]; c == '"' || c == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(v[i])
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func applyTCP(p *Preset, spec *TCPSpec) error {

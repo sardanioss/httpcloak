@@ -276,3 +276,70 @@ func TestGenerateXHRHeaders(t *testing.T) {
 		t.Fatal("expected preset user agent")
 	}
 }
+
+// sec-ch-ua-full-version is the browser's own full version, the one its brand
+// carries in the full version list: Chrome 156 sent "156.0.8078.48" in both,
+// measured against Cloudflare's challenge, which asks for it by name. A pinned
+// list reaches it, a derived one gives the matching N.0.0.0, and a preset can
+// pin it on its own.
+func TestResolveClientHintsFullVersion(t *testing.T) {
+	for _, c := range []struct{ preset, want string }{
+		{"chrome-155-windows", `"155.0.8059.39"`},
+		{"chrome-latest", `"158.0.8127.18"`},
+		{"android-chrome-latest", `"158.0.0.0"`},
+		{"chrome-146", `"146.0.0.0"`},
+	} {
+		if got := Get(c.preset).ResolveClientHints().UAFullVersion; got != c.want {
+			t.Errorf("%s: sec-ch-ua-full-version %s, want %s", c.preset, got, c.want)
+		}
+	}
+	for _, name := range []string{"firefox-latest", "safari-latest", "safari-latest-ios", "chrome-latest-ios"} {
+		if got := Get(name).ResolveClientHints().UAFullVersion; got != "" {
+			t.Errorf("%s sends no client hints, but resolves sec-ch-ua-full-version %s", name, got)
+		}
+	}
+
+	p := clonePreset(Get("chrome-155-windows"))
+	p.ClientHints.FullVersion = `"155.0.8059.40"`
+	if got := p.ResolveClientHints().UAFullVersion; got != `"155.0.8059.40"` {
+		t.Errorf("a pinned full version resolves to %s", got)
+	}
+	// Inherited by a preset that moved to another major, the pin would put the
+	// old build beside the new sec-ch-ua, so the list's version wins instead.
+	p.Headers = map[string]string{"sec-ch-ua": `"Google Chrome";v="200", "Chromium";v="200", "Not(A:Brand";v="24"`}
+	if got := p.ResolveClientHints().UAFullVersion; got != `"200.0.0.0"` {
+		t.Errorf("a pinned 155 full version under a 200 sec-ch-ua resolves to %s, want \"200.0.0.0\"", got)
+	}
+}
+
+// A JSON preset writes full_version bare, like the spec's other string hints,
+// and the header goes out quoted, the way Chrome sends it.
+func TestClientHintsSpecFullVersion(t *testing.T) {
+	for _, v := range []string{`"155.0.8059.40"`, `"\"155.0.8059.40\""`} {
+		p, err := LoadAndBuildPresetFromJSON([]byte(`{"version": 1, "preset": {
+			"name": "full-version-test", "based_on": "chrome-155-windows",
+			"client_hints": {"full_version": ` + v + `}}}`))
+		if err != nil {
+			t.Fatalf("full_version %s: %v", v, err)
+		}
+		if got := p.ResolveClientHints().UAFullVersion; got != `"155.0.8059.40"` {
+			t.Errorf("full_version %s: sec-ch-ua-full-version %s, want \"155.0.8059.40\"", v, got)
+		}
+	}
+}
+
+// The version is the browser brand's, wherever the list puts it: Chromium's
+// own entry is the fallback and the GREASE brand never counts.
+func TestBrowserFullVersion(t *testing.T) {
+	for _, c := range []struct{ list, want string }{
+		{`"Not(A:Brand";v="24.0.0.0", "Google Chrome";v="156.0.8078.48", "Chromium";v="156.0.8078.48"`, `"156.0.8078.48"`},
+		{`"Chromium";v="130.0.6723.92", "Microsoft Edge";v="130.0.2849.68", "Not?A_Brand";v="99.0.0.0"`, `"130.0.2849.68"`},
+		{`"Chromium";v="150.0.1.2", "Not;A=Brand";v="8.0.0.0"`, `"150.0.1.2"`},
+		{`" Not A;Brand";v="99.0.0.0", "Chromium";v="96.0.4664.45"`, `"96.0.4664.45"`},
+		{``, ``},
+	} {
+		if got := browserFullVersion(c.list); got != c.want {
+			t.Errorf("browserFullVersion(%s) = %s, want %s", c.list, got, c.want)
+		}
+	}
+}

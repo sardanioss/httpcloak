@@ -1159,6 +1159,7 @@ func (s *Session) applyClientHints(host string, headers map[string][]string) {
 	}{
 		"sec-ch-ua-arch":              {"Sec-Ch-Ua-Arch", ch.UAArch},
 		"sec-ch-ua-bitness":           {"Sec-Ch-Ua-Bitness", ch.UABitness},
+		"sec-ch-ua-full-version":      {"Sec-Ch-Ua-Full-Version", ch.UAFullVersion},
 		"sec-ch-ua-full-version-list": {"Sec-Ch-Ua-Full-Version-List", ch.UAFullVersionList},
 		"sec-ch-ua-model":             {"Sec-Ch-Ua-Model", ch.UAModel},
 		"sec-ch-ua-platform-version":  {"Sec-Ch-Ua-Platform-Version", ch.UAPlatformVersion},

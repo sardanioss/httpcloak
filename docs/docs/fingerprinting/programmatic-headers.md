@@ -157,9 +157,11 @@ type ClientHints struct {
     // High-entropy (only after Accept-CH opt-in)
     UAArch            string // sec-ch-ua-arch
     UABitness         string // sec-ch-ua-bitness
+    UAFullVersion     string // sec-ch-ua-full-version
     UAFullVersionList string // sec-ch-ua-full-version-list
     UAModel           string // sec-ch-ua-model
     UAPlatformVersion string // sec-ch-ua-platform-version
+    UAWow64           string // sec-ch-ua-wow64
 }
 ```
 

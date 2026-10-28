@@ -224,6 +224,7 @@ type ClientHints struct {
 	// High-entropy hints (only sent after Accept-CH)
 	UAArch            string // Sec-Ch-Ua-Arch
 	UABitness         string // Sec-Ch-Ua-Bitness
+	UAFullVersion     string // Sec-Ch-Ua-Full-Version
 	UAFullVersionList string // Sec-Ch-Ua-Full-Version-List
 	UAModel           string // Sec-Ch-Ua-Model
 	UAPlatformVersion string // Sec-Ch-Ua-Platform-Version
@@ -247,6 +248,7 @@ func GenerateClientHints(chromeVersion string, platform PlatformInfo, includeHig
 	if includeHighEntropy {
 		hints.UAArch = fmt.Sprintf(`"%s"`, platform.Arch)
 		hints.UABitness = `"64"`
+		hints.UAFullVersion = fmt.Sprintf(`"%s.0.0.0"`, chromeVersion)
 		hints.UAFullVersionList = fmt.Sprintf(`"Google Chrome";v="%s.0.0.0", "Chromium";v="%s.0.0.0", "Not_A Brand";v="24.0.0.0"`, chromeVersion, chromeVersion)
 		hints.UAPlatformVersion = fmt.Sprintf(`"%s"`, platform.PlatformVersion)
 	}
@@ -281,6 +283,14 @@ func (p *Preset) ResolveClientHints() ClientHints {
 		ch.UAFullVersionList = p.ClientHints.FullVersionList
 	} else {
 		ch.UAFullVersionList = expandSecChUaVersions(secChUa)
+	}
+	// Chrome sends the same version in sec-ch-ua-full-version as its own brand
+	// carries in the full version list, so it is read off that list, and a
+	// pinned list reaches both. A pin of its own wins only while its major is
+	// that brand's, for the same based_on reason as the list above.
+	ch.UAFullVersion = browserFullVersion(ch.UAFullVersionList)
+	if pinned := p.ClientHints.FullVersion; pinned != "" && majorOf(pinned) == majorOf(ch.UAFullVersion) {
+		ch.UAFullVersion = pinned
 	}
 
 	ch.UAArch = firstNonEmpty(p.ClientHints.Arch, defaultClientHintArch(platformName, isMobile))
@@ -365,6 +375,49 @@ func fullVersionListMatches(list, secChUa string) bool {
 		}
 	}
 	return true
+}
+
+// browserFullVersion returns the sec-ch-ua-full-version value that goes with a
+// full version list: the version of the browser's own brand, which is the first
+// entry that is neither Chromium nor the GREASE brand, or Chromium's when the
+// list names no other. "" when the list carries no version.
+func browserFullVersion(list string) string {
+	if list == "" {
+		return ""
+	}
+	var chromium string
+	for _, entry := range splitBrandList(list) {
+		brand, version, ok := splitBrandEntry(entry)
+		if !ok || isGreaseBrand(brand) {
+			continue
+		}
+		if brand != "Chromium" {
+			return `"` + version + `"`
+		}
+		if chromium == "" {
+			chromium = version
+		}
+	}
+	if chromium == "" {
+		return ""
+	}
+	return `"` + chromium + `"`
+}
+
+// majorOf returns the major version of a quoted full version, "155" for
+// "155.0.8059.39", and "" for no version.
+func majorOf(fullVersion string) string {
+	major, _, _ := strings.Cut(strings.Trim(fullVersion, `"`), ".")
+	return major
+}
+
+// isGreaseBrand reports whether a brand is Chromium's GREASE brand, "Not" + c +
+// "A" + c + "Brand" with c drawn from a set of punctuation: "Not(A:Brand",
+// "Not_A Brand", "Not?A_Brand" and so on. Older releases led with a space,
+// " Not A;Brand".
+func isGreaseBrand(brand string) bool {
+	brand = strings.TrimSpace(brand)
+	return len(brand) == 11 && strings.HasPrefix(brand, "Not") && brand[4] == 'A' && strings.HasSuffix(brand, "Brand")
 }
 
 // splitBrandEntry splits one brand-list entry, `"Chromium";v="155"`, into the

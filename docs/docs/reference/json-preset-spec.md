@@ -485,6 +485,7 @@ rather than part of the default header block.
 ```json
 "client_hints": {
   "full_version_list": "\"Chromium\";v=\"152.0.7977.64\", ...",
+  "full_version":      "152.0.7977.64",
   "platform_version":  "19.0.0",
   "arch":              "x86",
   "bitness":           "64",
@@ -496,6 +497,7 @@ rather than part of the default header block.
 | Field | Header |
 |---|---|
 | `full_version_list` | `sec-ch-ua-full-version-list` |
+| `full_version` | `sec-ch-ua-full-version` |
 | `platform_version` | `sec-ch-ua-platform-version` |
 | `arch` | `sec-ch-ua-arch` |
 | `bitness` | `sec-ch-ua-bitness` |
@@ -508,8 +510,11 @@ version. Left out, it is derived from `sec-ch-ua` with every version as
 `<major>.0.0.0`, which Chrome itself never sends. A pinned list is used only
 while its brands and major versions match the preset's `sec-ch-ua`, so a preset
 that moves `sec-ch-ua` through `based_on` gets the derived list until it pins its
-own, rather than the old build beside the new major. `model` is empty on desktop
-and set on Android.
+own, rather than the old build beside the new major. `full_version` is the
+browser's own version, the one its brand carries in that list, and is read off
+the list when left out, so pinning the list pins both. Pinned on its own, it is
+used only while its major version matches the list's, for the same reason.
+`model` is empty on desktop and set on Android.
 
 ## `tcp` object
 
