@@ -1601,31 +1601,16 @@ func (t *HTTP3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	dialsBefore := t.dialCount
 	t.mu.Unlock()
 
-	// Use ordered headers if available (HTTP/3 header order matters for fingerprinting)
-	// Skip if in TLS-only mode (headers handled by applyPresetHeaders which respects tlsOnly)
-	tlsOnly := t.config != nil && t.config.TLSOnly
-	if !tlsOnly {
-		if len(t.preset.HeaderOrder) > 0 {
-			// Apply headers in the specified order
-			for _, hp := range t.preset.HeaderOrder {
-				if req.Header.Get(hp.Key) == "" {
-					req.Header.Set(hp.Key, hp.Value)
-				}
-			}
-		} else {
-			// Fallback to unordered headers map
-			for key, value := range t.preset.Headers {
-				if req.Header.Get(key) == "" {
-					req.Header.Set(key, value)
-				}
-			}
-		}
-
-		// Set User-Agent if not set
-		if req.Header.Get("User-Agent") == "" {
-			req.Header.Set("User-Agent", t.preset.UserAgent)
-		}
-	}
+	// No preset header is filled in here, as none is on HTTP/1.1 or HTTP/2.
+	// Both callers, Transport and client.Client, hand over a request whose
+	// headers they have already built, and a header missing from it was taken
+	// off on purpose: a fetch drops Sec-Fetch-User and
+	// Upgrade-Insecure-Requests, DisableClientHints drops the sec-ch-ua trio,
+	// TLS-only drops all of them. This used to put back every preset header
+	// the request did not carry, with the preset's navigation value, so on
+	// HTTP/3 alone a fetch went out with navigation headers and a TLS-only
+	// request with the whole set. Only a transport-wide TLS-only setting
+	// stopped it, never a per-request one.
 
 	// Cookie crumbling (H3/QPACK). Chrome and Firefox split the Cookie header
 	// into one QPACK field per cookie-pair (Chromium ValueSplittingHeaderList,

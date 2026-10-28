@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`HTTP3Transport.RoundTrip` sends the headers it is given**: called directly, rather than through `Transport` or `client.Client`, it used to fill in every preset header the request lacked, and the preset's User-Agent when the request had none. It now sends the request's headers as they are, as the HTTP/1.1 and HTTP/2 paths do. Code that relied on the fill-in should set those headers itself.
+
+### Fixed
+
+- **HTTP/3 requests carry the headers the pipeline built**: the HTTP/3 transport put back every preset header a request did not carry, after the header pipeline had already built the request, so whatever the pipeline had taken off came back with the preset's navigation value. On HTTP/3 alone, a `fetch()`-shaped request went out with `sec-fetch-user: ?1` and `upgrade-insecure-requests: 1`, which Chrome sends on no fetch; `DisableClientHints` still sent the `sec-ch-ua` trio; and a per-request `TLSOnly` request carried the preset's whole navigation set, with the preset's User-Agent when it set none. Only a transport-wide TLS-only setting stopped it. HTTP/1.1 and HTTP/2 never did this, and the code predates the header pipeline. `client.Client` went through it on its MASQUE and SOCKS5 HTTP/3 paths; its direct HTTP/3 path did not.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added
