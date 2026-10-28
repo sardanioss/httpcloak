@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A redirect hop no longer describes a body it does not send**: when `client.Client` followed a 303, or a 301 or 302 that answered a POST, the GET kept the request's `Content-Length` and `Content-Type`, and any `Content-Encoding`, `Content-Language` or `Content-Location` you set. Over HTTP/1.1 the server waited for a body that never came, so the request ended in a timeout. Over HTTP/2 the GET went out with the stale headers. They now go with the body, as in Fetch's HTTP-redirect fetch. The reverse was broken too: a PUT or PATCH answered with 301 or 302 went out again with no body. A hop that keeps the method now keeps the body, not only on 307 and 308.
+
 ### Security
 
 - **`client.Client` no longer writes into the request you pass it**: since 1.5.8, `Do` copied every header it sent into your `Request.Headers`, so that `Response.Request` could show them. Your map grew from the headers you set to every header the request was built with: `Cookie`, `Referer`, `Origin`, `Sec-Fetch-*`, `Content-Length` and the rest. A map reused for the next request sent all of them again, to whatever host that request went to. So the jar's cookies for one host reached another, and a GET after a POST carried the POST's `Content-Length`, which over HTTP/1.1 left the server waiting for a body until the request timed out. The root package's `Client.Do` passes your map straight through, so it was affected the same way. `Do` now leaves your `Request` and its map as they were. `Response.Request` is a copy of the request, and its `Headers` still show every header that went out.
+
+- **`client.Client` no longer sends one host's cookies to another on a redirect**: since 1.5.8, each hop of a followed redirect carried the `Cookie` header the request before it had sent. So a redirect to another host sent it cookies the jar holds only for the first host, and a cookie the redirect response had just deleted went out again on the next hop. Each hop now takes its cookies from the jar for its own URL, as browsers and the session do. A `Cookie` header you set yourself goes on with every hop that stays on the first request's origin, as `Authorization` does, so a client without a jar keeps its login across a same-origin redirect. The first hop off that origin drops it, and no later hop carries it, even one back on the origin. The root package's `Client` wraps `client.Client` and gets the same fix.
 
 ## [1.7.3] - 2026-10-14
 

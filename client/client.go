@@ -1076,6 +1076,16 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	// sent one request's Cookie, Referer and Sec-Fetch-* with the next request
 	// that reused the map. A redirect hop and the Digest retry below start
 	// from this copy, as they did from the original.
+	//
+	// The Cookie the caller set is kept aside first, because the copy mixes in
+	// the jar's, and only the caller's may follow a redirect hop (see below).
+	ownCookieKey, ownCookie := "", []string(nil)
+	for key, values := range req.Headers {
+		if strings.EqualFold(key, "Cookie") {
+			ownCookieKey, ownCookie = key, values
+			break
+		}
+	}
 	sent := *req
 	sent.Headers = make(map[string][]string, len(req.Headers)+len(httpReq.Header))
 	for key, values := range req.Headers {
@@ -1314,8 +1324,40 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 						if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
 							continue
 						}
+						// The hop's cookies come from the jar, for its own URL.
+						// req.Headers holds the Cookie this request sent, copied
+						// in for debugging, so carrying it handed one host's
+						// cookies to the next and brought back any cookie the
+						// 3xx had just deleted. A Cookie the caller set is
+						// carried below, on a hop that keeps the origin.
+						if lk == "cookie" {
+							continue
+						}
+						// A hop that turns into a GET leaves the body behind, and
+						// the headers that describe it go with it: Fetch's
+						// request-body-header names, plus the Content-Length
+						// copied in with the rest. A GET carrying Content-Length
+						// left an HTTP/1.1 server waiting for a body.
+						if newMethod != method {
+							switch lk {
+							case "content-type", "content-length", "content-encoding", "content-language", "content-location":
+								continue
+							}
+						}
 						carriedHeaders[k] = v
 					}
+				}
+				// A Cookie the caller set goes on with a hop that stays on the
+				// origin, as Authorization does, so a client without a jar
+				// keeps its login across a same-origin redirect. A hop that
+				// leaves the origin drops it, and so no later hop carries it,
+				// even one back on that origin. Where the jar holds cookies for
+				// the hop's URL, they replace it, as on the first request.
+				if ownCookie != nil && !crossOrigin {
+					if carriedHeaders == nil {
+						carriedHeaders = make(map[string][]string, 1)
+					}
+					carriedHeaders[ownCookieKey] = ownCookie
 				}
 
 				carriedReferer := reqURL
@@ -1351,8 +1393,12 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					OnRedirect: req.OnRedirect,
 				}
 
-				// 307/308 preserve body (use cached bytes since original reader was consumed)
-				if resp.StatusCode == 307 || resp.StatusCode == 308 {
+				// A hop that keeps the method keeps the body, as in Fetch's
+				// HTTP-redirect fetch: every 307 and 308, and a 301 or 302 for
+				// anything but a POST. Only 307 and 308 used to, so a PUT
+				// answered with 302 went out again empty. Cached bytes, since
+				// the original reader was consumed.
+				if newMethod == method {
 					if len(bodyBytes) > 0 {
 						newReq.Body = bytes.NewReader(bodyBytes)
 					}
