@@ -125,7 +125,7 @@ h := fingerprint.GenerateSecFetchHeaders(ctx)
 
 ## GenerateClientHints
 
-Client Hints are the `sec-ch-ua-*` family Chrome started shipping in 2021 to advertise the browser brand, version, platform, and (after server opt-in) high-entropy details like architecture and full version. The low-entropy hints go on every request. The high-entropy hints only go on requests to origins that have asked for them via an `Accept-CH` response header.
+Client Hints are the `sec-ch-ua-*` family Chrome started shipping in 2021 to advertise the browser brand, version, platform, and (after server opt-in) high-entropy details like architecture and full version. The low-entropy hints go on every request. The high-entropy hints only go on requests to origins that have asked for them via an `Accept-CH` response header. Only Chromium browsers send any of them: Firefox and Safari send no `sec-ch-*` header and ignore `Accept-CH`, and so does Chrome on iOS, which runs on WebKit. A `Session` on a preset that sends no `sec-ch-ua` does the same.
 
 Chrome's quoted-list format is unusual. The browser brands are emitted as a comma-separated list of `"brand";v="version"` triples, including a fake "Not_A Brand" entry that exists to discourage servers from string-matching the brand list:
 

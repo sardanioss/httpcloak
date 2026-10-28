@@ -1086,6 +1086,11 @@ func (s *Session) parseAcceptCH(host string, headers map[string][]string) {
 	if acceptCH == "" {
 		return
 	}
+	// A browser without UA client hints does not act on Accept-CH at all; see
+	// resolveClientHints.
+	if s.resolveClientHints().UA == "" {
+		return
+	}
 
 	// Parse the comma-separated list of hint names
 	hints := make(map[string]bool)
@@ -1194,13 +1199,23 @@ func (s *Session) applyClientHints(host string, headers map[string][]string) {
 // resolveClientHints returns the coherent UA client hints for this session's
 // preset. Looking the preset up by name mirrors how the transport built it, so
 // the hints reflect the projected identity rather than the local machine.
+//
+// A preset that sends no sec-ch-ua gets none at all. Only Chromium implements
+// UA client hints: Firefox and Safari send no sec-ch-* header and ignore
+// Accept-CH, and Chrome on iOS runs on WebKit. Firefox 159, asked for three
+// high-entropy hints by a navigation's Accept-CH, sent no sec-ch-* on that page
+// or after it. The resolved high-entropy values are platform defaults, which
+// filled in for those presets and went out as five headers no such browser
+// sends.
 func (s *Session) resolveClientHints() fingerprint.ClientHints {
 	presetName := "chrome-latest"
 	if s.Config != nil && s.Config.Preset != "" {
 		presetName = s.Config.Preset
 	}
 	if p := fingerprint.Get(presetName); p != nil {
-		return p.ResolveClientHints()
+		if ch := p.ResolveClientHints(); ch.UA != "" {
+			return ch
+		}
 	}
 	return fingerprint.ClientHints{}
 }

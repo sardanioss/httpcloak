@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A saved session keeps what each host asked for in `Accept-CH`**: `Save` and `Marshal` dropped it, so the first request after `LoadSession` or `UnmarshalSession` went to a host without the high-entropy client hints it had asked for, and the second carried them. Chrome keeps each host's `Accept-CH` in the profile across restarts and sends the hints on the first request. The session file gains an optional `accept_ch` key; older files load as before, with nothing learned.
 
+- **Firefox, Safari and iOS Chrome presets no longer answer `Accept-CH`**: a session on any preset learned a host's `Accept-CH` and then sent `sec-ch-ua-arch`, `-bitness`, `-model`, `-platform-version` and `-wow64`, filled in from platform defaults. Only Chromium implements UA client hints. Firefox 159, loading a page whose response asked for three of them, sent no `sec-ch-*` header at all; Safari implements none, and Chrome on iOS runs on WebKit. A preset that sends no `sec-ch-ua` now ignores `Accept-CH` and sends no high-entropy hints. Chromium presets are unchanged.
+
 ## [1.7.4] - 2026-11-15
 
 ### Added
