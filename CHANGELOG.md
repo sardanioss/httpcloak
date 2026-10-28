@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A frame's navigation sends no `Sec-Fetch-User`**: every navigation carried the preset's `Sec-Fetch-User: ?1`, including one the caller marked as an iframe's with `Sec-Fetch-Dest: iframe`, and a caller could not take it back, since an empty value goes out as an empty header. Chrome sends it only on a navigation a person started, and an iframe loading its `src` is not one: on Cloudflare's challenge iframe it sends `navigate`, `iframe` and `upgrade-insecure-requests` and no `sec-fetch-user`. A navigation with a `Sec-Fetch-Dest` other than `document` now goes without it, on the session transport and on `client.Client`, unless the caller sets it for a click inside the frame. Top-level navigations are unchanged.
 
+- **A frame's navigation gets the frame's priority**: the priority table read `Sec-Fetch-Dest` before a caller's headers were merged, and a navigation still carries the preset's `document` at that point, so a navigation the caller marked as an iframe's took the page's priority. On a Firefox preset it went out at `u=0, i` beside the iframe's weight, 22; Firefox 159 sends an iframe's document at `u=4`. The session transport and `client.Client` now look the priority up by the caller's `Sec-Fetch-Dest`. Chrome sends an iframe's document at `u=0, i` like the page's, so Chrome presets are unchanged.
+
 ## [1.7.4] - 2026-11-15
 
 ### Added

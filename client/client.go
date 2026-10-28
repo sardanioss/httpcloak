@@ -2133,7 +2133,7 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 	default:
 		applyNavigationModeHeaders(httpReq, preset, req)
 	}
-	applyTablePriority(httpReq, preset)
+	applyTablePriority(httpReq, preset, req)
 
 	// Apply user custom headers. User wins over mode defaults — they can project
 	// any intent they want, including deliberate incoherence for site testing.
@@ -2415,12 +2415,19 @@ func applyNoCorsHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *
 // hardcode Chrome's values, so a Firefox preset sent Chrome's headers, and
 // no-cors requests sent none at all, where Chrome sends u=0 on a stylesheet,
 // u=1 on a script and u=2, i on an image. A dest the table does not know
-// keeps whatever the mode set. User headers are applied after this and win.
-func applyTablePriority(httpReq *http.Request, preset *fingerprint.Preset) {
+// keeps whatever the mode set. User headers are applied after this and win,
+// so a Sec-Fetch-Dest of the caller's is the dest the request goes out with:
+// an iframe's navigation is document here until they are applied, and Firefox
+// sends it at u=4 rather than a page's u=0, i.
+func applyTablePriority(httpReq *http.Request, preset *fingerprint.Preset, req *Request) {
 	if !preset.H2HasPriorityTable() {
 		return
 	}
-	_, _, hv, ok := preset.H2PriorityFor(httpReq.Header.Get("Sec-Fetch-Dest"))
+	dest := httpReq.Header.Get("Sec-Fetch-Dest")
+	if v, ok := getHeaderCaseInsensitive(req.Headers, "Sec-Fetch-Dest"); ok && len(v) > 0 && v[0] != "" {
+		dest = v[0]
+	}
+	_, _, hv, ok := preset.H2PriorityFor(dest)
 	if !ok {
 		return
 	}

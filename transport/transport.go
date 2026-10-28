@@ -3178,6 +3178,14 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 			if d := httpReq.Header["Sec-Fetch-Dest"]; len(d) > 0 {
 				dest = d[0]
 			}
+			// The caller's Sec-Fetch-Dest is merged after this, and a
+			// navigation still carries the preset's document here, so the
+			// caller's decides when it sets one. Firefox 159 sends an iframe's
+			// document at u=4, not the u=0, i of a top-level page; Chrome
+			// sends both at u=0, i, so its requests do not change.
+			if d := headerVal(userHeaders, "Sec-Fetch-Dest"); d != "" {
+				dest = d
+			}
 			if _, _, hv, ok := preset.H2PriorityFor(dest); ok {
 				if hv == "" {
 					// Chrome omits the header for this dest (e.g. async/defer scripts).
