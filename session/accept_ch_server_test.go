@@ -88,3 +88,19 @@ func (s *acceptCHServer) send(t *testing.T, sess *Session, headers map[string][]
 	resp.Close()
 	return <-s.reqs
 }
+
+// stream is send through sess.RequestStream. The body is read to the end and
+// the response closed before the header lines are returned.
+func (s *acceptCHServer) stream(t *testing.T, sess *Session, headers map[string][]string, advertise bool) []string {
+	t.Helper()
+	s.advert <- advertise
+	resp, err := sess.RequestStream(context.Background(), &transport.Request{Method: "GET", URL: s.url, Headers: headers})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if _, err := resp.ReadAll(); err != nil {
+		t.Fatalf("stream body: %v", err)
+	}
+	resp.Close()
+	return <-s.reqs
+}

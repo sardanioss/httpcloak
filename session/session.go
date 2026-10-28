@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/internal/secfetch"
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/transport"
 )
@@ -505,7 +506,7 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 				s.extractCookies(resp.Headers, req.URL)
 			}
 			// Also parse Accept-CH from intermediate responses
-			s.parseAcceptCH(host, resp.Headers)
+			s.parseAcceptCH(host, req, resp.Headers)
 		}
 
 		// Check if we should retry
@@ -555,7 +556,7 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 	}
 
 	// Parse Accept-CH header to store requested client hints for this host
-	s.parseAcceptCH(host, resp.Headers)
+	s.parseAcceptCH(host, req, resp.Headers)
 
 	// Store cache validation headers from response for future requests, unless
 	// the conditional cache is disabled session-wide or the caller asked to
@@ -1066,10 +1067,32 @@ func (s *Session) storeCacheHeaders(url string, headers map[string][]string) {
 	}
 }
 
-// parseAcceptCH parses the Accept-CH response header and stores the requested client hints
-// for the given host. On subsequent requests to this host, the session will send the
-// high-entropy client hints that were requested.
-func (s *Session) parseAcceptCH(host string, headers map[string][]string) {
+// learnsAcceptCH reports whether the Accept-CH on the response to req is
+// remembered. Chrome parses Accept-CH only on the response to an outermost
+// main-frame navigation (ParseAndPersistAcceptCHForNavigation in
+// content/browser/client_hints/client_hints.cc), so a frame's document, a
+// fetch and a subresource can ask for hints and get none. That is the request
+// sent with Sec-Fetch-Dest: document. One sent with no Sec-Fetch-Dest at all,
+// TLS-only or a preset that sends no Sec-Fetch metadata, says nothing either
+// way and is treated as a navigation, as every request used to be.
+//
+// The Sec-Fetch-Dest is the transport's, worked out by the rule it composes the
+// header with (secfetch.Dest), for the preset it was built from.
+func (s *Session) learnsAcceptCH(req *transport.Request) bool {
+	tlsOnly := s.Config != nil && s.Config.TLSOnly
+	if req.TLSOnly != nil {
+		tlsOnly = *req.TLSOnly
+	}
+	dest := secfetch.Dest(s.preset(), tlsOnly, req.Method, req.Headers, req.ExactHeaders)
+	return dest == "" || strings.EqualFold(dest, "document")
+}
+
+// parseAcceptCH parses the Accept-CH header on the response to req and stores
+// the requested client hints for the given host. On subsequent requests to this
+// host, the session will send the high-entropy client hints that were
+// requested. Only a top-level navigation's response is read; see
+// learnsAcceptCH.
+func (s *Session) parseAcceptCH(host string, req *transport.Request, headers map[string][]string) {
 	// Helper to get first value from header (case-insensitive)
 	getHeader := func(key string) string {
 		if values := headers[key]; len(values) > 0 {
@@ -1089,6 +1112,9 @@ func (s *Session) parseAcceptCH(host string, headers map[string][]string) {
 	// A browser without UA client hints does not act on Accept-CH at all; see
 	// resolveClientHints.
 	if s.resolveClientHints().UA == "" {
+		return
+	}
+	if !s.learnsAcceptCH(req) {
 		return
 	}
 
@@ -1208,16 +1234,22 @@ func (s *Session) applyClientHints(host string, headers map[string][]string) {
 // filled in for those presets and went out as five headers no such browser
 // sends.
 func (s *Session) resolveClientHints() fingerprint.ClientHints {
-	presetName := "chrome-latest"
-	if s.Config != nil && s.Config.Preset != "" {
-		presetName = s.Config.Preset
-	}
-	if p := fingerprint.Get(presetName); p != nil {
+	if p := s.preset(); p != nil {
 		if ch := p.ResolveClientHints(); ch.UA != "" {
 			return ch
 		}
 	}
 	return fingerprint.ClientHints{}
+}
+
+// preset returns this session's preset, looked up by name the way the
+// transport was built from it.
+func (s *Session) preset() *fingerprint.Preset {
+	presetName := "chrome-latest"
+	if s.Config != nil && s.Config.Preset != "" {
+		presetName = s.Config.Preset
+	}
+	return fingerprint.Get(presetName)
 }
 
 // headerKeyPresent reports whether headers already contains key, comparing keys
@@ -2036,8 +2068,9 @@ func (s *Session) RequestStream(ctx context.Context, req *transport.Request) (*S
 	}
 
 	// Parse Accept-CH so subsequent requests to this host (buffered or streaming)
-	// send the high-entropy hints, matching the buffered path.
-	s.parseAcceptCH(host, resp.Headers)
+	// send the high-entropy hints, matching the buffered path: only a top-level
+	// navigation's response is read, as there.
+	s.parseAcceptCH(host, req, resp.Headers)
 
 	return resp, nil
 }

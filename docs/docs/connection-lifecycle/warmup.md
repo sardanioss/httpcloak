@@ -18,7 +18,7 @@ Cold-start fingerprinting catches a lot of bots. The first request from a fresh 
 - Splits them into priority groups: CSS and fonts first, then scripts, then images.
 - Fires each batch concurrently (up to 6 in flight, matching Chrome's per-host H1 connection limit) with 50-300ms gaps between batches.
 - Picks up Set-Cookie headers along the way.
-- Records `Accept-CH` headers from any host that asks for client hints.
+- Records the page's `Accept-CH`, so the high-entropy client hints it asks for go out on the next request to it. As in Chrome, a subresource's `Accept-CH` is not honoured; only a top-level navigation's is.
 - Caches ETag and Last-Modified so the next request to the same URL ships conditional headers.
 - Lets the TLS layer cache session tickets for every host hit.
 
@@ -111,7 +111,7 @@ Console.WriteLine($"status={r.StatusCode}");
 | TLS session tickets | One per origin touched during warmup |
 | ECH config cache | DNS HTTPS records seen during the navigation |
 | Cache validators (ETag, Last-Modified) | Per-URL response headers |
-| Client hints map | `Accept-CH` headers from any host |
+| Client hints map | `Accept-CH` from the navigation's response |
 | Header order memory | Already preset-driven, no drift |
 | Cookie jar size | Whatever the site sets, often 5-20 |
 

@@ -1,8 +1,8 @@
 // Package secfetch holds the request-shape rules behind a request's Sec-Fetch
-// metadata: whether a preset sends Sec-Fetch-* at all, and whether a request
-// goes out as a fetch or as a navigation. The transport writes the headers
-// from them, and the session needs the same answers about a request it sends,
-// so both read this one copy.
+// metadata: whether a preset sends Sec-Fetch-* at all, whether a request goes
+// out as a fetch or as a navigation, and the Sec-Fetch-Dest that follows. The
+// transport writes the headers from them, and the session needs the same
+// answers about a request it sends, so both read this one copy.
 package secfetch
 
 import (
@@ -115,6 +115,52 @@ func SniffXHRMode(method string, userHeaders map[string][]string) bool {
 	// POSTs from scrapers are overwhelmingly API calls; form submissions
 	// always carry one of the form Content-Types handled above.
 	return true
+}
+
+// Dest returns the Sec-Fetch-Dest a request goes out with, "" when it carries
+// none. It follows the transport's composition of the header: under exact
+// headers, the pair as given; otherwise the caller's own value; none on a
+// TLS-only request or a preset that sends no Sec-Fetch metadata; "empty" when
+// the request sniffs as a fetch; and the preset's own value for the rest.
+func Dest(preset *fingerprint.Preset, tlsOnly bool, method string, headers map[string][]string, exact []fingerprint.HeaderPair) string {
+	if len(exact) > 0 {
+		for _, hp := range exact {
+			if strings.EqualFold(hp.Key, "Sec-Fetch-Dest") {
+				return hp.Value
+			}
+		}
+		return ""
+	}
+	if dest := headerVal(headers, "Sec-Fetch-Dest"); dest != "" {
+		return dest
+	}
+	if tlsOnly || !PresetSends(preset) {
+		return ""
+	}
+	if SniffXHRMode(method, headers) {
+		return "empty"
+	}
+	return presetValue(preset, "Sec-Fetch-Dest")
+}
+
+// presetValue returns the value a preset sends for name, read from its emit
+// set the way the transport builds a request: the ordered list when the preset
+// has one, the backward-compatible map otherwise.
+func presetValue(preset *fingerprint.Preset, name string) string {
+	if len(preset.HeaderOrder) > 0 {
+		for _, hp := range preset.HeaderOrder {
+			if strings.EqualFold(hp.Key, name) {
+				return hp.Value
+			}
+		}
+		return ""
+	}
+	for k, v := range preset.Headers {
+		if strings.EqualFold(k, name) {
+			return v
+		}
+	}
+	return ""
 }
 
 // headerVal returns the first value of name in h, matched case-insensitively.

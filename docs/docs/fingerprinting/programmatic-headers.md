@@ -167,7 +167,7 @@ type ClientHints struct {
 
 Pass `includeHighEntropy: true` when you've already seen the server's `Accept-CH` and want to pre-build the full bundle. Pass `false` for the first request to a host, before you know what the server is going to ask for.
 
-In normal use you don't call this directly. `Session` parses incoming `Accept-CH` response headers via `parseAcceptCH` and starts emitting the matching high-entropy hints on subsequent requests to the same origin. `GenerateClientHints` is for cases where you want to construct the bundle outside of a `Session` (e.g. injecting it into a different transport, building a fixture for tests, or pre-warming a header set before opening a session).
+In normal use you don't call this directly. `Session` parses incoming `Accept-CH` response headers via `parseAcceptCH` and starts emitting the matching high-entropy hints on subsequent requests to the same origin. Like Chrome, it parses only the response to a top-level navigation, a request that goes out with `Sec-Fetch-Dest: document`, whether it was sent with `Request` or `RequestStream`: an iframe's document, a `fetch()` and a subresource can carry `Accept-CH` and teach the session nothing. So a challenge iframe that asks for them in `Accept-CH` and `Critical-CH` gets only the low-entropy trio, as it does from Chrome. A request with no `Sec-Fetch-Dest` at all (TLS-only, or a preset that sends no Sec-Fetch metadata) is treated as a navigation. `GenerateClientHints` is for cases where you want to construct the bundle outside of a `Session` (e.g. injecting it into a different transport, building a fixture for tests, or pre-warming a header set before opening a session).
 
 ## What a session learned from Accept-CH
 
