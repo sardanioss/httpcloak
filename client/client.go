@@ -2063,6 +2063,7 @@ func applyTLSOnlyHeaders(httpReq *http.Request, preset *fingerprint.Preset, req 
 			}
 		}
 	}
+	dropEmptyPriority(httpReq.Header)
 
 	// In TLSOnly mode, if user didn't provide User-Agent, set empty string to prevent Go default
 	if _, hasUA := getHeaderCaseInsensitive(req.Headers, "User-Agent"); !hasUA {
@@ -2147,6 +2148,7 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 			}
 		}
 	}
+	dropEmptyPriority(httpReq.Header)
 
 	// Set header order for HTTP/2 and HTTP/3 fingerprinting
 	// Use H2HeaderOrder (full HPACK position table) — see the matching
@@ -2421,6 +2423,19 @@ func applyTablePriority(httpReq *http.Request, preset *fingerprint.Preset) {
 		return
 	}
 	httpReq.Header.Set("Priority", hv)
+}
+
+// dropEmptyPriority removes a priority header the caller set to "", the way
+// the transport's header pipeline does: an empty priority field is no field,
+// which is what Chrome sends at the default urgency (see omitsPriority in the
+// transport package). The HTTP/2 weight then goes with the default urgency.
+func dropEmptyPriority(h http.Header) {
+	for _, v := range h["Priority"] {
+		if strings.TrimSpace(v) != "" {
+			return
+		}
+	}
+	delete(h, "Priority")
 }
 
 // detectSecFetchSiteForMode determines the Sec-Fetch-Site header value

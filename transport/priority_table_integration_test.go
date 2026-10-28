@@ -472,6 +472,10 @@ func TestPriorityTable_WireEmission_PerRequestDistinctOnSameConn(t *testing.T) {
 	for _, d := range dests {
 		req, _ := http.NewRequest("GET", "https://"+net.JoinHostPort(host, port)+"/r/"+d, nil)
 		req.Header.Set("Sec-Fetch-Dest", d)
+		// The priority header the pipeline gives the dest. Without one a
+		// request is at the default urgency whatever its dest, as in Chrome.
+		_, _, hv, _ := preset.H2PriorityFor(d)
+		req.Header.Set("Priority", hv)
 		resp, err := tr.RoundTrip(req)
 		if err != nil {
 			t.Fatalf("dest=%s RoundTrip: %v", d, err)
@@ -600,6 +604,8 @@ func TestPriorityTable_WireEmission_ConcurrentRequests(t *testing.T) {
 				d := dests[(g+i)%len(dests)]
 				req, _ := http.NewRequest("GET", "https://"+net.JoinHostPort(host, port)+"/r/"+d, nil)
 				req.Header.Set("Sec-Fetch-Dest", d)
+				_, _, hv, _ := preset.H2PriorityFor(d) // as the pipeline sets it
+				req.Header.Set("Priority", hv)
 				resp, err := tr.RoundTrip(req)
 				if err != nil {
 					errs <- err
