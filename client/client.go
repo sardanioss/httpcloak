@@ -621,7 +621,10 @@ type Response struct {
 	Timing     *protocol.Timing
 	Protocol   string // "h3" or "h2"
 
-	// Request info
+	// Request is the request that produced this response: the last hop's,
+	// after redirects. Its Headers hold every header that request was sent
+	// with, the ones the client added included, for debugging. It is a copy,
+	// so the Request passed to Do and its Headers map are left as they were.
 	Request *Request
 
 	// Redirect history
@@ -1068,9 +1071,17 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 
 	// Copy all headers from httpReq to req.Headers for debugging
 	// This captures all headers that will actually be sent (preset headers, auth, cookies, etc.)
-	if req.Headers == nil {
-		req.Headers = make(map[string][]string)
+	// The copy goes into a copy of the request, which Response.Request returns.
+	// The Request and its Headers map are the caller's: written into, they
+	// sent one request's Cookie, Referer and Sec-Fetch-* with the next request
+	// that reused the map. A redirect hop and the Digest retry below start
+	// from this copy, as they did from the original.
+	sent := *req
+	sent.Headers = make(map[string][]string, len(req.Headers)+len(httpReq.Header))
+	for key, values := range req.Headers {
+		sent.Headers[key] = values
 	}
+	req = &sent
 	for key, values := range httpReq.Header {
 		// Skip internal/special headers
 		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey {

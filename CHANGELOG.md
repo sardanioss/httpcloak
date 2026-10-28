@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`client.Client` no longer writes into the request you pass it**: since 1.5.8, `Do` copied every header it sent into your `Request.Headers`, so that `Response.Request` could show them. Your map grew from the headers you set to every header the request was built with: `Cookie`, `Referer`, `Origin`, `Sec-Fetch-*`, `Content-Length` and the rest. A map reused for the next request sent all of them again, to whatever host that request went to. So the jar's cookies for one host reached another, and a GET after a POST carried the POST's `Content-Length`, which over HTTP/1.1 left the server waiting for a body until the request timed out. The root package's `Client.Do` passes your map straight through, so it was affected the same way. `Do` now leaves your `Request` and its map as they were. `Response.Request` is a copy of the request, and its `Headers` still show every header that went out.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added

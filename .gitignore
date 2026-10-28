@@ -59,6 +59,7 @@ internal_tests/
 !/disable_h3_test.go
 !/h2_trailing_endstream_test.go
 !/gzip_session_test.go
+!/request_headers_reuse_test.go
 
 # Python regression locks. The repo tracked no Python tests until the fast-path
 # JSON body bug (post_fast/put_fast crashed outright on json= with no headers)
