@@ -143,11 +143,11 @@ DATA stream=7 flags=0x1 len=7
 --- request on connection 1
 GET /a HTTP/1.1
 Host: 127.0.0.1:PORT
-Connection: keep-alive
 User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Accept-Language: en-US,en;q=0.9
 Accept-Encoding: gzip, deflate, br, zstd
+Connection: keep-alive
 Upgrade-Insecure-Requests: 1
 Sec-Fetch-Dest: document
 Sec-Fetch-Mode: navigate
@@ -158,11 +158,11 @@ Te: trailers
 --- request on connection 1
 GET /b?q=1 HTTP/1.1
 Host: 127.0.0.1:PORT
-Connection: keep-alive
 User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Accept-Language: en-US,en;q=0.9
 Accept-Encoding: gzip, deflate, br, zstd
+Connection: keep-alive
 Upgrade-Insecure-Requests: 1
 Sec-Fetch-Dest: document
 Sec-Fetch-Mode: navigate
@@ -173,11 +173,11 @@ Te: trailers
 --- request on connection 1
 GET /b?q=2 HTTP/1.1
 Host: 127.0.0.1:PORT
-Connection: keep-alive
 User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Accept-Language: en-US,en;q=0.9
 Accept-Encoding: gzip, deflate, br, zstd
+Connection: keep-alive
 Upgrade-Insecure-Requests: 1
 Sec-Fetch-Dest: document
 Sec-Fetch-Mode: navigate
@@ -188,11 +188,11 @@ Te: trailers
 --- request on connection 1
 POST /c HTTP/1.1
 Host: 127.0.0.1:PORT
-Connection: keep-alive
 User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0
 Accept: */*
 Accept-Language: en-US,en;q=0.9
 Accept-Encoding: gzip, deflate, br, zstd
+Connection: keep-alive
 Sec-Fetch-Dest: empty
 Sec-Fetch-Mode: cors
 Sec-Fetch-Site: cross-site
@@ -270,6 +270,7 @@ body "{\"k\":1}"
         "accept",
         "accept-language",
         "accept-encoding",
+        "connection",
         "upgrade-insecure-requests",
         "sec-fetch-dest",
         "sec-fetch-mode",

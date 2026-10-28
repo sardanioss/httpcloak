@@ -130,11 +130,11 @@ DATA stream=7 flags=0x1 len=7
 --- request on connection 1
 GET /a HTTP/1.1
 Host: 127.0.0.1:PORT
-Connection: keep-alive
 User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8
 Accept-Language: en-US,en;q=0.5
 Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
 Sec-Fetch-Dest: document
 Sec-Fetch-Mode: navigate
 Sec-Fetch-Site: none
@@ -143,11 +143,11 @@ Priority: u=0, i
 --- request on connection 1
 GET /b?q=1 HTTP/1.1
 Host: 127.0.0.1:PORT
-Connection: keep-alive
 User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8
 Accept-Language: en-US,en;q=0.5
 Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
 Sec-Fetch-Dest: document
 Sec-Fetch-Mode: navigate
 Sec-Fetch-Site: none
@@ -156,11 +156,11 @@ Priority: u=0, i
 --- request on connection 1
 GET /b?q=2 HTTP/1.1
 Host: 127.0.0.1:PORT
-Connection: keep-alive
 User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8
 Accept-Language: en-US,en;q=0.5
 Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
 Sec-Fetch-Dest: document
 Sec-Fetch-Mode: navigate
 Sec-Fetch-Site: none
@@ -169,11 +169,11 @@ Priority: u=0, i
 --- request on connection 1
 POST /c HTTP/1.1
 Host: 127.0.0.1:PORT
-Connection: keep-alive
 User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0
 Accept: */*
 Accept-Language: en-US,en;q=0.5
 Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
 Sec-Fetch-Dest: empty
 Sec-Fetch-Mode: cors
 Sec-Fetch-Site: cross-site
@@ -218,6 +218,7 @@ body "{\"k\":1}"
         "accept",
         "accept-language",
         "accept-encoding",
+        "connection",
         "upgrade-insecure-requests",
         "sec-fetch-dest",
         "sec-fetch-mode",

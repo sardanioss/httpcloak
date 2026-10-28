@@ -32,7 +32,7 @@ Three layers, top to bottom:
 
 1. **TLS handshake**. Same uTLS-backed ClientHello as H2 and H3, with the ALPN extension rewritten to `["http/1.1"]` only. JA3, JA4, and peetprint all still apply. See [TLS fingerprinting](/fingerprinting/what-is-tls-fingerprinting).
 2. **Header order**. H1 is plain text, so header order is exactly the order of bytes you put on the wire. The preset's header order list drives this. DevTools won't show you the real order Chrome sends, so check `tls.peet.ws/api/all` when you need ground truth.
-3. **`Connection` header behavior**. `keep-alive` vs `close` vs `Upgrade: websocket` is a real fingerprint signal. Chrome on H1 sends `Connection: keep-alive` by default, and the preset matches that.
+3. **`Connection` header behavior**. `keep-alive` vs `close` vs `Upgrade: websocket` is a real fingerprint signal, and so is where the header sits. Chrome on H1 sends `Connection: keep-alive` right after `Host`, and Chrome presets match that. Firefox sends it after `Accept-Encoding` when it loads a page and the stylesheets, scripts, images and frames in it, and Firefox presets put it there. A `Connection` you set yourself takes the preset's place; one you list in `ExactHeaders` goes where you listed it, spelled as you spelled it.
 
 H1 has no SETTINGS, no WINDOW_UPDATE, and no PRIORITY frames, so the Akamai H2 hash is empty on this path and any check that relies on those signals just can't fire.
 

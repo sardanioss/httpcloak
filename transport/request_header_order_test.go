@@ -235,8 +235,9 @@ func (s *h1OrderCapture) serve(conn net.Conn) {
 			continue
 		}
 		name = strings.ToLower(strings.TrimSpace(name))
-		// Host and Connection are written ahead of the ordered block by the H1
-		// writer and are not part of what the order list controls.
+		// Host and Connection are left out. The H1 writer puts Host first and
+		// Connection right after it unless the order names a place for it,
+		// which TestConnectionPositionOverHTTP1 covers.
 		if name == "host" || name == "connection" {
 			continue
 		}

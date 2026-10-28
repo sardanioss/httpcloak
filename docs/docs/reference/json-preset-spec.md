@@ -312,6 +312,8 @@ How header compression and stream priorities behave on the wire.
 | `disable_cookie_split` | bool | When true, the `Cookie:` header is sent as one line instead of split into multiple HPACK entries. |
 | `hpack_never_index` | string[] | Lowercase header names that must be sent without HPACK indexing. |
 
+`hpack_header_order` orders HTTP/1.1 headers too. Name `connection` in it to put HTTP/1.1's `Connection` header at that place, as the Firefox presets do after `accept-encoding`. Leave it out and `Connection` goes right after `Host`, where Chrome sends it. HTTP/2 and HTTP/3 carry no `Connection`, so the entry changes nothing there.
+
 ### `hpack_header_order_subresource`
 
 A second header order, used for every request that is not a top-level navigation.

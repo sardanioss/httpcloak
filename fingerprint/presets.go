@@ -1240,12 +1240,20 @@ var (
 )
 
 // firefoxH2Config returns the explicit H2 fingerprint config for Firefox presets.
+//
+// The order serves HTTP/1.1 as well, where Firefox writes Connection after
+// Accept-Encoding rather than second, as Chrome does. Firefox 159 did so for
+// the page and for every stylesheet, script, image and frame it loaded; fetch()
+// and XMLHttpRequest put Referer and any header the page set in between.
+// HTTP/2 and HTTP/3 carry no Connection, so the slot only places it on
+// HTTP/1.1.
 func firefoxH2Config() *H2FingerprintConfig {
 	f := false
 	return &H2FingerprintConfig{
 		HPACKHeaderOrder: []string{
 			"user-agent",
 			"accept", "accept-language", "accept-encoding",
+			"connection",
 			"upgrade-insecure-requests",
 			"sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
 			"priority", "te",

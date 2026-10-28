@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Connection` goes where each browser puts it on HTTP/1.1**: the writer sent it second, right after `Host`, for every preset. That is Chrome's place, but Firefox 159 sends it after `Accept-Encoding`, on the page and on every stylesheet, script, image and frame it loads, so a Firefox preset carried Chrome's layout on HTTP/1.1. Firefox presets now put it there. A `fetch()` from Firefox sends `Referer` between the two, which the presets do not reproduce yet, since they send `Referer` later on HTTP/1.1. A preset or JSON profile places it by naming `connection` in its header order; one that does not keeps Chrome's place, so Chrome presets are byte-for-byte unchanged, and a `Connection` the caller sets keeps the preset's place. HTTP/2 and HTTP/3 carry no `Connection` and are unaffected.
+
+- **Exact headers send `Connection` as listed**: a `Connection` pair went out second whatever its place in the list, and one spelled in lowercase was not sent at all. It now goes out where the caller listed it and as they spelled it, like every other pair, and a lowercase `connection: close` also closes the pooled connection after the response.
+
 ## [1.7.4] - 2026-11-15
 
 ### Added

@@ -2761,6 +2761,12 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 		if strings.EqualFold(name, http.HeaderOrderKey) || strings.EqualFold(name, http.PHeaderOrderKey) {
 			return
 		}
+		// Connection has a place of its own on HTTP/1.1, right after Host
+		// unless an order names one, and HTTP/2 and HTTP/3 send none. A slot
+		// in the sorted tail would move a caller's Connection to the end.
+		if strings.EqualFold(name, "Connection") {
+			return
+		}
 		lower := lowerHeaderName(name)
 		if lower == "" || seen[lower] {
 			return
