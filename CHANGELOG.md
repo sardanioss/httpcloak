@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`hpack_header_order_early_referer`**: a second header order for the requests whose `Referer` a browser settles before it picks a connection, which are a `fetch()` (`sec-fetch-dest: empty`) and every redirect hop. Firefox needs it, since it writes `Referer` right after `Accept-Encoding` on those and after `Connection` on everything else. In Go it is `H2FingerprintConfig.HPACKHeaderOrderEarlyReferer`, and `Preset.HeaderOrderFor` picks between the orders.
+- **`"*"` in a header order** (`fingerprint.OtherHeaders`): the headers the order does not name, usually the caller's, go where it stands instead of after everything else. The marker never reaches the wire.
+- **`Request.RedirectHop`**: marks a request built to follow a 3xx. The session sets it on every hop it follows.
+
 ### Fixed
 
-- **`Connection` goes where each browser puts it on HTTP/1.1**: the writer sent it second, right after `Host`, for every preset. That is Chrome's place, but Firefox 159 sends it after `Accept-Encoding`, on the page and on every stylesheet, script, image and frame it loads, so a Firefox preset carried Chrome's layout on HTTP/1.1. Firefox presets now put it there. A `fetch()` from Firefox sends `Referer` between the two, which the presets do not reproduce yet, since they send `Referer` later on HTTP/1.1. A preset or JSON profile places it by naming `connection` in its header order; one that does not keeps Chrome's place, so Chrome presets are byte-for-byte unchanged, and a `Connection` the caller sets keeps the preset's place. HTTP/2 and HTTP/3 carry no `Connection` and are unaffected.
+- **Firefox presets send Firefox 159's header order, on HTTP/1.1 and HTTP/2**: captured from Firefox 159 for the page, its stylesheets, scripts, images and frames, `fetch()` and `XMLHttpRequest` calls, form and `fetch()` POSTs, revalidations and redirect hops. Firefox uses one order on every protocol. HTTP/2 is the HTTP/1.1 head without `Host` and `Connection`, with `te: trailers` last. The presets had `Referer` and `Cookie` after `priority` and `te`, put `Content-Type`, `Content-Length` and `Origin` last, and sent the caller's headers in a sorted tail at the very end, so `te` was not last either.
+  - The order is now `User-Agent`, `Accept`, `Accept-Language`, `Accept-Encoding`, the caller's headers led by `Content-Type`, `Content-Length`, `Origin`, `Connection`, `Referer`, `Cookie`, `Upgrade-Insecure-Requests`, the `Sec-Fetch-*` block, `If-Modified-Since`, `If-None-Match`, `Priority`, then `te` on HTTP/2.
+  - A `fetch()`-shaped request and a redirect hop carry `Referer` right after `Accept-Encoding` instead, as Firefox does.
+  - Not yet modelled: a page that sends a `Referrer-Policy` makes Firefox put `Referer` early on every request, and an `XMLHttpRequest` sends no `Priority`.
+  - `client.Client` uses the same order for every request shape and still sends a preset's `TE` on HTTP/1.1.
+- **A preset's `TE` goes out on HTTP/2 only**: the Firefox presets sent `Te: trailers` on HTTP/1.1, where Firefox sends no `TE` at all; it adds `te: trailers` only in its HTTP/2 encoder. A `TE` the caller sets still goes out.
+
+- **`Connection` goes where each browser puts it on HTTP/1.1**: the writer sent it second, right after `Host`, for every preset. That is Chrome's place, but Firefox 159 sends it after `Accept-Encoding`, on the page and on every stylesheet, script, image and frame it loads, so a Firefox preset carried Chrome's layout on HTTP/1.1. Firefox presets now put it there, or later when the request carries a header that comes before it in Firefox's order, such as `Origin`. A preset or JSON profile places it by naming `connection` in its header order; one that does not keeps Chrome's place, so Chrome presets are byte-for-byte unchanged, and a `Connection` the caller sets keeps the preset's place. HTTP/2 and HTTP/3 carry no `Connection` and are unaffected.
 
 - **Exact headers send `Connection` as listed**: a `Connection` pair went out second whatever its place in the list, and one spelled in lowercase was not sent at all. It now goes out where the caller listed it and as they spelled it, like every other pair, and a lowercase `connection: close` also closes the pooled connection after the response.
 

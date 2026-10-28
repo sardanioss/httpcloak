@@ -118,12 +118,12 @@ HEADERS stream=7 flags=0x24 exclusive=false dep=0 weight=22
   incremental name=19 value-huffman=false                      accept: */*
   indexed 72                                                   accept-language: en-US,en;q=0.5
   indexed 71                                                   accept-encoding: gzip, deflate, br
-  incremental name=70 value-huffman=true                       sec-fetch-dest: empty
-  incremental name=70 value-huffman=true                       sec-fetch-mode: cors
-  incremental name=70 value-huffman=true                       sec-fetch-site: cross-site
-  incremental name=69 value-huffman=false                      priority: u=4
   incremental name=31 value-huffman=true                       content-type: application/json
   incremental name=28 value-huffman=false                      content-length: 7
+  incremental name=72 value-huffman=true                       sec-fetch-dest: empty
+  incremental name=72 value-huffman=true                       sec-fetch-mode: cors
+  incremental name=72 value-huffman=true                       sec-fetch-site: cross-site
+  incremental name=71 value-huffman=false                      priority: u=4
 DATA stream=7 flags=0x1 len=7
 
 ## http/1.1
@@ -173,13 +173,13 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 F
 Accept: */*
 Accept-Language: en-US,en;q=0.5
 Accept-Encoding: gzip, deflate, br
+Content-Type: application/json
+Content-Length: 7
 Connection: keep-alive
 Sec-Fetch-Dest: empty
 Sec-Fetch-Mode: cors
 Sec-Fetch-Site: cross-site
 Priority: u=4
-Content-Type: application/json
-Content-Length: 7
 body "{\"k\":1}"
 
 ## describe
@@ -218,19 +218,48 @@ body "{\"k\":1}"
         "accept",
         "accept-language",
         "accept-encoding",
+        "access-control-request-method",
+        "access-control-request-headers",
+        "content-type",
+        "*",
+        "content-length",
+        "origin",
         "connection",
+        "referer",
+        "cookie",
         "upgrade-insecure-requests",
         "sec-fetch-dest",
         "sec-fetch-mode",
         "sec-fetch-site",
         "sec-fetch-user",
+        "if-modified-since",
+        "if-none-match",
         "priority",
-        "te",
+        "te"
+      ],
+      "hpack_header_order_early_referer": [
+        "user-agent",
+        "accept",
+        "accept-language",
+        "accept-encoding",
+        "access-control-request-method",
+        "access-control-request-headers",
         "referer",
-        "cookie",
         "content-type",
+        "*",
         "content-length",
-        "origin"
+        "origin",
+        "connection",
+        "cookie",
+        "upgrade-insecure-requests",
+        "sec-fetch-dest",
+        "sec-fetch-mode",
+        "sec-fetch-site",
+        "sec-fetch-user",
+        "if-modified-since",
+        "if-none-match",
+        "priority",
+        "te"
       ],
       "hpack_indexing_policy": "default",
       "stream_priority_mode": "default",

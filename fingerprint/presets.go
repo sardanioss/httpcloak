@@ -428,7 +428,15 @@ type H2FingerprintConfig struct {
 	// then the rest of the hint cluster. Nil means "use HPACKHeaderOrder for
 	// everything", which is what every non-Chromium preset wants.
 	HPACKHeaderOrderSubresource []string `json:"hpack_header_order_subresource,omitempty"`
-	HPACKIndexingPolicy         string   // "chrome"/"never"/"always"/"default". "" = "chrome".
+
+	// HPACKHeaderOrderEarlyReferer is the order for a request whose Referer the
+	// browser settles before it picks a connection: a fetch() (sec-fetch-dest
+	// empty) and every redirect hop. Firefox writes Referer right after
+	// Accept-Encoding on those and after Connection on everything else, so its
+	// presets carry the two orders. Nil means the same order as any other
+	// request of that shape, which is what Chromium and WebKit want.
+	HPACKHeaderOrderEarlyReferer []string `json:"hpack_header_order_early_referer,omitempty"`
+	HPACKIndexingPolicy          string   // "chrome"/"never"/"always"/"default". "" = "chrome".
 	// DataFrameMaxSize caps the payload of a DATA frame this profile will send.
 	// nil means derive it from the client family; see H2DataFrameMaxSize.
 	DataFrameMaxSize *uint32
@@ -509,6 +517,14 @@ type H2FingerprintConfig struct {
 	// out on HTTP/1.1. nil derives it; see SendsPriorityOverHTTP1.
 	PriorityOverHTTP1 *bool
 }
+
+// OtherHeaders, in a header order, marks the place for every header the order
+// does not name, which in practice means the caller's own. An order without it
+// sends them after everything it names, sorted. Firefox sends the headers a
+// page set on a fetch() or an XMLHttpRequest after Referer and before
+// Content-Length, so its order carries the marker there. The marker itself
+// never reaches the wire.
+const OtherHeaders = "*"
 
 // Priority models, see H2FingerprintConfig.PriorityModel.
 const (
@@ -852,16 +868,27 @@ func (p *Preset) H2SettingsOrder() []uint16 {
 	return nil
 }
 
-// H2PseudoHeaderOrder returns the pseudo-header order for HTTP/2.
-// nil signals "use heuristic" (Chrome m,a,s,p / Safari m,s,p,a).
 // H2HeaderOrderFor returns the wire header order for a request with the given
-// sec-fetch-dest.
+// sec-fetch-dest that is not a redirect hop. See HeaderOrderFor.
+func (p *Preset) H2HeaderOrderFor(dest string) []string {
+	return p.HeaderOrderFor(dest, false)
+}
+
+// HeaderOrderFor returns the wire header order for a request with the given
+// sec-fetch-dest. redirectHop marks a request built to follow a 3xx.
 //
 // Chrome emits a different order for a top-level navigation than for everything
 // the page then fetches, so a preset carrying one order gets one of the two
 // wrong. An empty dest means the caller could not tell, and is treated as a
 // navigation because that is the shape a bare Get() has.
-func (p *Preset) H2HeaderOrderFor(dest string) []string {
+//
+// Firefox splits elsewhere: a fetch(), which is what sec-fetch-dest empty
+// means here, and every redirect hop settle Referer earlier than other
+// requests, and take HPACKHeaderOrderEarlyReferer when the preset has one.
+func (p *Preset) HeaderOrderFor(dest string, redirectHop bool) []string {
+	if p.H2Config != nil && len(p.H2Config.HPACKHeaderOrderEarlyReferer) > 0 && (redirectHop || dest == "empty") {
+		return p.H2Config.HPACKHeaderOrderEarlyReferer
+	}
 	if dest == "" || dest == "document" || dest == "iframe" {
 		return p.H2HeaderOrder()
 	}
@@ -871,6 +898,8 @@ func (p *Preset) H2HeaderOrderFor(dest string) []string {
 	return p.H2HeaderOrder()
 }
 
+// H2PseudoHeaderOrder returns the pseudo-header order for HTTP/2.
+// nil signals "use heuristic" (Chrome m,a,s,p / Safari m,s,p,a).
 func (p *Preset) H2PseudoHeaderOrder() []string {
 	if p.H2Config != nil && p.H2Config.PseudoHeaderOrder != nil {
 		return p.H2Config.PseudoHeaderOrder
@@ -1240,34 +1269,63 @@ var (
 )
 
 // firefoxH2Config returns the explicit H2 fingerprint config for Firefox presets.
-//
-// The order serves HTTP/1.1 as well, where Firefox writes Connection after
-// Accept-Encoding rather than second, as Chrome does. Firefox 159 did so for
-// the page and for every stylesheet, script, image and frame it loaded; fetch()
-// and XMLHttpRequest put Referer and any header the page set in between.
-// HTTP/2 and HTTP/3 carry no Connection, so the slot only places it on
-// HTTP/1.1.
 func firefoxH2Config() *H2FingerprintConfig {
 	f := false
 	return &H2FingerprintConfig{
-		HPACKHeaderOrder: []string{
-			"user-agent",
-			"accept", "accept-language", "accept-encoding",
-			"connection",
-			"upgrade-insecure-requests",
-			"sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
-			"priority", "te",
-			"referer", "cookie",
-			"content-type", "content-length", "origin",
-		},
-		HPACKIndexingPolicy: "default",
-		StreamPriorityMode:  "default",
-		DisableCookieSplit:  &f,
-		SettingsOrder:       []uint16{1, 2, 4, 5},
-		PseudoHeaderOrder:   []string{":method", ":path", ":authority", ":scheme"},
-		PriorityTable:       firefoxPriorityTable(),
-		PriorityModel:       PriorityModelTable,
+		HPACKHeaderOrder:             firefoxHeaderOrder(false),
+		HPACKHeaderOrderEarlyReferer: firefoxHeaderOrder(true),
+		HPACKIndexingPolicy:          "default",
+		StreamPriorityMode:           "default",
+		DisableCookieSplit:           &f,
+		SettingsOrder:                []uint16{1, 2, 4, 5},
+		PseudoHeaderOrder:            []string{":method", ":path", ":authority", ":scheme"},
+		PriorityTable:                firefoxPriorityTable(),
+		PriorityModel:                PriorityModelTable,
 	}
+}
+
+// firefoxHeaderOrder is the order Firefox 159 sends every request in, captured
+// over HTTP/1.1, HTTP/1.1 over TLS and HTTP/2 for the page, its stylesheets,
+// scripts, images and frames, fetch() and XMLHttpRequest calls with and without
+// headers of their own, form and fetch POSTs, CORS preflights, revalidations
+// and redirect hops.
+//
+// One list serves every protocol. Firefox builds the HTTP/1.1 head and its
+// HTTP/2 encoder re-encodes that head line by line, dropping Connection and
+// appending te: trailers after everything else, which it sends on HTTP/2 only.
+//
+// What differs between requests is where Referer goes. Firefox sets it when
+// the request is created and appends Connection when the connection is
+// chosen. When the page set no Referrer-Policy it then recomputes the default
+// policy and appends Referer again, after Connection. A fetch() carries an
+// explicit policy, and a redirect hop inherits the one its first request
+// settled on, so neither is recomputed and Referer stays early, right after
+// Accept-Encoding. earlyReferer picks that list.
+//
+// The headers a page sets on a fetch() or an XMLHttpRequest come after the
+// early Referer, in the page's own order. A caller's headers take that place,
+// sorted unless the request names their order, and Content-Type leads them, as
+// it did in both JSON POSTs captured and as a form submission sends it.
+func firefoxHeaderOrder(earlyReferer bool) []string {
+	early, late := []string{"referer"}, []string(nil)
+	if !earlyReferer {
+		early, late = late, early
+	}
+	order := []string{
+		"user-agent",
+		"accept", "accept-language", "accept-encoding",
+		"access-control-request-method", "access-control-request-headers",
+	}
+	order = append(order, early...)
+	order = append(order, "content-type", OtherHeaders, "content-length", "origin", "connection")
+	order = append(order, late...)
+	return append(order,
+		"cookie",
+		"upgrade-insecure-requests",
+		"sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
+		"if-modified-since", "if-none-match",
+		"priority", "te",
+	)
 }
 
 // firefoxPriorityTable is what Firefox sends per resource type over HTTP/2,

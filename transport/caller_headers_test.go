@@ -208,6 +208,9 @@ func TestBrowserCasedHeaderCoversPresetTables(t *testing.T) {
 			names = append(names, key)
 		}
 		for _, h := range names {
+			if h == fingerprint.OtherHeaders {
+				continue // a place in the order, never a name on the wire
+			}
 			if !browserCasedHeader(http.CanonicalHeaderKey(h)) {
 				t.Errorf("%s places %q, which browserCasedHeader does not cover", name, h)
 			}

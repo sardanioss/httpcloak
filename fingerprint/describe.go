@@ -286,6 +286,9 @@ func flattenHTTP2(p *Preset) *HTTP2Spec {
 	if p.H2Config != nil && len(p.H2Config.HPACKHeaderOrderSubresource) > 0 {
 		out.HPACKHeaderOrderSubresource = append([]string(nil), p.H2Config.HPACKHeaderOrderSubresource...)
 	}
+	if p.H2Config != nil && len(p.H2Config.HPACKHeaderOrderEarlyReferer) > 0 {
+		out.HPACKHeaderOrderEarlyReferer = append([]string(nil), p.H2Config.HPACKHeaderOrderEarlyReferer...)
+	}
 	policy := p.H2HPACKIndexingPolicy()
 	out.HPACKIndexingPolicy = &policy
 	out.HPACKNeverIndex = append([]string(nil), p.H2HPACKNeverIndex()...)
