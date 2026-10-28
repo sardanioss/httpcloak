@@ -34,6 +34,9 @@ func TestCallerHeaderCasingOverHTTP1(t *testing.T) {
 				"user-agent":               {"custom/1.0"},
 				"accept":                   {"application/json"},
 				"referer":                  {"https://example.com/"},
+				"range":                    {"bytes=0-"},
+				"if-range":                 {`"v1"`},
+				"dnt":                      {"1"},
 			}})
 			names := map[string]int{}
 			folded := map[string]int{}
@@ -45,6 +48,8 @@ func TestCallerHeaderCasingOverHTTP1(t *testing.T) {
 			for _, want := range []string{
 				"x-queueit-qpage-referral", "X-Requested-With", // the caller's
 				"User-Agent", "Accept", "Referer", // the browser's, whatever the caller typed
+				"Range", "If-Range", // written by Chrome's network stack itself
+				"DNT",       // Chrome's spelling, not Go's canonical Dnt
 				"sec-ch-ua", // Chrome's own lowercase
 			} {
 				if names[want] != 1 {

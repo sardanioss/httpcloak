@@ -2932,9 +2932,11 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request, protocol string) {
 // A page cannot set the Fetch spec's forbidden request headers, every Sec- and
 // Proxy- name among them, nor User-Agent, which Chrome still refuses, so no
 // browser request carries those in any casing but the browser's own. The
-// HTTP/1.1 writer also finds Connection and Content-Length by canonical key.
-// The rest are the names the built-in presets place, which a caller passing
-// lowercase names has always had sent canonically, and still does.
+// HTTP/1.1 writer also finds Connection and Content-Length by canonical key,
+// and spells Dnt as Chrome does; see h1WireHeaderName. The rest are the names
+// the built-in presets place, which a caller passing lowercase names has always
+// had sent canonically, and still does, and Range and If-Range, which Chrome's
+// network stack writes itself for media and resumed downloads.
 func browserCasedHeader(name string) bool {
 	switch name {
 	case "Accept-Charset", "Accept-Encoding", "Access-Control-Request-Headers",
@@ -2944,7 +2946,8 @@ func browserCasedHeader(name string) bool {
 		"Transfer-Encoding", "Upgrade", "User-Agent", "Via":
 		return true
 	case "Accept", "Accept-Language", "Cache-Control", "Content-Type",
-		"If-Modified-Since", "If-None-Match", "Pragma", "Priority", "Upgrade-Insecure-Requests":
+		"If-Modified-Since", "If-None-Match", "Pragma", "Priority", "Upgrade-Insecure-Requests",
+		"Range", "If-Range":
 		return true
 	}
 	return strings.HasPrefix(name, "Sec-") || strings.HasPrefix(name, "Proxy-")
