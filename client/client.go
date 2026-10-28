@@ -2297,7 +2297,13 @@ func applyNavigationModeHeaders(httpReq *http.Request, preset *fingerprint.Prese
 	// Navigation headers — always set for bot detection
 	httpReq.Header.Set("Sec-Fetch-Dest", "document")
 	httpReq.Header.Set("Sec-Fetch-Mode", "navigate")
-	httpReq.Header.Set("Sec-Fetch-User", "?1")
+	// Chrome sends Sec-Fetch-User only on a navigation a person started, and
+	// an iframe loading its src is not one. A request the caller marks as a
+	// frame's navigation goes without, unless the caller sets it for a click
+	// inside the frame; their headers are applied after this.
+	if dest, ok := getHeaderCaseInsensitive(req.Headers, "Sec-Fetch-Dest"); !ok || len(dest) == 0 || strings.EqualFold(dest[0], "document") {
+		httpReq.Header.Set("Sec-Fetch-User", "?1")
+	}
 	httpReq.Header.Set("Upgrade-Insecure-Requests", "1")
 
 	// Priority header (newer Chrome/Firefox)

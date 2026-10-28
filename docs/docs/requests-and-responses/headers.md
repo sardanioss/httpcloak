@@ -37,6 +37,8 @@ Different presets ship different defaults. Firefox skips `sec-ch-ua-*` entirely,
 
 The lib also auto-rewrites the `sec-fetch-*` cluster based on the kind of request you're firing. POST/PUT/PATCH and most XHR-shaped GETs flip from navigation mode (`navigate`/`document`/`?1`) to CORS mode (`cors`/`empty`/cross-site, no `sec-fetch-user`). The browser does the same rewrite, so an API call doesn't go out with navigation-style headers attached.
 
+A frame's navigation keeps navigation mode but drops `sec-fetch-user`. Set `Sec-Fetch-Mode: navigate` with a `Sec-Fetch-Dest` other than `document` (`iframe`, `frame`) and the request goes out without it, as Chrome sends an iframe loading its `src`: `sec-fetch-user` asserts a person started the navigation, and nobody clicked. For a click inside a frame, set `Sec-Fetch-User: ?1` yourself.
+
 ## Setting custom headers
 
 Two scopes: per-request, or session-wide as a default.

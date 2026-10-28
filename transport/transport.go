@@ -3154,6 +3154,13 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 			if p := httpReq.Header["Priority"]; len(p) > 0 && p[0] != "" {
 				httpReq.Header["Priority"] = []string{"u=1, i"}
 			}
+		} else if wire.sendsSecFetch && frameNavigation(userHeaders) {
+			// Chrome sends Sec-Fetch-User only on a navigation a person
+			// started, and an iframe loading its src is not one, so Chrome
+			// sends it no Sec-Fetch-User. The preset's ?1 describes a
+			// top-level click; on a navigation the caller marked as a frame's
+			// it goes, unless the caller sets it for a click inside the frame.
+			delete(httpReq.Header, "Sec-Fetch-User")
 		}
 
 		// Per-resource-type priority: HTTP header. Chrome 147+ desktop emits
@@ -3313,6 +3320,15 @@ func sniffXHRMode(method string, userHeaders map[string][]string) bool {
 	// POSTs from scrapers are overwhelmingly API calls; form submissions
 	// always carry one of the form Content-Types handled above.
 	return true
+}
+
+// frameNavigation reports whether a navigation is a nested frame's: the caller
+// gave a Sec-Fetch-Dest other than document, and no Sec-Fetch-User of their
+// own. It is only asked about a request sniffXHRMode left in navigation mode,
+// which with such a destination means the caller set Sec-Fetch-Mode: navigate.
+func frameNavigation(userHeaders map[string][]string) bool {
+	dest := headerVal(userHeaders, "Sec-Fetch-Dest")
+	return dest != "" && !strings.EqualFold(dest, "document") && headerVal(userHeaders, "Sec-Fetch-User") == ""
 }
 
 func headerVal(h map[string][]string, name string) string {
