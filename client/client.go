@@ -1428,17 +1428,18 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		if err != nil {
 			return nil, fmt.Errorf("failed to handle auth challenge: %w", err)
 		}
-		if shouldRetry {
+		// Past the bound, the last 401 goes back to the caller.
+		resends := authResendsSoFar(ctx, len(redirectHistory))
+		if shouldRetry && resends < maxAuthResends {
 			// Reset request body for retry
 			resetRequestBody(httpReq, bodyBytes)
 			if len(bodyBytes) > 0 {
 				req.Body = bytes.NewReader(bodyBytes)
 			}
-			// Apply auth again with challenge info
-			if err := auth.Apply(httpReq); err != nil {
-				return nil, fmt.Errorf("failed to apply authentication after challenge: %w", err)
-			}
-			// Retry request
+			// Retry request. The retry applies the answer itself. Applying it
+			// here as well, to a request about to be dropped, used up a nonce
+			// count, so the first answer went out as nc=00000002.
+			ctx = context.WithValue(ctx, authResendsKey{}, authResends{hop: len(redirectHistory), n: resends + 1})
 			return c.doOnce(ctx, req, redirectHistory)
 		}
 	}
