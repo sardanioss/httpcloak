@@ -75,7 +75,7 @@ func TestCallerPriorityOverHTTP1(t *testing.T) {
 	want := map[string]string{
 		"chrome-155-windows":  "",
 		"android-chrome-148":  "",
-		"chrome-148-ios":      "",
+		"chrome-147-ios":      "",
 		"firefox-148-windows": "u=2",
 	}
 	for _, path := range h1Paths {
