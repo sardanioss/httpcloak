@@ -513,3 +513,51 @@ func TestDigestRetryBoundIsPerHop(t *testing.T) {
 		s.wantSent(t, want...)
 	})
 }
+
+// TestDigestAuthSharedAcrossRequests sends requests at once through one
+// client, which all share its DigestAuth. Each answer counts nc up and each
+// challenge replaces the stored one, and nothing guarded either, so under
+// go test -race they raced. Every answer hashes right here, so every request
+// should come back 200.
+func TestDigestAuthSharedAcrossRequests(t *testing.T) {
+	for _, proto := range digestRetryProtocols {
+		t.Run(proto.name, func(t *testing.T) {
+			s := newDigestRetryServer(t, func(s *digestRetryServer, r digestRetryRequest, h http.Header) int {
+				if r.valid {
+					return http.StatusOK
+				}
+				s.challenge(h, false)
+				return http.StatusUnauthorized
+			})
+			c := NewClient("chrome-latest", proto.force,
+				WithInsecureSkipVerify(), // httptest's certificate
+				WithPreferIPv4(),         // the server listens on 127.0.0.1 only
+				WithTimeout(10*time.Second),
+			)
+			t.Cleanup(func() { c.Close() })
+			c.SetAuth(NewDigestAuth("user", "pass"))
+
+			const n = 16
+			var wg sync.WaitGroup
+			errs := make(chan error, n)
+			for i := 0; i < n; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					resp, err := c.Do(context.Background(), &Request{Method: "GET", URL: s.url + "/x"})
+					switch {
+					case err != nil:
+						errs <- err
+					case resp.StatusCode != http.StatusOK:
+						errs <- fmt.Errorf("status %d, want 200", resp.StatusCode)
+					}
+				}()
+			}
+			wg.Wait()
+			close(errs)
+			for err := range errs {
+				t.Error(err)
+			}
+		})
+	}
+}

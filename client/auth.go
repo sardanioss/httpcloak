@@ -10,6 +10,7 @@ import (
 	http "github.com/sardanioss/http"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Auth interface for authentication methods
@@ -80,6 +81,11 @@ type DigestAuth struct {
 	Username string
 	Password string
 
+	// mu guards the challenge state below. A client's Auth is shared by every
+	// request it sends, and those can run at once: each answer counts nc up,
+	// and each challenge replaces the state.
+	mu sync.Mutex
+
 	// Stored challenge parameters
 	realm     string
 	nonce     string
@@ -100,6 +106,8 @@ func NewDigestAuth(username, password string) *DigestAuth {
 
 // Apply applies Digest auth header to request (if challenge has been received)
 func (a *DigestAuth) Apply(req *http.Request) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.nonce == "" {
 		// No challenge received yet, don't add auth header
 		return nil
@@ -117,6 +125,9 @@ func (a *DigestAuth) HandleChallenge(resp *http.Response, req *http.Request) (bo
 	if wwwAuth == "" || !strings.HasPrefix(strings.ToLower(wwwAuth), "digest ") {
 		return false, nil
 	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	// Parse challenge
 	stale, err := a.parseChallenge(wwwAuth)
@@ -169,7 +180,8 @@ func sentNonceCount(authorization string) (nc uint64, ok bool) {
 // earlier one goes into the next answer, and the nonce count starts again:
 // it counts the requests sent with one nonce (RFC 7616), so the first answer
 // to a challenge carries 00000001, as Chrome, Firefox and curl send it. A
-// challenge that fails to parse leaves the earlier one in place.
+// challenge that fails to parse leaves the earlier one in place. The caller
+// holds a.mu.
 func (a *DigestAuth) parseChallenge(wwwAuth string) (bool, error) {
 	// Remove "Digest " prefix
 	params := strings.TrimPrefix(wwwAuth, "Digest ")
@@ -215,7 +227,8 @@ func (a *DigestAuth) parseChallenge(wwwAuth string) (bool, error) {
 	return stale, nil
 }
 
-// applyDigestHeader generates and applies the Digest Authorization header
+// applyDigestHeader generates and applies the Digest Authorization header.
+// The caller holds a.mu.
 func (a *DigestAuth) applyDigestHeader(req *http.Request) error {
 	a.nc++
 	nc := fmt.Sprintf("%08x", a.nc)
