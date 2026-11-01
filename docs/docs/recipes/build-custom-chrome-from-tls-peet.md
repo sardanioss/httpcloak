@@ -127,7 +127,7 @@ print(f"wrote {len(j)} bytes")
 </TabItem>
 </Tabs>
 
-`Describe` returns the whole preset fully resolved, with no inheritance and no defaults to track down later. The output looks roughly like this. The walkthrough was put together when `chrome-latest` meant Chrome 148, so that's what the samples on this page show; run it today and you'll get `chrome-155-linux` (on a Linux host) with 155's values instead, and the steps are the same.
+`Describe` returns the whole preset fully resolved, with no inheritance and no defaults to track down later. The output looks roughly like this. The walkthrough was put together when `chrome-latest` meant Chrome 148, so that's what the samples on this page show; run it today and you'll get `chrome-156-linux` (on a Linux host) with 156's values instead, and the steps are the same.
 
 ```json
 {

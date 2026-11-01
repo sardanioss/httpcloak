@@ -30,30 +30,30 @@ Pick one by name, send a request, the wire bytes match the real browser.
 
 ### Chrome
 
-Versions 133, 141, and 143 through 155. The 143-155 line ships per-OS variants; 133 and 141 are desktop-only single presets without per-OS suffixes. Layout for the per-OS line (using 155 as the example):
+Versions 133, 141, and 143 through 156. The 143-156 line ships per-OS variants; 133 and 141 are desktop-only single presets without per-OS suffixes. Layout for the per-OS line (using 156 as the example):
 
 | Family | Variants |
 |---|---|
-| Desktop | `chrome-155`, `chrome-155-windows`, `chrome-155-linux`, `chrome-155-macos` (and the same shape for 154, 153, 152 ...) |
-| Android | `chrome-155-android` (every version except 149) |
+| Desktop | `chrome-156`, `chrome-156-windows`, `chrome-156-linux`, `chrome-156-macos` (and the same shape for 155, 154, 153 ...) |
+| Android | `chrome-156-android` (every version except 149) |
 | iOS     | `chrome-155-ios` is the newest; 143 to 152 plus 155 (no 149, 153 or 154) |
 
-Bare `chrome-155` resolves to the host OS at runtime via `runtime.GOOS`. On a Linux box, `chrome-155` gives you `chrome-155-linux`. For the same platform UA regardless of where the code runs, use the explicit variant.
+Bare `chrome-156` resolves to the host OS at runtime via `runtime.GOOS`. On a Linux box, `chrome-156` gives you `chrome-156-linux`. For the same platform UA regardless of where the code runs, use the explicit variant.
 
 ### Chrome -latest aliases
 
 Aliases that auto-track the newest shipped Chrome:
 
 ```
-chrome-latest          → chrome-155
-chrome-latest-windows  → chrome-155-windows
-chrome-latest-linux    → chrome-155-linux
-chrome-latest-macos    → chrome-155-macos
-chrome-latest-android  → chrome-155-android
+chrome-latest          → chrome-156
+chrome-latest-windows  → chrome-156-windows
+chrome-latest-linux    → chrome-156-linux
+chrome-latest-macos    → chrome-156-macos
+chrome-latest-android  → chrome-156-android
 chrome-latest-ios      → chrome-155-ios
 ```
 
-Every alias tracks 155, iOS included. iOS Chrome spells its version out in full, including a build number that cannot be guessed from the major version, so an iOS preset only ever gets built from a real capture; `chrome-155-ios` comes from one, and there is no `chrome-153-ios` or `chrome-154-ios`. Code on `chrome-latest` keeps rolling, and code that pinned `chrome-148-windows` stays on exactly the fingerprint it pinned.
+Every alias tracks 156 but iOS, which stays on 155. iOS Chrome spells its version out in full, including a build number that cannot be guessed from the major version, so an iOS preset only ever gets built from a real capture; `chrome-155-ios` comes from one, and there is no `chrome-153-ios`, `chrome-154-ios` or `chrome-156-ios`. Code on `chrome-latest` keeps rolling, and code that pinned `chrome-148-windows` stays on exactly the fingerprint it pinned.
 
 ### Firefox
 
@@ -80,7 +80,7 @@ ios-chrome-148        → chrome-148-ios
 ios-safari-18         → safari-18-ios
 android-chrome-148    → chrome-148-android
 ios-chrome-latest     → chrome-155-ios
-android-chrome-latest → chrome-155-android
+android-chrome-latest → chrome-156-android
 ```
 
 Both forms resolve to the same preset, and the `-latest` spellings move together: `android-chrome-latest` lands where `chrome-latest-android` does, and `ios-chrome-latest` where `chrome-latest-ios` does. The version-pinned old-style names only go from 143 to 148, though. For anything from 149 on, use the `chrome-NNN-android` / `chrome-NNN-ios` spelling. Prefer that form everywhere for new code.
@@ -186,11 +186,15 @@ foreach (var name in new[] { "chrome-latest", "android-chrome-latest", "firefox-
 </TabItem>
 </Tabs>
 
-Captured fingerprints (Linux host, HTTP/2; the 152 to 155 and `-latest` lines re-measured 2026-10-13, the rest 2026-08):
+Captured fingerprints (Linux host, HTTP/2; the 156 and `-latest` lines measured 2026-11-01, the 152 to 155 lines 2026-10-13, the rest 2026-08):
 
 ```text
 chrome-latest        ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
 android-chrome-latest ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
+chrome-156-windows   ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
+chrome-156-linux     ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
+chrome-156-macos     ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
+chrome-156-android   ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
 chrome-155-windows   ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
 chrome-155-linux     ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86
 chrome-155-macos     ja4=t13d1517h2_8daaf6152771_cb7bf5808d99  peetprint_hash=fc97c1cdfb1409c9a9326c1b726d1dee  akamai_fingerprint_hash=52d84b11737d980aef856699f885ca86

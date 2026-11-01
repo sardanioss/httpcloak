@@ -15,11 +15,11 @@ DevTools doesn't show you header order, so you're flying blind there. Hit [tls.p
 
 ## What ships by default
 
-Every preset carries its own browser header set. For `chrome-latest` on a Linux host (which resolves to `chrome-155-linux`), a navigation goes out as:
+Every preset carries its own browser header set. For `chrome-latest` on a Linux host (which resolves to `chrome-156-linux`), a navigation goes out as:
 
 | Position | Header | Example value |
 |---|---|---|
-| 1 | `sec-ch-ua` | `"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"` |
+| 1 | `sec-ch-ua` | `"Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"` |
 | 2 | `sec-ch-ua-mobile` | `?0` |
 | 3 | `sec-ch-ua-platform` | `"Linux"` |
 | 4 | `upgrade-insecure-requests` | `1` |

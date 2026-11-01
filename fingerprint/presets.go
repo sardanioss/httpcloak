@@ -3293,6 +3293,56 @@ func AndroidChrome155() *Preset {
 	return AndroidChrome154()
 }
 
+// Chrome156Windows returns Chrome 156 on Windows. Headers-only again, like 153
+// and 154: the User-Agent and sec-ch-ua move, and the greased brand list is the
+// one Chromium's derivation gives for 156. Checked on the wire against Chrome
+// 156.0.8078.73 on Linux: the same JA4 and peetprint as 155, the same HTTP/2
+// SETTINGS, the same header order, and every Accept unchanged.
+// Falls back to Chrome155Windows if the JSON didn't load.
+func Chrome156Windows() *Preset {
+	if p := LookupCustom("chrome-156-windows"); p != nil {
+		return p
+	}
+	return Chrome155Windows()
+}
+
+// Chrome156Linux returns Chrome 156 on Linux. See Chrome156Windows.
+func Chrome156Linux() *Preset {
+	if p := LookupCustom("chrome-156-linux"); p != nil {
+		return p
+	}
+	return Chrome155Linux()
+}
+
+// Chrome156macOS returns Chrome 156 on macOS. See Chrome156Windows.
+func Chrome156macOS() *Preset {
+	if p := LookupCustom("chrome-156-macos"); p != nil {
+		return p
+	}
+	return Chrome155macOS()
+}
+
+// Chrome156 returns the Chrome 156 fingerprint preset auto-detected from the
+// running OS.
+func Chrome156() *Preset {
+	switch GetPlatformInfo().Platform {
+	case "Windows":
+		return Chrome156Windows()
+	case "macOS":
+		return Chrome156macOS()
+	default:
+		return Chrome156Linux()
+	}
+}
+
+// AndroidChrome156 returns Chrome 156 on Android. Falls back to AndroidChrome155.
+func AndroidChrome156() *Preset {
+	if p := LookupCustom("chrome-156-android"); p != nil {
+		return p
+	}
+	return AndroidChrome155()
+}
+
 // There is deliberately no IOSChrome153 or IOSChrome154. The CriOS User-Agent
 // carries a full build number (152 was 152.0.7977.64) that no rule derives
 // from the major version, and shipping a preset whose UA names the wrong build
@@ -3916,6 +3966,11 @@ var presets = map[string]func() *Preset{
 	"chrome-154-linux":    Chrome154Linux,
 	"chrome-154-macos":    Chrome154macOS,
 	"chrome-154-android":  AndroidChrome154,
+	"chrome-156":          Chrome156,
+	"chrome-156-windows":  Chrome156Windows,
+	"chrome-156-linux":    Chrome156Linux,
+	"chrome-156-macos":    Chrome156macOS,
+	"chrome-156-android":  AndroidChrome156,
 	"chrome-155":          Chrome155,
 	"chrome-155-windows":  Chrome155Windows,
 	"chrome-155-linux":    Chrome155Linux,
@@ -3929,14 +3984,14 @@ var presets = map[string]func() *Preset{
 	"chrome-151-ios":      IOSChrome151,
 	"chrome-151-android":  AndroidChrome151,
 
-	// -latest aliases (always point to the newest version). All of Chrome
-	// tracks 155. iOS only moves when a capture lands, because the iOS
+	// -latest aliases (always point to the newest version). Desktop and Android
+	// Chrome track 156, iOS 155. iOS only moves when a capture lands, because the iOS
 	// User-Agent carries a full build number that cannot be derived from the
 	// major version (see the note above IOSChrome143).
-	"chrome-latest":          Chrome155,
-	"chrome-latest-windows":  Chrome155Windows,
-	"chrome-latest-linux":    Chrome155Linux,
-	"chrome-latest-macos":    Chrome155macOS,
+	"chrome-latest":          Chrome156,
+	"chrome-latest-windows":  Chrome156Windows,
+	"chrome-latest-linux":    Chrome156Linux,
+	"chrome-latest-macos":    Chrome156macOS,
 	"firefox-latest":         Firefox148,
 	"firefox-latest-windows": Firefox148Windows,
 	"firefox-latest-linux":   Firefox148Linux,
@@ -3944,7 +3999,7 @@ var presets = map[string]func() *Preset{
 	"safari-latest":          Safari18,
 	"chrome-latest-ios":      IOSChrome155,
 	"safari-latest-ios":      IOSSafari18,
-	"chrome-latest-android":  AndroidChrome155,
+	"chrome-latest-android":  AndroidChrome156,
 
 	// Backwards compatibility aliases (old naming convention). The -latest
 	// ones follow chrome-latest-ios and chrome-latest-android; they were left
@@ -3965,7 +4020,7 @@ var presets = map[string]func() *Preset{
 	"android-chrome-148":    AndroidChrome148,
 	"ios-chrome-latest":     IOSChrome155,
 	"ios-safari-latest":     IOSSafari18,
-	"android-chrome-latest": AndroidChrome155,
+	"android-chrome-latest": AndroidChrome156,
 }
 
 // Get returns a preset by name. Checks custom registry first, then built-in

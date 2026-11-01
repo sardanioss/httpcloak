@@ -3,7 +3,7 @@
 //!
 //! The `*_LATEST` names follow the newest version of each browser as the
 //! library updates; a versioned name stays the same fingerprint for good. The
-//! library resolves a name without a platform (`chrome-155`) to one for the
+//! library resolves a name without a platform (`chrome-156`) to one for the
 //! platform it runs on. [`available_presets`](crate::available_presets) lists
 //! every name the library knows, these and the older spellings it keeps for
 //! compatibility.
@@ -40,6 +40,13 @@ pub const CHROME_155_LINUX: &str = "chrome-155-linux";
 pub const CHROME_155_MACOS: &str = "chrome-155-macos";
 pub const CHROME_155_IOS: &str = "chrome-155-ios";
 pub const CHROME_155_ANDROID: &str = "chrome-155-android";
+
+// Chrome 156 (desktop and Android; headers only, as 154 was; no iOS until a capture)
+pub const CHROME_156: &str = "chrome-156";
+pub const CHROME_156_WINDOWS: &str = "chrome-156-windows";
+pub const CHROME_156_LINUX: &str = "chrome-156-linux";
+pub const CHROME_156_MACOS: &str = "chrome-156-macos";
+pub const CHROME_156_ANDROID: &str = "chrome-156-android";
 
 // Chrome 152 (trust anchors, plus a greased signature algorithm on TCP)
 pub const CHROME_152: &str = "chrome-152";
@@ -186,6 +193,11 @@ pub const ALL: &[&str] = &[
     CHROME_155_MACOS,
     CHROME_155_IOS,
     CHROME_155_ANDROID,
+    CHROME_156,
+    CHROME_156_WINDOWS,
+    CHROME_156_LINUX,
+    CHROME_156_MACOS,
+    CHROME_156_ANDROID,
     CHROME_152,
     CHROME_152_WINDOWS,
     CHROME_152_LINUX,

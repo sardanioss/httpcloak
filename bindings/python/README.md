@@ -302,9 +302,9 @@ session = Session(
 from httpcloak import available_presets
 
 print(available_presets())
-# ['chrome-latest', 'chrome-155', 'chrome-155-windows', 'chrome-155-android', 'chrome-154',
+# ['chrome-latest', 'chrome-156', 'chrome-156-windows', 'chrome-156-android', 'chrome-155',
 #  ..., 'chrome-155-ios', 'firefox-148', 'safari-18', ...]
-# Desktop and Android Chrome go up to 155 (Android has no 149); iOS Chrome has 143 to 148, 150 to 152, and 155.
+# Desktop and Android Chrome go up to 156 (Android has no 149); iOS Chrome has 143 to 148, 150 to 152, and 155.
 ```
 
 ## Response Object

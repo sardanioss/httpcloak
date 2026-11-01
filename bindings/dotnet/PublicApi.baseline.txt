@@ -189,6 +189,11 @@ HttpCloak.Presets.Chrome155IOS : System.String
 HttpCloak.Presets.Chrome155Linux : System.String
 HttpCloak.Presets.Chrome155MacOS : System.String
 HttpCloak.Presets.Chrome155Windows : System.String
+HttpCloak.Presets.Chrome156 : System.String
+HttpCloak.Presets.Chrome156Android : System.String
+HttpCloak.Presets.Chrome156Linux : System.String
+HttpCloak.Presets.Chrome156MacOS : System.String
+HttpCloak.Presets.Chrome156Windows : System.String
 HttpCloak.Presets.ChromeLatest : System.String
 HttpCloak.Presets.ChromeLatestAndroid : System.String
 HttpCloak.Presets.ChromeLatestIos : System.String

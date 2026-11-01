@@ -113,7 +113,7 @@ The TLS layer. Two configuration modes that don't mix: a named uTLS ClientHello 
 
 | Field | Type | Notes |
 |---|---|---|
-| `client_hello` | string | uTLS ClientHello ID name (e.g. `"chrome-146-windows"`; the Chrome presets from 146 to 155 all build on the per-OS `chrome-146-*` IDs). Mutually exclusive with `ja3`. |
+| `client_hello` | string | uTLS ClientHello ID name (e.g. `"chrome-146-windows"`; the Chrome presets from 146 to 156 all build on the per-OS `chrome-146-*` IDs). Mutually exclusive with `ja3`. |
 | `psk_client_hello` | string | PSK variant for TLS session resumption. Requires `client_hello` (directly or via `based_on`). |
 | `quic_client_hello` | string | QUIC-specific ClientHello. Cannot be used with `ja3`. |
 | `quic_psk_client_hello` | string | QUIC PSK variant. |
@@ -470,7 +470,7 @@ The HTTP request header bundle. User-Agent, all the named values, and the exact 
 | `user_agent` | string | The `User-Agent` value. Set separately because the field is also referenced in `order` via `"key": "user-agent"`. |
 | `values` | object (string→string) | Header values keyed by lowercase header name. Merged with the inherited `values` from `based_on`. |
 | `order` | array of `{key, value}` | The exact header order on the wire. Lowercase keys. An empty `value` means "use the value from `values` or `user_agent`". |
-| `image_accept` | string | The `Accept` header for image loads. Navigation carries its `Accept` in `order`, but image requests are built elsewhere and need their own value. Optional and inherited through `based_on`; empty means the pre-155 value, `image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8`. The Chrome 155 presets set `image/jxl,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8`. |
+| `image_accept` | string | The `Accept` header for image loads. Navigation carries its `Accept` in `order`, but image requests are built elsewhere and need their own value. Optional and inherited through `based_on`; empty means the pre-155 value, `image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8`. The Chrome 155 and 156 presets set `image/jxl,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8`. |
 
 Order matters. HTTP/2 and HTTP/3 don't enforce header order on the receiving side, but bot-detection products fingerprint it. Real Chrome and real Firefox sit far apart on this dimension.
 

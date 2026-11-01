@@ -127,7 +127,7 @@ Console.WriteLine(resp.StatusCode);
 
 ### Presets
 
-- **Chrome**: 133, 141, 143 through 155, with per-OS variants
+- **Chrome**: 133, 141, 143 through 156, with per-OS variants
   (Windows / Linux / macOS / Android / iOS) where they differ. iOS
   goes up to 152.
 - **Firefox**: 133, 148.
