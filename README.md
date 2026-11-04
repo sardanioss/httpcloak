@@ -117,6 +117,8 @@ dotnet add package HttpCloak # C#
 # Android (Kotlin): build the AAR from bindings/android, see bindings/android/README.md
 ```
 
+The Python, Node.js and .NET packages ship a prebuilt native library for Windows 10 and later (x64), macOS 12 and later (Intel and Apple Silicon), and Linux on x64 and arm64 with glibc 2.17 or later. Alpine and other musl systems aren't supported yet (#69). The Go module builds from source wherever Go and cgo do.
+
 ---
 
 ## Quick Start

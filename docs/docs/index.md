@@ -145,6 +145,8 @@ Console.WriteLine(resp.StatusCode);
 - **.NET**: `dotnet add package HttpCloak`
 - **Android (Kotlin)**: build from source, see [Android](/bindings/android)
 
+The Python, Node.js and .NET packages ship a prebuilt native library for Windows 10 and later (x64), macOS 12 and later (Intel and Apple Silicon), and Linux on x64 and arm64 with glibc 2.17 or later. Alpine and other musl systems aren't supported yet. The Go module builds from source wherever Go and cgo do.
+
 ## Where to next
 
 - New here, start with [Getting Started](/getting-started).

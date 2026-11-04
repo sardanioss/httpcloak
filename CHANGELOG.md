@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Windows library loads again** (#131): 1.7.3's DLL needed `libgcc_s_seh-1.dll`, a runtime library from the compiler toolchain that no Windows install has, so it failed to load on every machine. .NET reported it as `Unable to find an entry point named 'httpcloak_session_new' in DLL 'httpcloak'`, because once the real library failed to load it fell back to the managed `HttpCloak.dll`. Python and Node.js failed on load too. The dependency came from one thread-local variable in the code added for #114, which the Windows compiler implements through that library. Only a test ever read it, so it is now compiled into test builds only, and the DLL depends on nothing outside Windows again.
+
+- **The Linux packages work on the distributions they claim to**: the wheels are tagged for glibc 2.17, but the library was built on a current Ubuntu and needed glibc 2.34, so it failed to load on Ubuntu 20.04, Debian 11, RHEL 8 and anything older, with `GLIBC_2.32 not found`. The same library goes into the npm and NuGet packages. It is now built against glibc 2.17, and checked to load there.
+
+- **The macOS packages say which macOS they need, and need less**: the library required macOS 14, the version of the build machine, while the wheels were tagged for 10.9 (Intel) and 11.0 (Apple Silicon). It now targets macOS 12, the oldest Go supports, and the wheels say 12.0.
+
+- **.NET says why the native library didn't load**: when the bundled library is found but fails to load, you now get a `DllNotFoundException` naming the file and the reason, instead of the misleading entry point error above.
+
+### Changed
+
+- **Every release checks its native libraries before publishing**: none of the above was caught because nothing looked at what a library needs to load. The release workflow now checks every library twice: once when it is built, and once inside the finished wheels, npm packages and NuGet package. It looks at the libraries each one links against, the glibc or macOS version it requires against what its package promises, and the exports the bindings call. Then it loads each library and creates a session: Windows with `PATH` cut down to the system directories, so the build machine's toolchain can't hide a missing DLL, and Linux on glibc 2.17. Each wheel is also installed and imported on its own OS. A failure at any point stops every publish job.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added
