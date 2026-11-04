@@ -1,6 +1,12 @@
 package main
 
 /*
+// macOS: target the oldest macOS Go itself supports. Without this clang
+// targets the macOS of the machine that builds it, so the library refused to
+// load on anything older than the CI runner (macOS 14) whatever the package
+// claimed. Keep in step with the wheel tags in .github/workflows/bindings.yml.
+#cgo darwin CFLAGS: -mmacosx-version-min=12.0
+#cgo darwin LDFLAGS: -mmacosx-version-min=12.0
 #include <stdlib.h>
 #include <stdint.h>
 #include "callback_pool.h"
