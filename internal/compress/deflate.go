@@ -5,10 +5,12 @@ package compress
 
 import (
 	"bytes"
-	"compress/flate"
-	"compress/zlib"
+	stdzlib "compress/zlib"
 	"errors"
 	"io"
+
+	"github.com/klauspost/compress/flate"
+	"github.com/klauspost/compress/zlib"
 )
 
 // sniffLimit is how much of a deflate body is examined before the framing is
@@ -121,7 +123,8 @@ const (
 // case zlib, valid as far as it goes. A header too short to judge is undecided
 // too, and raw once final.
 func zlibVerdict(prefix []byte, final bool) framing {
-	zr, err := zlib.NewReader(bytes.NewReader(prefix))
+	// compress/zlib gives output as early as Chrome's zlib; klauspost reads ahead and would delay this.
+	zr, err := stdzlib.NewReader(bytes.NewReader(prefix))
 	if err != nil {
 		// A bad header or a preset dictionary is raw. So is a body that
 		// ends before a header is complete, but a prefix may only be short
