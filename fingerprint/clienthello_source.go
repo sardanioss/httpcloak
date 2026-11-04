@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sardanioss/quic-go/quicvarint"
 	utls "github.com/sardanioss/utls"
 )
 
@@ -15,6 +16,7 @@ const (
 	SourceClientHelloID ClientHelloSource = iota
 	SourceJA3
 	SourceRaw
+	SourceRawQUIC
 )
 
 func (s ClientHelloSource) String() string {
@@ -23,6 +25,8 @@ func (s ClientHelloSource) String() string {
 		return "ja3"
 	case SourceRaw:
 		return "raw_client_hello"
+	case SourceRawQUIC:
+		return "raw_quic_client_hello"
 	default:
 		return "client_hello"
 	}
@@ -75,13 +79,7 @@ func ResolveClientHelloSpec(
 	}
 
 	if len(p.RawClientHello) > 0 {
-		raw := p.RawClientHello
-		realPSK := false
-		if wantPSK && len(p.RawPSKClientHello) > 0 {
-			raw = p.RawPSKClientHello
-			realPSK = true
-		}
-		spec, err := SpecFromRawClientHello(raw, p.RawBluntMimicry, realPSK)
+		spec, err := specFromCapture(p.RawClientHello, p.RawPSKClientHello, wantPSK, p.RawBluntMimicry)
 		if err != nil {
 			return nil, SourceRaw, err
 		}
@@ -178,6 +176,28 @@ func HasPSKVariant(p *Preset, customJA3 string) bool {
 	return p.PSKClientHelloID.Client != ""
 }
 
+// HasQUICPSKVariant reports whether a QUIC handshake has a resumption-shaped
+// hello to send: the captured one when the preset carries a QUIC capture, the
+// named QUIC PSK id otherwise.
+func HasQUICPSKVariant(p *Preset) bool {
+	if p == nil {
+		return false
+	}
+	if len(p.RawQUICClientHello) > 0 {
+		return len(p.RawQUICPSKClientHello) > 0
+	}
+	return p.QUICPSKClientHelloID.Client != ""
+}
+
+// specFromCapture parses the resumption capture when one is wanted and present,
+// and the fresh capture otherwise.
+func specFromCapture(raw, pskRaw []byte, wantPSK, blunt bool) (*utls.ClientHelloSpec, error) {
+	if wantPSK && len(pskRaw) > 0 {
+		return SpecFromRawClientHello(pskRaw, blunt, true)
+	}
+	return SpecFromRawClientHello(raw, blunt, false)
+}
+
 // SpecFromRawClientHello turns captured ClientHello bytes into a spec.
 //
 // blunt passes unknown extensions through verbatim. Without it uTLS rejects
@@ -227,6 +247,31 @@ func DecodeRawClientHello(field, b64 string, blunt bool) ([]byte, error) {
 				"extensions through verbatim; some clients (curl among them) need it", field, err)
 		}
 		return nil, fmt.Errorf("%s: %w", field, err)
+	}
+	return raw, nil
+}
+
+// DecodeRawQUICClientHello is DecodeRawClientHello for a field that must hold a
+// QUIC capture. A TCP hello there would be sent on QUIC with no transport
+// parameters, so it is refused at load rather than on the first HTTP/3 dial.
+func DecodeRawQUICClientHello(field, b64 string, blunt bool) ([]byte, error) {
+	raw, err := DecodeRawClientHello(field, b64, blunt)
+	if err != nil {
+		return nil, err
+	}
+	spec, err := SpecFromRawClientHello(raw, blunt, false)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", field, err)
+	}
+	body, ok := quicTransportParametersBody(spec)
+	if !ok {
+		return nil, fmt.Errorf("%s has no quic_transport_parameters extension, so it was not "+
+			"captured from a QUIC handshake; a TCP capture belongs in tls.raw_client_hello", field)
+	}
+	// HTTP/3 reads the capture's parameter list to decide what it sends, so an
+	// unreadable one is refused here rather than on the first dial.
+	if _, err := decodeQUICTransportParameters(body); err != nil {
+		return nil, fmt.Errorf("%s: quic_transport_parameters: %w", field, err)
 	}
 	return raw, nil
 }
@@ -294,20 +339,96 @@ func ClientHelloSourceOf(p *Preset, customJA3 string) ClientHelloSource {
 // arrives as a GenericExtension carrying the raw id. Matching only the named
 // type would miss every real capture.
 func SpecHasQUICTransportParameters(spec *utls.ClientHelloSpec) bool {
+	_, ok := quicTransportParametersBody(spec)
+	return ok
+}
+
+// quicTransportParametersBody returns the body of a spec's
+// quic_transport_parameters extension, in either of the two shapes described
+// on SpecHasQUICTransportParameters. A named extension that came from a parrot
+// rather than a capture has no body yet, and yields nil with ok true.
+func quicTransportParametersBody(spec *utls.ClientHelloSpec) ([]byte, bool) {
 	if spec == nil {
-		return false
+		return nil, false
 	}
 	for _, ext := range spec.Extensions {
 		switch e := ext.(type) {
 		case *utls.QUICTransportParametersExtension:
-			return true
+			return e.RawData, true
 		case *utls.GenericExtension:
 			if e.Id == quicTransportParametersExtensionID {
-				return true
+				return e.Data, true
 			}
 		}
 	}
-	return false
+	return nil, false
+}
+
+// decodeQUICTransportParameters splits a quic_transport_parameters body into
+// its parameters, keyed by id. Each is a varint id, a varint length and that
+// many bytes of value (RFC 9000 section 18).
+func decodeQUICTransportParameters(body []byte) (map[uint64][]byte, error) {
+	params := make(map[uint64][]byte)
+	for len(body) > 0 {
+		id, n, err := quicvarint.Parse(body)
+		if err != nil {
+			return nil, fmt.Errorf("transport parameter id: %w", err)
+		}
+		body = body[n:]
+
+		length, n, err := quicvarint.Parse(body)
+		if err != nil {
+			return nil, fmt.Errorf("transport parameter 0x%x length: %w", id, err)
+		}
+		body = body[n:]
+
+		if length > uint64(len(body)) {
+			return nil, fmt.Errorf("transport parameter 0x%x claims %d bytes, %d remain", id, length, len(body))
+		}
+		if _, dup := params[id]; dup {
+			return nil, fmt.Errorf("transport parameter 0x%x appears twice", id)
+		}
+		params[id] = body[:length]
+		body = body[length:]
+	}
+	return params, nil
+}
+
+// QUICCaptureTransportParameters returns the transport parameters carried by
+// the capture an HTTP/3 ClientHello is built from, keyed by id. ok is false
+// when HTTP/3 is not built from a capture at all.
+//
+// The captured values never reach the wire as a block: the QUIC layer replaces
+// extension 57 with its own parameters, since some of them are per connection.
+// What the capture does settle is which parameters the client sends, and that
+// is the question a preset with a capture cannot answer from its identity,
+// because the capture is what cleared it.
+//
+// The candidates are taken in ResolveQUICClientHelloSpec's order, so the answer
+// describes the same hello that goes on the wire.
+func QUICCaptureTransportParameters(p *Preset) (map[uint64][]byte, bool, error) {
+	if p == nil {
+		return nil, false, nil
+	}
+	for _, raw := range [][]byte{p.RawQUICClientHello, p.RawClientHello} {
+		if len(raw) == 0 {
+			continue
+		}
+		spec, err := SpecFromRawClientHello(raw, p.RawBluntMimicry, false)
+		if err != nil {
+			return nil, true, fmt.Errorf("parse quic capture: %w", err)
+		}
+		body, isQUIC := quicTransportParametersBody(spec)
+		if !isQUIC {
+			continue
+		}
+		params, err := decodeQUICTransportParameters(body)
+		if err != nil {
+			return nil, true, fmt.Errorf("decode quic_transport_parameters: %w", err)
+		}
+		return params, true, nil
+	}
+	return nil, false, nil
 }
 
 // quicTransportParametersExtensionID is extension 57, quic_transport_parameters
@@ -324,9 +445,10 @@ const quicTransportParametersExtensionID uint16 = 57
 // parameters, which is not the configured fingerprint and is not a valid QUIC
 // hello either.
 //
-// Precedence, highest first, and each source is skipped unless it actually
-// describes a QUIC handshake:
+// Precedence, highest first, and each source after the first is skipped unless
+// it actually describes a QUIC handshake:
 //
+//	preset.RawQUICClientHello
 //	preset.RawClientHello   when it carries quic_transport_parameters
 //	preset.JA3              when it carries quic_transport_parameters
 //	preset.QUICClientHelloID
@@ -344,14 +466,19 @@ func ResolveQUICClientHelloSpec(p *Preset, wantPSK bool, seed int64) (*utls.Clie
 		return nil, SourceClientHelloID, fmt.Errorf("nil preset")
 	}
 
-	if len(p.RawClientHello) > 0 {
-		raw := p.RawClientHello
-		realPSK := false
-		if wantPSK && len(p.RawPSKClientHello) > 0 {
-			raw = p.RawPSKClientHello
-			realPSK = true
+	if len(p.RawQUICClientHello) > 0 {
+		spec, err := specFromCapture(p.RawQUICClientHello, p.RawQUICPSKClientHello, wantPSK, p.RawBluntMimicry)
+		if err != nil {
+			return nil, SourceRawQUIC, fmt.Errorf("parse raw quic client hello: %w", err)
 		}
-		spec, err := SpecFromRawClientHello(raw, p.RawBluntMimicry, realPSK)
+		if p.RawPermuteExtensions {
+			spec.Extensions = utls.ShuffleChromeTLSExtensions(spec.Extensions)
+		}
+		return spec, SourceRawQUIC, nil
+	}
+
+	if len(p.RawClientHello) > 0 {
+		spec, err := specFromCapture(p.RawClientHello, p.RawPSKClientHello, wantPSK, p.RawBluntMimicry)
 		if err != nil {
 			return nil, SourceRaw, fmt.Errorf("parse raw client hello for quic: %w", err)
 		}

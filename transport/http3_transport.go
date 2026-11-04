@@ -162,8 +162,9 @@ func ResetInitialRTT() {}
 // AdditionalTransportParamsForPreset returns per-connection additional QUIC
 // transport params appropriate for the given preset. For Chrome presets that is
 // version_information (0x11) and google_connection_options (0x3128). For
-// non-Chrome presets (e.g. Firefox) it returns nil so these Chrome-specific
-// params are not sent.
+// non-Chrome presets (e.g. Firefox) it returns an empty map so these
+// Chrome-specific params are not sent. A preset whose HTTP/3 hello is a capture
+// sends whichever of the two the capture carries.
 //
 // The ctx/host/port parameters are unused and retained for API compatibility;
 // they previously drove the initial_rtt probe.
@@ -171,6 +172,18 @@ func AdditionalTransportParamsForPreset(preset *fingerprint.Preset, _ context.Co
 	if preset == nil {
 		return nil
 	}
+
+	captured, fromCapture, err := fingerprint.QUICCaptureTransportParameters(preset)
+	if err != nil {
+		// Load refuses a capture this cannot read, so only a preset assembled
+		// in Go gets here, and its hello fails to resolve on the same bytes.
+		// Nothing the capture cannot vouch for is sent.
+		return map[uint64][]byte{}
+	}
+	if fromCapture {
+		return chromeTransportParamsFromCapture(preset, captured)
+	}
+
 	if !presetIsChromeQUIC(preset) {
 		// Empty, NOT nil. quic-go treats a nil additional-parameter map as "fall
 		// back to the process-global set", and MeasureAndSetInitialRTT writes
@@ -181,6 +194,36 @@ func AdditionalTransportParamsForPreset(preset *fingerprint.Preset, _ context.Co
 		return map[uint64][]byte{}
 	}
 	return BuildChromeTransportParamsFor(preset.H3QUICConnectionOptions())
+}
+
+// chromeTransportParamsFromCapture sends each Chrome parameter the captured
+// hello carries, and no other.
+//
+// Presence is read off the capture, but version_information is still built
+// fresh: its GREASE label is drawn per connection, and replaying the captured
+// one would pin it. google_connection_options takes the preset's
+// quic_connection_options when that is set, and the captured tags otherwise,
+// since Chrome's "ORIG" default is a guess the capture has already answered.
+func chromeTransportParamsFromCapture(preset *fingerprint.Preset, captured map[uint64][]byte) map[uint64][]byte {
+	var connectionOptions []string
+	if preset.H3Config != nil && preset.H3Config.QUICConnectionOptions != nil {
+		connectionOptions = *preset.H3Config.QUICConnectionOptions
+	} else {
+		tags := captured[tpGoogleConnectionOptions]
+		connectionOptions = []string{}
+		for len(tags) >= 4 {
+			connectionOptions = append(connectionOptions, string(tags[:4]))
+			tags = tags[4:]
+		}
+	}
+
+	params := BuildChromeTransportParamsFor(connectionOptions)
+	for id := range params {
+		if _, ok := captured[id]; !ok {
+			delete(params, id)
+		}
+	}
+	return params
 }
 
 // presetIsChromeQUIC reports whether a preset impersonates a Chromium-based
@@ -199,6 +242,11 @@ func AdditionalTransportParamsForPreset(preset *fingerprint.Preset, _ context.Co
 // desktop and Android Chrome presets, and something else (or empty) for
 // Firefox, Safari and the WebKit-based iOS Chrome presets, which really do not
 // send these.
+//
+// A preset whose HTTP/3 hello is a capture never asks. Loading a capture clears
+// the identity it replaces, so this would answer from whatever identity was
+// left, and the capture itself says which parameters the client sends; see
+// chromeTransportParamsFromCapture.
 func presetIsChromeQUIC(preset *fingerprint.Preset) bool {
 	if preset.QUICClientHelloID.Client != "" {
 		return preset.QUICClientHelloID.Client == "Chrome"
@@ -273,8 +321,6 @@ type HTTP3Transport struct {
 	// resolution fails. Dials go through getSpecForHost, which builds a fresh
 	// one per connection; see FreshShuffleSeed for why that matters.
 	cachedClientHelloSpec *utls.ClientHelloSpec
-	// PSK variant of the spec for session resumption (includes pre_shared_key extension)
-	cachedClientHelloSpecPSK *utls.ClientHelloSpec
 
 	// Separate cached spec for inner MASQUE connections (not shared with outer)
 	cachedClientHelloSpecInner *utls.ClientHelloSpec
@@ -471,7 +517,7 @@ func (t *HTTP3Transport) getSpecForHost(host string) *utls.ClientHelloSpec {
 // next time a source cannot be used it is visible rather than inferred from a
 // fingerprint that looks wrong.
 func (t *HTTP3Transport) resolveQUICSpec(host string) (*utls.ClientHelloSpec, error) {
-	wantPSK := t.preset.QUICPSKClientHelloID.Client != "" && t.hasSessionForHost(host)
+	wantPSK := fingerprint.HasQUICPSKVariant(t.preset) && t.hasSessionForHost(host)
 	spec, _, err := fingerprint.ResolveQUICClientHelloSpec(t.preset, wantPSK, fingerprint.FreshShuffleSeed())
 	return spec, err
 }
@@ -556,16 +602,6 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		}
 	}
 
-	// Also cache the PSK spec for session resumption (includes pre_shared_key extension)
-	// Chrome uses a different TLS extension set when resuming with PSK
-	if preset.QUICPSKClientHelloID.Client != "" {
-		if pskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, fingerprint.FreshShuffleSeed()); err == nil {
-			fingerprint.ApplySignatureAlgorithms(pskSpec.Extensions, preset.QUICSignatureAlgorithms)
-			fingerprint.ApplyQUICTrustAnchors(&pskSpec.Extensions, preset)
-			t.cachedClientHelloSpecPSK = &pskSpec
-		}
-	}
-
 	// Determine key log writer - config override or global
 	var keyLogWriter io.Writer
 	if config != nil && config.KeyLogWriter != nil {
@@ -584,7 +620,7 @@ func NewHTTP3TransportWithTransportConfig(preset *fingerprint.Preset, dnsCache *
 		KeyLogWriter:       keyLogWriter,
 	}
 	t.tlsVerify.Apply(t.tlsConfig)
-	if t.cachedClientHelloSpecPSK != nil {
+	if fingerprint.HasQUICPSKVariant(t.preset) {
 		t.tlsConfig.ClientSessionCache = t.sessionCache
 	}
 
@@ -686,15 +722,6 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		}
 	}
 
-	// Also cache the PSK spec for session resumption (includes pre_shared_key extension)
-	if preset.QUICPSKClientHelloID.Client != "" {
-		if pskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, fingerprint.FreshShuffleSeed()); err == nil {
-			fingerprint.ApplySignatureAlgorithms(pskSpec.Extensions, preset.QUICSignatureAlgorithms)
-			fingerprint.ApplyQUICTrustAnchors(&pskSpec.Extensions, preset)
-			t.cachedClientHelloSpecPSK = &pskSpec
-		}
-	}
-
 	// Determine key log writer - config override or global
 	var keyLogWriter io.Writer
 	if config != nil && config.KeyLogWriter != nil {
@@ -713,7 +740,7 @@ func NewHTTP3TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		KeyLogWriter:       keyLogWriter,
 	}
 	t.tlsVerify.Apply(t.tlsConfig)
-	if t.cachedClientHelloSpecPSK != nil {
+	if fingerprint.HasQUICPSKVariant(t.preset) {
 		t.tlsConfig.ClientSessionCache = t.sessionCache
 	}
 
@@ -814,12 +841,6 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 
 	// Also cache PSK specs for session resumption (includes pre_shared_key extension)
 	if preset.QUICPSKClientHelloID.Client != "" {
-		// Outer PSK spec
-		if pskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, fingerprint.FreshShuffleSeed()); err == nil {
-			fingerprint.ApplySignatureAlgorithms(pskSpec.Extensions, preset.QUICSignatureAlgorithms)
-			fingerprint.ApplyQUICTrustAnchors(&pskSpec.Extensions, preset)
-			t.cachedClientHelloSpecPSK = &pskSpec
-		}
 		// Inner PSK spec for MASQUE connections
 		if innerPskSpec, err := utls.UTLSIdToSpecWithSeed(preset.QUICPSKClientHelloID, fingerprint.FreshShuffleSeed()); err == nil {
 			fingerprint.ApplySignatureAlgorithms(innerPskSpec.Extensions, preset.QUICSignatureAlgorithms)
@@ -846,7 +867,7 @@ func NewHTTP3TransportWithMASQUE(preset *fingerprint.Preset, dnsCache *dns.Cache
 		KeyLogWriter:       keyLogWriter,
 	}
 	t.tlsVerify.Apply(t.tlsConfig)
-	if t.cachedClientHelloSpecPSK != nil {
+	if fingerprint.HasQUICPSKVariant(t.preset) {
 		t.tlsConfig.ClientSessionCache = t.sessionCache
 	}
 
@@ -927,7 +948,7 @@ func (t *HTTP3Transport) dialQUICWithMASQUE(ctx context.Context, addr string, tl
 	tlsCfgCopy.ServerName = host
 	// Clone() doesn't preserve ClientSessionCache, restore it for session resumption
 	// Only if we have PSK spec to prevent TOCTOU race
-	if t.cachedClientHelloSpecPSK != nil {
+	if fingerprint.HasQUICPSKVariant(t.preset) {
 		tlsCfgCopy.ClientSessionCache = t.sessionCache
 	}
 
@@ -1086,7 +1107,7 @@ func (t *HTTP3Transport) dialQUICWithProxy(ctx context.Context, addr string, tls
 	// Clone TLS config — ServerName is the actual host (not connectHost)
 	tlsCfgCopy := t.tlsConfig.Clone()
 	tlsCfgCopy.ServerName = host
-	if t.cachedClientHelloSpecPSK != nil {
+	if fingerprint.HasQUICPSKVariant(t.preset) {
 		tlsCfgCopy.ClientSessionCache = t.sessionCache
 	}
 
@@ -1569,7 +1590,7 @@ func (t *HTTP3Transport) dialQUIC(ctx context.Context, addr string, tlsCfg *tls.
 	tlsCfgCopy.ServerName = host
 	// Clone() doesn't preserve ClientSessionCache, restore it for session resumption
 	// Only if we have PSK spec to prevent TOCTOU race
-	if t.cachedClientHelloSpecPSK != nil {
+	if fingerprint.HasQUICPSKVariant(t.preset) {
 		tlsCfgCopy.ClientSessionCache = t.sessionCache
 	}
 

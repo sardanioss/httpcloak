@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -79,6 +80,32 @@ func flattenToSpec(p *Preset) (*PresetSpec, error) {
 func flattenTLS(p *Preset) (*TLSSpec, error) {
 	out := &TLSSpec{}
 
+	if len(p.RawQUICClientHello) > 0 {
+		out.RawQUICClientHello = base64.StdEncoding.EncodeToString(p.RawQUICClientHello)
+		if len(p.RawQUICPSKClientHello) > 0 {
+			out.RawQUICPSKClientHello = base64.StdEncoding.EncodeToString(p.RawQUICPSKClientHello)
+		}
+	}
+	if len(p.RawClientHello) > 0 {
+		out.RawClientHello = base64.StdEncoding.EncodeToString(p.RawClientHello)
+		if len(p.RawPSKClientHello) > 0 {
+			out.RawPSKClientHello = base64.StdEncoding.EncodeToString(p.RawPSKClientHello)
+		}
+	}
+	if out.RawClientHello != "" || out.RawQUICClientHello != "" {
+		if p.RawBluntMimicry {
+			out.AllowBluntMimicry = &p.RawBluntMimicry
+		}
+		if p.RawPermuteExtensions {
+			out.RawPermuteExtensions = &p.RawPermuteExtensions
+		}
+	}
+	// A TCP capture is the whole TCP fingerprint and applyTLS reads nothing
+	// else from a block that carries one.
+	if out.RawClientHello != "" {
+		return out, nil
+	}
+
 	if p.JA3 != "" {
 		out.JA3 = p.JA3
 		if p.JA3Extras != nil {
@@ -151,7 +178,7 @@ func flattenTLS(p *Preset) (*TLSSpec, error) {
 		out.QUICTrustAnchorsShuffle = &v
 	}
 
-	if out.ClientHello == "" && out.JA3 == "" {
+	if out.ClientHello == "" && out.JA3 == "" && out.RawQUICClientHello == "" {
 		// Preset has no TLS configuration at all. Drop the TLS section.
 		return nil, nil
 	}
