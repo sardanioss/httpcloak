@@ -20,6 +20,7 @@ import (
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/proxy"
+	"github.com/sardanioss/net/http/httpguts"
 	utls "github.com/sardanioss/utls"
 )
 
@@ -292,6 +293,9 @@ func (t *HTTP1Transport) SetLocalAddr(addr string) {
 
 // RoundTrip implements http.RoundTripper
 func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := validateH1Request(req); err != nil {
+		return nil, err
+	}
 	t.closedMu.RLock()
 	if t.closed {
 		t.closedMu.RUnlock()
@@ -404,6 +408,10 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 // allowing the TLS connection to be reused instead of creating a new one.
 // The connection will be closed after the request (not pooled) since it came from H2 transport.
 func (t *HTTP1Transport) RoundTripWithTLSConn(req *http.Request, tlsConn *utls.UConn, host, port string) (*http.Response, error) {
+	if err := validateH1Request(req); err != nil {
+		tlsConn.Close()
+		return nil, err
+	}
 	t.closedMu.RLock()
 	if t.closed {
 		t.closedMu.RUnlock()
@@ -553,6 +561,9 @@ func (w *streamBodyWrapper) Close() error {
 // StreamRoundTrip performs an HTTP request for streaming - connection is NOT pooled
 // The connection will be closed when the response body is closed
 func (t *HTTP1Transport) StreamRoundTrip(req *http.Request) (*http.Response, error) {
+	if err := validateH1Request(req); err != nil {
+		return nil, err
+	}
 	t.closedMu.RLock()
 	if t.closed {
 		t.closedMu.RUnlock()
@@ -1882,4 +1893,54 @@ func (t *HTTP1Transport) applyH1Spec(
 		return nil, err
 	}
 	return conn, nil
+}
+
+// validateH1Request refuses a request the HTTP/1.1 writer would put on the wire
+// as something else. The writer prints the method, target, Host and every
+// header verbatim, so a CR or LF in any of them ends the line early and the
+// rest is read as headers of the caller's choosing, or as a second request.
+// Chrome, Go's own client and this library's HTTP/2 and HTTP/3 paths all
+// refuse such requests; this brings HTTP/1.1 in line. Bookkeeping entries
+// (header order, casing, the exact-headers marker) never reach the wire and
+// are skipped.
+func validateH1Request(req *http.Request) error {
+	if req.Method != "" && !httpguts.ValidHeaderFieldName(req.Method) {
+		return fmt.Errorf("invalid HTTP method %q", req.Method)
+	}
+	if req.URL != nil && !validRequestTarget(req.URL.RequestURI()) {
+		return fmt.Errorf("invalid request target %q", req.URL.RequestURI())
+	}
+	host := req.Host
+	if host == "" && req.URL != nil {
+		host = req.URL.Host
+	}
+	if !httpguts.ValidHostHeader(host) {
+		return fmt.Errorf("invalid Host header %q", host)
+	}
+	for key, values := range req.Header {
+		switch key {
+		case http.HeaderOrderKey, http.PHeaderOrderKey, h1HeaderCasingKey, exactHeadersKey:
+			continue
+		}
+		if !httpguts.ValidHeaderFieldName(key) {
+			return fmt.Errorf("invalid header field name %q", key)
+		}
+		for _, v := range values {
+			if !httpguts.ValidHeaderFieldValue(v) {
+				return fmt.Errorf("invalid header field value for %q", key)
+			}
+		}
+	}
+	return nil
+}
+
+// validRequestTarget reports whether a request target has no control
+// characters or spaces, either of which would split the request line.
+func validRequestTarget(uri string) bool {
+	for i := 0; i < len(uri); i++ {
+		if c := uri[i]; c <= ' ' || c == 0x7f {
+			return false
+		}
+	}
+	return true
 }

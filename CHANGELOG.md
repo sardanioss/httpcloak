@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A caller's `priority` header no longer goes out on HTTP/1.1 for Chrome presets**: the preset's own was stripped there, but before the caller's headers were merged, so a `priority` set to correct the per-destination table leaked onto every HTTP/1.1 request, where Chromium sends none. It is now stripped after the merge, on the buffered, ALPN-fallback and streaming paths alike, which are the paths `Session` and every binding take. Firefox presets, HTTP/2 and HTTP/3, and exact-headers and TLS-only requests are unchanged.
 
+### Security
+
+- **HTTP/1.1 requests with a line break in a header, the method, the path or the Host are refused**: the HTTP/1.1 writer printed them verbatim, so a CR or LF in a value let whoever controlled it add headers of their own, or a second request, on the same connection. HTTP/2 and HTTP/3 already refused these, as Chrome and Go's client do. Such a request now fails with an `invalid header field value` error before anything is sent.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added
