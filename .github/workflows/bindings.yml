@@ -18,10 +18,12 @@ jobs:
             arch: amd64
             runner: ubuntu-latest
             lib_ext: .so
+            manylinux: quay.io/pypa/manylinux2014_x86_64
           - os: linux
             arch: arm64
             runner: ubuntu-24.04-arm
             lib_ext: .so
+            manylinux: quay.io/pypa/manylinux2014_aarch64
           - os: darwin
             arch: arm64
             runner: macos-14
@@ -37,7 +39,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: bindings/clib/go.mod
 
       - name: Remove local replace directives and tidy for CI
         shell: bash
@@ -49,8 +51,23 @@ jobs:
           go mod edit -dropreplace=github.com/sardanioss/udpbara
           GONOSUMCHECK='github.com/sardanioss/*' GONOSUMDB='github.com/sardanioss/*' GOFLAGS=-mod=mod go mod tidy
 
-      - name: Build native library (Unix)
-        if: runner.os != 'Windows'
+      # Linux builds inside manylinux2014 (glibc 2.17), so the library needs no
+      # newer glibc than the wheels promise. Built on the runner it needed the
+      # runner's glibc 2.34 and failed to load on older distributions.
+      - name: Build native library (Linux, manylinux2014)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$(go env GOROOT):/goroot:ro" -v "$(go env GOMODCACHE):/gomodcache" \
+            -v "$GITHUB_WORKSPACE:/src" -w /src/bindings/clib \
+            -e GOROOT=/goroot -e GOMODCACHE=/gomodcache -e GOCACHE=/tmp/gocache \
+            -e GOTOOLCHAIN=local -e GOFLAGS=-mod=mod -e CGO_ENABLED=1 \
+            -e GONOSUMDB='github.com/sardanioss/*' \
+            ${{ matrix.manylinux }} \
+            bash -c 'export PATH=/goroot/bin:$PATH && ldd --version | head -1 && ./build.sh native'
+
+      - name: Build native library (macOS)
+        if: runner.os == 'macOS'
         run: |
           cd bindings/clib
           chmod +x build.sh
@@ -65,6 +82,34 @@ jobs:
           cd bindings/clib
           mkdir -p dist
           CGO_ENABLED=1 go build -buildmode=c-shared -ldflags="-s -w" -o dist/libhttpcloak-windows-amd64.dll .
+
+      # Nothing is uploaded until the library has passed: no dependency a stock
+      # machine lacks, no glibc or macOS newer than the packages promise, the
+      # exports the bindings call, and a real load that creates a session. On
+      # Windows the load runs with PATH cut down to the system directories, so
+      # the runner's MinGW cannot hide a missing DLL (#131). On Linux it runs
+      # in manylinux2014, at the oldest glibc the wheels claim.
+      - name: Verify native library (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          python3 bindings/clib/verify_native.py --os linux \
+            bindings/clib/dist/libhttpcloak-linux-${{ matrix.arch }}.so
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src ${{ matrix.manylinux }} \
+            /opt/python/cp311-cp311/bin/python bindings/clib/verify_native.py --os linux --load \
+            bindings/clib/dist/libhttpcloak-linux-${{ matrix.arch }}.so
+
+      - name: Verify native library (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          python3 bindings/clib/verify_native.py --os darwin --load \
+            bindings/clib/dist/libhttpcloak-darwin-${{ matrix.arch }}.dylib
+
+      - name: Verify native library (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python bindings/clib/verify_native.py --os windows --load \
+            bindings/clib/dist/libhttpcloak-windows-amd64.dll
 
       - name: Upload native library
         uses: actions/upload-artifact@v4
@@ -82,7 +127,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: bindings/clib/go.mod
 
       - name: Remove local replace directives and tidy for CI
         run: |
@@ -100,6 +145,13 @@ jobs:
           CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -buildmode=c-shared -ldflags="-s -w" -o dist/libhttpcloak-darwin-amd64.dylib .
         env:
           CGO_ENABLED: 1
+
+      # The x86_64 library is loaded under Rosetta, through the universal
+      # /usr/bin/python3, so it gets the same real-load check as the others.
+      - name: Verify native library
+        run: |
+          arch -x86_64 /usr/bin/python3 bindings/clib/verify_native.py --os darwin --load \
+            bindings/clib/dist/libhttpcloak-darwin-amd64.dylib
 
       - name: Upload native library
         uses: actions/upload-artifact@v4
@@ -125,7 +177,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: bindings/clib/go.mod
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -172,10 +224,10 @@ jobs:
             plat_tag: manylinux_2_17_aarch64
           - os: darwin
             arch: amd64
-            plat_tag: macosx_10_9_x86_64
+            plat_tag: macosx_12_0_x86_64
           - os: darwin
             arch: arm64
-            plat_tag: macosx_11_0_arm64
+            plat_tag: macosx_12_0_arm64
           - os: windows
             arch: amd64
             plat_tag: win_amd64
@@ -259,9 +311,107 @@ jobs:
           name: npm-platform-${{ matrix.npm_platform }}
           path: bindings/nodejs/npm/${{ matrix.npm_platform }}/
 
+  # The release gate. Every publish job needs this, so a package whose native
+  # library would not load where the package says it does is never uploaded.
+  # It checks the finished wheels, npm packages and NuGet package rather than
+  # the build output, so a packaging step that picked up the wrong file, or
+  # none, fails here as well.
+  verify-packages:
+    name: Verify packaged native libraries
+    needs: [build-python-wheels, build-npm-platform-packages, build-nuget]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: verify/wheels/
+          merge-multiple: true
+
+      - name: Download npm platform packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: npm-platform-*
+          path: verify/npm/
+
+      - name: Download NuGet package
+        uses: actions/download-artifact@v4
+        with:
+          name: nuget-package
+          path: verify/nuget/
+
+      - name: Check every packaged library
+        run: |
+          # download-artifact names each npm folder after its artifact.
+          for d in verify/npm/npm-platform-*; do mv "$d" "verify/npm/${d#verify/npm/npm-platform-}"; done
+          python3 bindings/clib/verify_packages.py --wheels verify/wheels --npm verify/npm --nuget verify/nuget
+
+  # Install each wheel on its own OS and use it, the way a user's first call
+  # does. Windows runs with PATH limited to the system directories, and Linux
+  # in manylinux2014, at the oldest glibc the wheel claims.
+  smoke-test-wheels:
+    name: Smoke-test wheel (${{ matrix.wheel }})
+    needs: build-python-wheels
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - wheel: manylinux_2_17_x86_64
+            runner: ubuntu-latest
+            image: quay.io/pypa/manylinux2014_x86_64
+          - wheel: manylinux_2_17_aarch64
+            runner: ubuntu-24.04-arm
+            image: quay.io/pypa/manylinux2014_aarch64
+          - wheel: macosx_12_0_arm64
+            runner: macos-14
+          - wheel: win_amd64
+            runner: windows-latest
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: wheels/
+          merge-multiple: true
+
+      - name: Install and use the wheel (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD/wheels:/wheels" ${{ matrix.image }} bash -c '
+            set -e
+            py=/opt/python/cp39-cp39/bin/python
+            $py -m pip install --no-index /wheels/*-${{ matrix.wheel }}.whl
+            $py -c "import httpcloak; s = httpcloak.Session(); s.close(); print(\"httpcloak\", httpcloak.version(), \"loaded\")"'
+
+      - name: Set up Python
+        if: runner.os != 'Linux'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install and use the wheel (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          python -m pip install --no-index wheels/*-${{ matrix.wheel }}.whl
+          python -c "import httpcloak; s = httpcloak.Session(); s.close(); print('httpcloak', httpcloak.version(), 'loaded')"
+
+      - name: Install and use the wheel (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $whl = Get-ChildItem wheels\*-${{ matrix.wheel }}.whl
+          python -m pip install --no-index $whl.FullName
+          $py = (Get-Command python).Source
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          & $py -c "import httpcloak; s = httpcloak.Session(); s.close(); print('httpcloak', httpcloak.version(), 'loaded')"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
   publish-pypi:
     name: Publish to PyPI
-    needs: build-python-wheels
+    needs: [build-python-wheels, verify-packages, smoke-test-wheels]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     environment: pypi
@@ -286,7 +436,7 @@ jobs:
 
   publish-npm-platforms:
     name: Publish npm platform packages
-    needs: build-npm-platform-packages
+    needs: [build-npm-platform-packages, verify-packages, smoke-test-wheels]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     environment: npm
@@ -413,7 +563,7 @@ jobs:
 
   publish-nuget:
     name: Publish to NuGet
-    needs: build-nuget
+    needs: [build-nuget, verify-packages, smoke-test-wheels]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     environment: nuget
