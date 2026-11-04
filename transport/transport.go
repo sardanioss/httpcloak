@@ -2907,26 +2907,53 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request, protocol string) {
 	// full slice expressions, one allocation instead of one per header, with
 	// every entry as isolated as a separate copy; see buildHeadersMap for
 	// why a multi-value entry pushing past the size hint stays correct.
+	//
+	// Two caller keys that differ only in case are one header, as they are in
+	// a browser's Headers object, and exactly one of them goes out: the lowest
+	// key, so the choice never depends on map order. Sending both would put
+	// the field on the wire twice, two Authorization lines for a session-level
+	// Authorization and a per-request authorization. The bindings resolve
+	// that pair before it gets here; this keeps any other caller from
+	// producing it.
 	keepCasing := protocol == "h1"
 	backing := make([]string, 0, len(req.Headers))
+	type placed struct{ canonical, key, name string }
+	var placedBuf [16]placed
+	seen := placedBuf[:0]
 	for key, values := range req.Headers {
 		if len(values) == 0 {
 			continue
 		}
-		start := len(backing)
-		backing = append(backing, values...)
-		name := canonicalHeaderName(key)
-		if keepCasing && name != key && !browserCasedHeader(name) {
+		canonical := canonicalHeaderName(key)
+		dup := -1
+		for i := range seen {
+			if seen[i].canonical == canonical {
+				dup = i
+				break
+			}
+		}
+		if dup >= 0 {
+			if key > seen[dup].key {
+				continue
+			}
+			delete(httpReq.Header, seen[dup].name)
+		}
+		name := canonical
+		if keepCasing && canonical != key && !browserCasedHeader(canonical) {
 			// The caller's spelling replaces an entry under the canonical
 			// name, which a custom preset can carry, or the wire would get the
-			// header twice. One the caller wrote in that spelling as well is
-			// theirs, and both go out.
-			if len(req.Headers[name]) == 0 {
-				delete(httpReq.Header, name)
-			}
+			// header twice.
+			delete(httpReq.Header, canonical)
 			name = key
 		}
+		start := len(backing)
+		backing = append(backing, values...)
 		httpReq.Header[name] = backing[start:len(backing):len(backing)]
+		if dup >= 0 {
+			seen[dup] = placed{canonical, key, name}
+		} else {
+			seen = append(seen, placed{canonical, key, name})
+		}
 	}
 }
 

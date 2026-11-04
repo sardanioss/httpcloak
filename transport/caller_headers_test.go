@@ -155,10 +155,20 @@ func TestMergeCallerHeadersHTTP1Casing(t *testing.T) {
 			want:    http.Header{"x-client-version": {"caller"}},
 		},
 		{
-			name:    "both spellings from the caller both go out",
+			name:    "two spellings from the caller are one header",
 			base:    http.Header{"X-Dup": {"preset"}},
 			headers: map[string][]string{"x-dup": {"lower"}, "X-Dup": {"canonical"}},
-			want:    http.Header{"x-dup": {"lower"}, "X-Dup": {"canonical"}},
+			want:    http.Header{"X-Dup": {"canonical"}},
+		},
+		{
+			name:    "two custom spellings send the lowest one",
+			headers: map[string][]string{"x-trace": {"b"}, "X-trace": {"a"}, "x-Trace": {"c"}},
+			want:    http.Header{"X-trace": {"a"}},
+		},
+		{
+			name:    "a browser-cased name is never sent twice",
+			headers: map[string][]string{"Authorization": {"Bearer a"}, "authorization": {"Bearer b"}},
+			want:    http.Header{"Authorization": {"Bearer a"}},
 		},
 		{
 			name:    "an invalid name is untouched",

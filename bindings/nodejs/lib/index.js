@@ -1884,7 +1884,22 @@ class Session {
     if (!this.headers || Object.keys(this.headers).length === 0) {
       return headers;
     }
-    return { ...this.headers, ...headers };
+    // Header names are case-insensitive: a request's "authorization" replaces
+    // the session's "Authorization" instead of going out beside it as a second
+    // Authorization line.
+    const merged = { ...this.headers };
+    if (headers) {
+      const names = new Map(Object.keys(merged).map((k) => [k.toLowerCase(), k]));
+      for (const [key, value] of Object.entries(headers)) {
+        const previous = names.get(key.toLowerCase());
+        if (previous !== undefined && previous !== key) {
+          delete merged[previous];
+        }
+        merged[key] = value;
+        names.set(key.toLowerCase(), key);
+      }
+    }
+    return merged;
   }
 
   /**
@@ -1903,11 +1918,14 @@ class Session {
       .join("; ");
 
     headers = headers ? { ...headers } : {};
-    const existing = headers["Cookie"] || "";
+    // Merge with an existing Cookie header in whatever case it was given, so a
+    // caller's "cookie" and these don't become two Cookie headers.
+    const key = Object.keys(headers).find((k) => k.toLowerCase() === "cookie") || "Cookie";
+    const existing = headers[key] || "";
     if (existing) {
-      headers["Cookie"] = `${existing}; ${cookieStr}`;
+      headers[key] = `${existing}; ${cookieStr}`;
     } else {
-      headers["Cookie"] = cookieStr;
+      headers[key] = cookieStr;
     }
     return headers;
   }

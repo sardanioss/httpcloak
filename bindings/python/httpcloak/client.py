@@ -2060,7 +2060,16 @@ class Session:
             return None
         merged = dict(self.headers)
         if headers:
-            merged.update(headers)
+            # Header names are case-insensitive: a request's "authorization"
+            # replaces the session's "Authorization" instead of going out
+            # beside it as a second Authorization line.
+            names = {k.lower(): k for k in merged}
+            for key, value in headers.items():
+                previous = names.get(key.lower())
+                if previous is not None and previous != key:
+                    del merged[previous]
+                merged[key] = value
+                names[key.lower()] = key
         return merged if merged else None
 
     def _apply_cookies(
@@ -2074,12 +2083,14 @@ class Session:
         cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
 
         headers = headers.copy() if headers else {}
-        # Merge with existing Cookie header if present
-        existing = headers.get("Cookie", "")
+        # Merge with an existing Cookie header in whatever case it was given,
+        # so a caller's "cookie" and these don't become two Cookie headers.
+        key = next((k for k in headers if k.lower() == "cookie"), "Cookie")
+        existing = headers.get(key, "")
         if existing:
-            headers["Cookie"] = f"{existing}; {cookie_str}"
+            headers[key] = f"{existing}; {cookie_str}"
         else:
-            headers["Cookie"] = cookie_str
+            headers[key] = cookie_str
         return headers
 
     def _streaming_upload(
