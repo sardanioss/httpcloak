@@ -19,6 +19,7 @@ import (
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/internal/h2build"
+	"github.com/sardanioss/httpcloak/internal/respheader"
 	"github.com/sardanioss/httpcloak/proxy"
 	"github.com/sardanioss/net/http2"
 	tls "github.com/sardanioss/utls"
@@ -79,6 +80,12 @@ type HTTP2Transport struct {
 	insecureSkipVerify   bool
 	tlsVerify            *TLSVerify
 	localAddr            string // Local IP to bind outgoing connections
+
+	// canonicalHeadersForTest makes the transport behave as releases before
+	// WireCaseResponseHeaders did: connections are built with it off and no
+	// trace is layered for 1xx maps. Tests set it to get the reference that
+	// RoundTrip is compared against; nothing else does.
+	canonicalHeadersForTest bool
 
 	// Cleanup
 	stopCleanup     chan struct{}
@@ -348,15 +355,41 @@ func connClosing(c *persistentConn) bool {
 }
 
 // RoundTrip implements http.RoundTripper
+//
+// The response's Header is keyed in canonical form, exactly as it was before
+// the connection started asking the HTTP/2 layer for the wire's lowercase names
+// (WireCaseResponseHeaders), so Header.Get, Cookies and Location work as they
+// do on any net/http response. Trailers are canonical as always, and the 1xx
+// header maps a ClientTrace's Got1xxResponse receives are canonical too. Only
+// this exported entry point converts: the Transport's own requests keep the
+// wire case, because they lowercase every name for Response.Headers anyway.
 func (t *HTTP2Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, _, err := t.roundTrip(req)
-	return resp, err
+	if err != nil {
+		return nil, err
+	}
+	respheader.Canonical(resp.Header)
+	return resp, nil
 }
 
 // roundTrip is RoundTrip, also saying whether any of the request may have
 // reached the server. sent is false only when no connection could be had for
 // the first attempt, so nothing was written.
+//
+// The response's Header is keyed as the wire carried it. Callers inside this
+// package read it through internal/respheader or by exact key; RoundTrip
+// converts it for everyone else.
 func (t *HTTP2Transport) roundTrip(req *http.Request) (resp *http.Response, sent bool, err error) {
+	// A 1xx map reaches a caller's trace during the round trip, so it is made
+	// canonical here, on every path, rather than at RoundTrip's return. The
+	// request the response records is put back to the caller's below.
+	if !t.canonicalHeadersForTest {
+		if ctx, ok := respheader.WithCanonical1xx(req.Context()); ok {
+			orig, copied := req, req.WithContext(ctx)
+			req = copied
+			defer func() { respheader.RestoreRequest(resp, copied, orig) }()
+		}
+	}
 	t.connsMu.RLock()
 	if t.closed {
 		t.connsMu.RUnlock()
@@ -1037,6 +1070,9 @@ alpnCheck:
 			return nil
 		}(),
 	})
+	if t.canonicalHeadersForTest {
+		h2Transport.WireCaseResponseHeaders = false
+	}
 
 	h2Conn, err := h2Transport.NewClientConn(tlsConn)
 	if err != nil {

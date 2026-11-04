@@ -50,6 +50,7 @@ import (
 	"errors"
 	"fmt"
 	http "github.com/sardanioss/http"
+	"github.com/sardanioss/httpcloak/internal/respheader"
 	"io"
 	"math"
 	"math/rand"
@@ -159,6 +160,8 @@ func NewClient(presetName string, opts ...Option) *Client {
 	} else {
 		h2Manager = pool.NewManagerWithTLSConfig(preset, config.InsecureSkipVerify)
 	}
+	// This client reads response maps through respheader, so its pool skips the canonical-key conversion.
+	respheader.KeepWireCase(h2Manager)
 
 	// Set IPv4 preference on DNS cache if configured
 	if config.PreferIPv4 {
@@ -1204,7 +1207,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	}
 
 	// Store cookies from response
-	setCookies := resp.Header["Set-Cookie"]
+	setCookies := respheader.SetCookie(resp.Header)
 	if c.cookies != nil && len(setCookies) > 0 {
 		c.cookies.SetCookiesFromHeaderList(parsedURL, setCookies)
 	}
@@ -1232,7 +1235,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 			}
 
 			// Get redirect location
-			location := resp.Header.Get("Location")
+			location := respheader.Location(resp.Header)
 			if location == "" {
 				return nil, fmt.Errorf("redirect response missing Location header")
 			}
@@ -1355,6 +1358,10 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 
 	// Handle 401 with Digest auth (challenge-response)
 	if resp.StatusCode == http.StatusUnauthorized && auth != nil {
+		// Auth is an interface a caller can implement, so the response it is
+		// handed is keyed canonically, as it was before this client took the
+		// HTTP/2 map in wire case.
+		respheader.Canonical(resp.Header)
 		shouldRetry, err := auth.HandleChallenge(resp, httpReq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to handle auth challenge: %w", err)
@@ -1381,7 +1388,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	}
 
 	// Decompress if needed
-	contentEncoding := resp.Header.Get("Content-Encoding")
+	contentEncoding := respheader.ContentEncoding(resp.Header)
 	respBody, err = decompress(respBody, contentEncoding)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decompress response: %w", err)

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	http "github.com/sardanioss/http"
+	"github.com/sardanioss/httpcloak/internal/respheader"
 	"strings"
 )
 
@@ -84,7 +85,7 @@ func (a *DigestAuth) HandleChallenge(resp *http.Response, req *http.Request) (bo
 		return false, nil
 	}
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	wwwAuth := respheader.WWWAuthenticate(resp.Header)
 	if wwwAuth == "" || !strings.HasPrefix(strings.ToLower(wwwAuth), "digest ") {
 		return false, nil
 	}
