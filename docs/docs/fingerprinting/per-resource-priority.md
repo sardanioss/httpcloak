@@ -50,7 +50,7 @@ Three more differences come with it, and a preset's `priority_model` (`chromium`
 
 - **Who decides the weight.** On the `chromium` model a request that sets its own `priority` header gets the weight that goes with that urgency, as Chrome does for a `fetch()` with a priority hint. On the `table` model the weight always comes from the table entry, whatever header the request carries.
 - **Stream dependencies.** Chrome never names stream 0 as the parent once two requests overlap on a connection: each new stream depends, exclusively, on the newest open stream at the same or a higher priority, so the tree is one chain. The `chromium` model builds that chain. Firefox names stream 0, never exclusive, and so does the `table` model.
-- **HTTP/1.1.** Chrome sends no priority header over HTTP/1.1, and Firefox sends the same one it sends over HTTP/2. Chrome on iOS runs on WebKit and sends none there either. A preset can state this outright with `priority_over_http1`.
+- **HTTP/1.1.** Chrome sends no priority header over HTTP/1.1, and Firefox sends the same one it sends over HTTP/2. Chrome on iOS runs on WebKit and sends none there either. A preset can state this outright with `priority_over_http1`. On a preset that sends none, a `priority` you set yourself is dropped on HTTP/1.1 too, so the value meant for HTTP/2 does not leak when a request falls back. Exact-headers and TLS-only requests go out as you composed them.
 
 Leave `priority_model` out and it is derived from `stream_exclusive`, which only Chromium sets. A table entry can also carry its own `weight` (1 to 256), which overrides the one derived from the urgency; that is how the Firefox table is written.
 

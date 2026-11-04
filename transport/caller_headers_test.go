@@ -58,7 +58,9 @@ func TestCanonicalHeaderName(t *testing.T) {
 
 // TestMergeCallerHeaders checks the direct-assignment merge against the
 // documented fold: for each caller name the first value replaces whatever the
-// preset pipeline produced and the rest append, under the canonical key.
+// preset pipeline produced and the rest append, under the canonical key. That
+// is every protocol's behaviour but HTTP/1.1's, which keeps a caller's own
+// spelling; see TestMergeCallerHeadersHTTP1Casing.
 func TestMergeCallerHeaders(t *testing.T) {
 	base := http.Header{
 		"User-Agent":     {"preset-agent"},
@@ -95,25 +97,111 @@ func TestMergeCallerHeaders(t *testing.T) {
 			"bad key": {"v"},
 		}},
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := &http.Request{Header: base.Clone()}
-			mergeCallerHeaders(got, &Request{Headers: c.headers})
+	for _, proto := range []string{"h2", "h3"} {
+		for _, c := range cases {
+			t.Run(proto+"/"+c.name, func(t *testing.T) {
+				got := &http.Request{Header: base.Clone()}
+				mergeCallerHeaders(got, &Request{Headers: c.headers}, proto)
 
-			want := base.Clone()
-			for key, values := range c.headers {
-				for i, value := range values {
-					if i == 0 {
-						want.Set(key, value)
-					} else {
-						want.Add(key, value)
+				want := base.Clone()
+				for key, values := range c.headers {
+					for i, value := range values {
+						if i == 0 {
+							want.Set(key, value)
+						} else {
+							want.Add(key, value)
+						}
 					}
 				}
-			}
-			if !reflect.DeepEqual(got.Header, want) {
-				t.Errorf("mergeCallerHeaders(%v) header =\n%v\nwant\n%v", c.headers, got.Header, want)
+				if !reflect.DeepEqual(got.Header, want) {
+					t.Errorf("mergeCallerHeaders(%v) header =\n%v\nwant\n%v", c.headers, got.Header, want)
+				}
+			})
+		}
+	}
+}
+
+// On HTTP/1.1 the caller's own header keeps its spelling, and a name the
+// browser writes itself stays canonical so it still lands on the preset's
+// entry rather than beside it.
+func TestMergeCallerHeadersHTTP1Casing(t *testing.T) {
+	cases := []struct {
+		name    string
+		base    http.Header
+		headers map[string][]string
+		want    http.Header
+	}{
+		{
+			name:    "a custom name keeps its spelling",
+			headers: map[string][]string{"x-queueit-qpage-referral": {""}, "X-Requested-With": {"XMLHttpRequest"}, "X-mixed-Case": {"1"}},
+			want:    http.Header{"x-queueit-qpage-referral": {""}, "X-Requested-With": {"XMLHttpRequest"}, "X-mixed-Case": {"1"}},
+		},
+		{
+			name: "a browser-written name lands on the preset's entry",
+			base: http.Header{"User-Agent": {"preset"}, "Accept": {"text/html"}, "Sec-Fetch-Dest": {"document"}},
+			headers: map[string][]string{
+				"user-agent": {"caller"}, "accept": {"*/*"}, "sec-fetch-dest": {"empty"},
+				"cookie": {"a=1"}, "connection": {"close"}, "proxy-authorization": {"x"},
+			},
+			want: http.Header{
+				"User-Agent": {"caller"}, "Accept": {"*/*"}, "Sec-Fetch-Dest": {"empty"},
+				"Cookie": {"a=1"}, "Connection": {"close"}, "Proxy-Authorization": {"x"},
+			},
+		},
+		{
+			name:    "a custom preset header is replaced, not duplicated",
+			base:    http.Header{"X-Client-Version": {"preset"}},
+			headers: map[string][]string{"x-client-version": {"caller"}},
+			want:    http.Header{"x-client-version": {"caller"}},
+		},
+		{
+			name:    "both spellings from the caller both go out",
+			base:    http.Header{"X-Dup": {"preset"}},
+			headers: map[string][]string{"x-dup": {"lower"}, "X-Dup": {"canonical"}},
+			want:    http.Header{"x-dup": {"lower"}, "X-Dup": {"canonical"}},
+		},
+		{
+			name:    "an invalid name is untouched",
+			headers: map[string][]string{"bad key": {"v"}},
+			want:    http.Header{"bad key": {"v"}},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Run it repeatedly: the merge ranges over a map, and the result must
+			// not depend on the order it is handed.
+			for range 20 {
+				got := &http.Request{Header: c.base.Clone()}
+				if got.Header == nil {
+					got.Header = http.Header{}
+				}
+				mergeCallerHeaders(got, &Request{Headers: c.headers}, "h1")
+				if !reflect.DeepEqual(got.Header, c.want) {
+					t.Fatalf("mergeCallerHeaders(%v) header =\n%v\nwant\n%v", c.headers, got.Header, c.want)
+				}
 			}
 		})
+	}
+}
+
+// Every name a built-in preset places has to be browser-cased, or a caller
+// passing it in lowercase would see its casing change on HTTP/1.1. This keeps
+// the list in browserCasedHeader from falling behind the preset tables.
+func TestBrowserCasedHeaderCoversPresetTables(t *testing.T) {
+	for _, name := range fingerprint.Available() {
+		p := fingerprint.Get(name)
+		names := append(append([]string(nil), p.H2HeaderOrder()...), p.H2HeaderOrderFor("script")...)
+		for _, hp := range p.HeaderOrder {
+			names = append(names, hp.Key)
+		}
+		for key := range p.Headers {
+			names = append(names, key)
+		}
+		for _, h := range names {
+			if !browserCasedHeader(http.CanonicalHeaderKey(h)) {
+				t.Errorf("%s places %q, which browserCasedHeader does not cover", name, h)
+			}
+		}
 	}
 }
 
@@ -121,9 +209,9 @@ func TestMergeCallerHeadersExactHeadersNoOp(t *testing.T) {
 	httpReq := &http.Request{Header: http.Header{"User-Agent": {"preset-agent"}}}
 	want := httpReq.Header.Clone()
 	mergeCallerHeaders(httpReq, &Request{
-		Headers:      map[string][]string{"accept": {"application/json"}},
+		Headers:      map[string][]string{"accept": {"application/json"}, "x-custom": {"1"}},
 		ExactHeaders: []fingerprint.HeaderPair{{Key: "user-agent", Value: "exact"}},
-	})
+	}, "h1")
 	if !reflect.DeepEqual(httpReq.Header, want) {
 		t.Errorf("mergeCallerHeaders under ExactHeaders mutated the header: got %v, want %v", httpReq.Header, want)
 	}
@@ -140,7 +228,7 @@ func TestMergeCallerHeadersIsolation(t *testing.T) {
 		"content-type": {"text/plain"},
 	}
 	httpReq := &http.Request{Header: http.Header{}}
-	mergeCallerHeaders(httpReq, &Request{Headers: headers})
+	mergeCallerHeaders(httpReq, &Request{Headers: headers}, "h2")
 
 	before := map[string][]string{}
 	for k, v := range httpReq.Header {

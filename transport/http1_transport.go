@@ -1251,7 +1251,13 @@ func canonicalHeaderKey(s string) string {
 // Go's canonical form (Sec-Ch-Ua) diverges from Chrome's lowercase, so we map it
 // back here. The argument is the canonical map key; the value lookup still uses
 // the canonical key.
+//
+// Do Not Track is the other name Go's canonical form gets wrong: Chrome and
+// Firefox both send DNT, and a page cannot set it, so no browser sends Dnt.
 func h1WireHeaderName(canonicalKey string) string {
+	if canonicalKey == "Dnt" {
+		return "DNT"
+	}
 	lower := strings.ToLower(canonicalKey)
 	if strings.HasPrefix(lower, "sec-ch-") {
 		return lower

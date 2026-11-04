@@ -2036,7 +2036,8 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 	// Pass "h1" protocol so Chrome presets don't send Priority header on HTTP/1.1
 	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	mergeCallerHeaders(httpReq, req)
+	mergeCallerHeaders(httpReq, req, "h1")
+	stripH1Priority(httpReq, req, snap.preset, effectiveTLSOnly)
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -2141,7 +2142,8 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	// Set preset headers - pass "h1" protocol so Chrome presets don't send Priority header
 	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	mergeCallerHeaders(httpReq, req)
+	mergeCallerHeaders(httpReq, req, "h1")
+	stripH1Priority(httpReq, req, snap.preset, effectiveTLSOnly)
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -2253,7 +2255,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	// Set preset headers (with ordering for fingerprinting)
 	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	mergeCallerHeaders(httpReq, req)
+	mergeCallerHeaders(httpReq, req, "h2")
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -2394,7 +2396,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	// Set preset headers (with ordering for fingerprinting)
 	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
 
-	mergeCallerHeaders(httpReq, req)
+	mergeCallerHeaders(httpReq, req, "h3")
 
 	// Record timing before request
 	reqStart := time.Now()
@@ -2872,6 +2874,14 @@ func applyExactHeaders(httpReq *http.Request, exact []fingerprint.HeaderPair, pr
 // produced. The first value replaces, the rest append, so a caller can both
 // override a preset header and send one name twice.
 //
+// On HTTP/1.1 a header of the caller's own keeps the caller's spelling, which
+// is what Chrome does with a header a page set: X-Requested-With from jQuery
+// and x-queueit-qpage-referral from Queue-it go out exactly so. Names the
+// browser writes itself stay canonical; see browserCasedHeader. HTTP/1.1 is
+// the only protocol where the spelling reaches the wire. HTTP/2 and HTTP/3
+// lowercase every name, so there the canonical key changes nothing a server
+// sees.
+//
 // It is a no-op under ExactHeaders. That mode promises the wire carries the
 // listed pairs and nothing else, and req.Headers is not only what the caller
 // passed for this request: the session writes the cookie jar's Cookie header
@@ -2883,7 +2893,7 @@ func applyExactHeaders(httpReq *http.Request, exact []fingerprint.HeaderPair, pr
 // gives every pair its own slot in the order list and the encoders hand slot i
 // value i, so a Set or an Add here would leave the order list and the value
 // slices it indexes out of step with no error anywhere.
-func mergeCallerHeaders(httpReq *http.Request, req *Request) {
+func mergeCallerHeaders(httpReq *http.Request, req *Request, protocol string) {
 	if len(req.ExactHeaders) > 0 {
 		return
 	}
@@ -2897,6 +2907,7 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request) {
 	// full slice expressions, one allocation instead of one per header, with
 	// every entry as isolated as a separate copy; see buildHeadersMap for
 	// why a multi-value entry pushing past the size hint stays correct.
+	keepCasing := protocol == "h1"
 	backing := make([]string, 0, len(req.Headers))
 	for key, values := range req.Headers {
 		if len(values) == 0 {
@@ -2904,8 +2915,65 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request) {
 		}
 		start := len(backing)
 		backing = append(backing, values...)
-		httpReq.Header[canonicalHeaderName(key)] = backing[start:len(backing):len(backing)]
+		name := canonicalHeaderName(key)
+		if keepCasing && name != key && !browserCasedHeader(name) {
+			// The caller's spelling replaces an entry under the canonical
+			// name, which a custom preset can carry, or the wire would get the
+			// header twice. One the caller wrote in that spelling as well is
+			// theirs, and both go out.
+			if len(req.Headers[name]) == 0 {
+				delete(httpReq.Header, name)
+			}
+			name = key
+		}
+		httpReq.Header[name] = backing[start:len(backing):len(backing)]
 	}
+}
+
+// browserCasedHeader reports whether a header, named by its canonical key, is
+// one whose HTTP/1.1 spelling is the browser's rather than the caller's.
+//
+// A page cannot set the Fetch spec's forbidden request headers, every Sec- and
+// Proxy- name among them, nor User-Agent, which Chrome still refuses, so no
+// browser request carries those in any casing but the browser's own. The
+// HTTP/1.1 writer also finds Connection and Content-Length by canonical key,
+// and spells Dnt as Chrome does; see h1WireHeaderName. The rest are the names
+// the built-in presets place, which a caller passing lowercase names has always
+// had sent canonically, and still does, and Range and If-Range, which Chrome's
+// network stack writes itself for media and resumed downloads.
+func browserCasedHeader(name string) bool {
+	switch name {
+	case "Accept-Charset", "Accept-Encoding", "Access-Control-Request-Headers",
+		"Access-Control-Request-Method", "Access-Control-Request-Private-Network",
+		"Connection", "Content-Length", "Cookie", "Date", "Dnt", "Expect", "Host",
+		"Keep-Alive", "Origin", "Referer", "Set-Cookie", "Te", "Trailer",
+		"Transfer-Encoding", "Upgrade", "User-Agent", "Via":
+		return true
+	case "Accept", "Accept-Language", "Cache-Control", "Content-Type",
+		"If-Modified-Since", "If-None-Match", "Pragma", "Priority", "Upgrade-Insecure-Requests",
+		"Range", "If-Range":
+		return true
+	}
+	return strings.HasPrefix(name, "Sec-") || strings.HasPrefix(name, "Proxy-")
+}
+
+// stripH1Priority removes the priority header from an HTTP/1.1 request whose
+// preset sends none there; see SendsPriorityOverHTTP1.
+//
+// applyPresetHeaders drops the preset's own, but the caller's headers are
+// merged after it, so a caller's value went out regardless. A caller is the one
+// most likely to set it, correcting a value the per-destination table gets
+// wrong, and the request is composed before the protocol is known, so the
+// value meant for HTTP/2 reached HTTP/1.1 too. Priority is browser-cased, so
+// the merge has put every spelling under the canonical key.
+//
+// Exact and TLS-only requests are left alone: in both the caller composes the
+// header set, and the preset strip skips them too.
+func stripH1Priority(httpReq *http.Request, req *Request, preset *fingerprint.Preset, tlsOnly bool) {
+	if len(req.ExactHeaders) > 0 || tlsOnly || preset.SendsPriorityOverHTTP1() {
+		return
+	}
+	delete(httpReq.Header, "Priority")
 }
 
 // wireHeaderPair is one preset header ready to write: the key is already in
@@ -3076,7 +3144,8 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 
 		// Chromium does NOT send the priority header on HTTP/1.1, only on
 		// HTTP/2 and HTTP/3, and sending it there is a tell. See
-		// SendsPriorityOverHTTP1 for which presets that covers.
+		// SendsPriorityOverHTTP1 for which presets that covers. The caller's
+		// headers are merged after this; stripH1Priority runs once they are.
 		if protocol == "h1" && !preset.SendsPriorityOverHTTP1() {
 			delete(httpReq.Header, "Priority")
 		}
