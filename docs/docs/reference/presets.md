@@ -32,7 +32,7 @@ The `-latest` aliases point to the newest tracked version. They're not separate 
 | `firefox-latest-linux` | `firefox-148-linux` |
 | `firefox-latest-macos` | `firefox-148-macos` |
 | `safari-latest` | `safari-18` |
-| `safari-latest-ios` | `safari-18-ios` |
+| `safari-latest-ios` | `safari-26-ios` |
 
 iOS Chrome spells its version out in full, including a build number that cannot be
 derived from the major version, so each iOS preset is built from a real capture rather
@@ -44,7 +44,7 @@ The old-style names are kept for back-compat and follow the same targets:
 | Alias | Resolves to |
 |---|---|
 | `ios-chrome-latest` | `chrome-155-ios` |
-| `ios-safari-latest` | `safari-18-ios` |
+| `ios-safari-latest` | `safari-26-ios` |
 | `android-chrome-latest` | `chrome-155-android` |
 
 Version-pinned old-style names (`ios-chrome-NNN`, `android-chrome-NNN`) only exist for 143 through 148. For anything newer, use the `chrome-NNN-ios` / `chrome-NNN-android` spelling.
@@ -55,7 +55,7 @@ Version-pinned old-style names (`ios-chrome-NNN`, `android-chrome-NNN`) only exi
 
 ## Captured hashes (verified against tls.peet.ws)
 
-Re-measured `2026-10-13` from the Linux build host for the Chrome 152 to 155 rows; the older rows are from `2026-08-31`. Everything shows H2 because the endpoint used does not advertise H3.
+Re-measured `2026-10-13` from the Linux build host for the Chrome 152 to 155 rows; the older rows are from `2026-08-31`. The Safari 26 iOS row was verified against a phone capture and the Go build on `2026-10-19`. Everything shows H2 because the endpoint used does not advertise H3.
 
 | Preset | Protocol | JA3 hash | JA4 | Akamai HTTP/2 hash | PeetPrint |
 |---|---|---|---|---|---|
@@ -70,6 +70,7 @@ Re-measured `2026-10-13` from the Linux build host for the Chrome 152 to 155 row
 | `firefox-148` | h2 | `6f7889b9fb1a62a9577e685c1fcfa919` | `t13d1717h2_5b57614c22b0_3cbfd9057e0d` | `6ea73faa8fc5aac76bded7bd238f6433` | `89d89662b21018947a9a46658c4f5ede` |
 | `safari-18` | h2 | `c8af4d593e65bd6ba927ef9a0bdef541` | `t13d2013h2_a09f3c656075_7f0f34a4126d` | `90d8353e47699c4c38ecd773e9b5a089` | `62b834de729e78a9f0ebd1dd099314a7` |
 | `safari-18-ios` | h2 | `e7c59d91e34d9d83e510732edf732b83` | `t13d2013h2_a09f3c656075_7f0f34a4126d` | `90d8353e47699c4c38ecd773e9b5a089` | `62b834de729e78a9f0ebd1dd099314a7` |
+| `safari-26-ios` | h2 | `ecdf4f49dd59effc439639da29186671` | `t13d2013h2_a09f3c656075_7f0f34a4126d` | `c52879e43202aeb92740be6e8c86ea96` | `62b834de729e78a9f0ebd1dd099314a7` |
 
 Notes:
 
@@ -213,10 +214,11 @@ Safari macOS:
 
 | Preset | UA | TLS | Notes |
 |---|---|---|---|
+| `safari-26-ios` | `...iPhone OS 18_7...Version/26.6.1 Mobile/15E148 Safari/604.1` | `HelloIOS_18` | Captured H2; HTTP/3 disabled pending a QUIC capture. |
 | `safari-18-ios` | `Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1` | `HelloIOS_18` | H3 via `HelloIOS_18_QUIC`. |
 | `safari-17-ios` | `...iPhone OS 17_0...Version/17.0 Mobile...` | `HelloIOS_17` | Older variant; H1 / H2 only (no proper H3 TLS spec for iOS Safari 17). |
 
-iOS Safari shares the H2 fingerprint with macOS Safari but ships a slightly different TLS extension order. The difference shows up in JA3 and disappears in JA4.
+The Safari 18 iOS and desktop presets share the older H2 fingerprint. Safari 26 iOS has the captured H2 changes described below.
 
 ---
 
@@ -253,3 +255,23 @@ Rough guide based on what you're aiming for:
 For sites that fingerprint the TCP/IP stack (rare, but a few bot-management products do), pair the preset with `WithTCPFingerprint(...)` to spoof TTL, window size, and MSS.
 
 For everything else, start with `chrome-latest`, capture against `tls.peet.ws/api/all`, compare against a real Chrome on the same OS, and file an issue if JA3, Akamai, or JA4 doesn't match.
+
+### Safari 26 on iOS
+
+`safari-26-ios` and `ios-safari-26` reproduce a Safari 26.6.1 iPhone HTTP/2
+capture from October 19, 2026. Both iOS Safari latest aliases now select it.
+Desktop Safari and explicit Safari 17/18 presets retain their existing profiles.
+
+TLS uses the existing `HelloIOS_18` implementation. The captured JA3 is
+`ecdf4f49dd59effc439639da29186671`, JA4 is
+`t13d2013h2_a09f3c656075_7f0f34a4126d`, and Peetprint is
+`62b834de729e78a9f0ebd1dd099314a7`. The HTTP/2 fingerprint is
+`2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p`, with no PRIORITY field
+on HEADERS. Navigation uses the captured Safari 26.6.1 UA, header order,
+`priority: u=0, i`, and `gzip, deflate, br, zstd`, without `sec-fetch-user`.
+
+The source capture used `en-AU,en;q=0.9`; the preset keeps the library's
+`en-US,en;q=0.9` default. Override Accept-Language to reproduce that locale.
+HTTP/3 is disabled for this preset because no QUIC capture was supplied.
+The sanitized reference in `fingerprint/testdata/safari-26-ios-capture.json`
+contains no IP addresses, cookies, TLS randoms, session IDs or key-share bytes.

@@ -1310,6 +1310,7 @@ export const Preset: {
   SAFARI_18: string;
   SAFARI_17_IOS: string;
   SAFARI_18_IOS: string;
+  SAFARI_26_IOS: string;
   SAFARI_LATEST_IOS: string;
 
   // Backwards compatibility aliases (old "ios-chrome" / "android-chrome" naming)
@@ -1329,6 +1330,7 @@ export const Preset: {
   ANDROID_CHROME_LATEST: string;
   IOS_SAFARI_17: string;
   IOS_SAFARI_18: string;
+  IOS_SAFARI_26: string;
   IOS_SAFARI_LATEST: string;
 
   all(): string[];

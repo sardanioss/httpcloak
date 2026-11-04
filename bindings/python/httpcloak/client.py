@@ -294,6 +294,7 @@ class Preset:
     SAFARI_18 = "safari-18"
     SAFARI_17_IOS = "safari-17-ios"
     SAFARI_18_IOS = "safari-18-ios"
+    SAFARI_26_IOS = "safari-26-ios"
     SAFARI_LATEST_IOS = "safari-latest-ios"
 
     # Backwards compatibility aliases (old naming convention used "ios-chrome" / "android-chrome" prefix)
@@ -313,6 +314,7 @@ class Preset:
     ANDROID_CHROME_LATEST = CHROME_LATEST_ANDROID
     IOS_SAFARI_17 = SAFARI_17_IOS
     IOS_SAFARI_18 = SAFARI_18_IOS
+    IOS_SAFARI_26 = SAFARI_26_IOS
     IOS_SAFARI_LATEST = SAFARI_LATEST_IOS
 
     @classmethod

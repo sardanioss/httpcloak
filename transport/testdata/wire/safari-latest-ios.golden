@@ -65,59 +65,60 @@ ext GREASE: 00
 
 ## http/2
 connections 1, settings acks 1
-SETTINGS 2=0 4=2097152 3=100 5=16384 9=1
-WINDOW_UPDATE stream=0 increment=10485760
-HEADERS stream=1 flags=0x25 exclusive=false dep=0 weight=255
+SETTINGS 2=0 3=100 4=2097152 9=1
+WINDOW_UPDATE stream=0 increment=10420225
+HEADERS stream=1 flags=0x5
   indexed 2                                                    :method: GET
   indexed 7                                                    :scheme: https
-  incremental name=4 value-huffman=false                       :path: /a
   incremental name=1 value-huffman=true                        :authority: 127.0.0.1:PORT
-  incremental name=19 value-huffman=true                       accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+  incremental name=4 value-huffman=false                       :path: /a
   incremental name=literal huffman=true value-huffman=true     sec-fetch-dest: document
-  incremental name=literal huffman=true value-huffman=true     sec-fetch-mode: navigate
+  incremental name=58 value-huffman=true                       user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1
+  incremental name=19 value-huffman=true                       accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
   incremental name=literal huffman=true value-huffman=true     sec-fetch-site: none
-  incremental name=literal huffman=true value-huffman=false    sec-fetch-user: ?1
+  incremental name=literal huffman=true value-huffman=true     sec-fetch-mode: navigate
   incremental name=17 value-huffman=true                       accept-language: en-US,en;q=0.9
-  incremental name=16 value-huffman=true                       accept-encoding: gzip, deflate, br
-  incremental name=58 value-huffman=true                       user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1
-HEADERS stream=3 flags=0x25 exclusive=false dep=0 weight=255
+  incremental name=literal huffman=true value-huffman=true     priority: u=0, i
+  incremental name=16 value-huffman=true                       accept-encoding: gzip, deflate, br, zstd
+HEADERS stream=3 flags=0x5
   indexed 2                                                    :method: GET
   indexed 7                                                    :scheme: https
-  incremental name=4 value-huffman=true                        :path: /b?q=1
   indexed 71                                                   :authority: 127.0.0.1:PORT
-  indexed 70                                                   accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
-  indexed 69                                                   sec-fetch-dest: document
-  indexed 68                                                   sec-fetch-mode: navigate
+  incremental name=4 value-huffman=true                        :path: /b?q=1
+  indexed 70                                                   sec-fetch-dest: document
+  indexed 69                                                   user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1
+  indexed 68                                                   accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
   indexed 67                                                   sec-fetch-site: none
-  indexed 66                                                   sec-fetch-user: ?1
+  indexed 66                                                   sec-fetch-mode: navigate
   indexed 65                                                   accept-language: en-US,en;q=0.9
-  indexed 64                                                   accept-encoding: gzip, deflate, br
-  indexed 63                                                   user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1
-HEADERS stream=5 flags=0x25 exclusive=false dep=0 weight=255
+  indexed 64                                                   priority: u=0, i
+  indexed 63                                                   accept-encoding: gzip, deflate, br, zstd
+HEADERS stream=5 flags=0x5
   indexed 2                                                    :method: GET
   indexed 7                                                    :scheme: https
-  incremental name=4 value-huffman=true                        :path: /b?q=2
   indexed 72                                                   :authority: 127.0.0.1:PORT
-  indexed 71                                                   accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
-  indexed 70                                                   sec-fetch-dest: document
-  indexed 69                                                   sec-fetch-mode: navigate
+  incremental name=4 value-huffman=true                        :path: /b?q=2
+  indexed 71                                                   sec-fetch-dest: document
+  indexed 70                                                   user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1
+  indexed 69                                                   accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
   indexed 68                                                   sec-fetch-site: none
-  indexed 67                                                   sec-fetch-user: ?1
+  indexed 67                                                   sec-fetch-mode: navigate
   indexed 66                                                   accept-language: en-US,en;q=0.9
-  indexed 65                                                   accept-encoding: gzip, deflate, br
-  indexed 64                                                   user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1
-HEADERS stream=7 flags=0x24 exclusive=false dep=0 weight=255
+  indexed 65                                                   priority: u=0, i
+  indexed 64                                                   accept-encoding: gzip, deflate, br, zstd
+HEADERS stream=7 flags=0x4
   indexed 3                                                    :method: POST
   indexed 7                                                    :scheme: https
-  incremental name=4 value-huffman=false                       :path: /c
   indexed 73                                                   :authority: 127.0.0.1:PORT
-  incremental name=19 value-huffman=false                      accept: */*
+  incremental name=4 value-huffman=false                       :path: /c
   incremental name=72 value-huffman=true                       sec-fetch-dest: empty
-  incremental name=72 value-huffman=true                       sec-fetch-mode: cors
-  incremental name=72 value-huffman=true                       sec-fetch-site: cross-site
+  indexed 72                                                   user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1
+  incremental name=19 value-huffman=false                      accept: */*
+  incremental name=71 value-huffman=true                       sec-fetch-site: cross-site
+  incremental name=71 value-huffman=true                       sec-fetch-mode: cors
   indexed 71                                                   accept-language: en-US,en;q=0.9
-  indexed 70                                                   accept-encoding: gzip, deflate, br
-  indexed 69                                                   user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1
+  incremental name=70 value-huffman=true                       priority: u=1, i
+  indexed 70                                                   accept-encoding: gzip, deflate, br, zstd
   incremental name=31 value-huffman=true                       content-type: application/json
   incremental name=28 value-huffman=false                      content-length: 7
 DATA stream=7 flags=0x1 len=7
@@ -127,147 +128,59 @@ DATA stream=7 flags=0x1 len=7
 GET /a HTTP/1.1
 Host: 127.0.0.1:PORT
 Connection: keep-alive
-Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Sec-Fetch-Dest: document
-Sec-Fetch-Mode: navigate
+User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Sec-Fetch-Site: none
-Sec-Fetch-User: ?1
+Sec-Fetch-Mode: navigate
 Accept-Language: en-US,en;q=0.9
-Accept-Encoding: gzip, deflate, br
-User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1
+Priority: u=0, i
+Accept-Encoding: gzip, deflate, br, zstd
 --- request on connection 1
 GET /b?q=1 HTTP/1.1
 Host: 127.0.0.1:PORT
 Connection: keep-alive
-Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Sec-Fetch-Dest: document
-Sec-Fetch-Mode: navigate
+User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Sec-Fetch-Site: none
-Sec-Fetch-User: ?1
+Sec-Fetch-Mode: navigate
 Accept-Language: en-US,en;q=0.9
-Accept-Encoding: gzip, deflate, br
-User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1
+Priority: u=0, i
+Accept-Encoding: gzip, deflate, br, zstd
 --- request on connection 1
 GET /b?q=2 HTTP/1.1
 Host: 127.0.0.1:PORT
 Connection: keep-alive
-Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Sec-Fetch-Dest: document
-Sec-Fetch-Mode: navigate
+User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Sec-Fetch-Site: none
-Sec-Fetch-User: ?1
+Sec-Fetch-Mode: navigate
 Accept-Language: en-US,en;q=0.9
-Accept-Encoding: gzip, deflate, br
-User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1
+Priority: u=0, i
+Accept-Encoding: gzip, deflate, br, zstd
 --- request on connection 1
 POST /c HTTP/1.1
 Host: 127.0.0.1:PORT
 Connection: keep-alive
-Accept: */*
 Sec-Fetch-Dest: empty
-Sec-Fetch-Mode: cors
+User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1
+Accept: */*
 Sec-Fetch-Site: cross-site
+Sec-Fetch-Mode: cors
 Accept-Language: en-US,en;q=0.9
-Accept-Encoding: gzip, deflate, br
-User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1
+Priority: u=1, i
+Accept-Encoding: gzip, deflate, br, zstd
 Content-Type: application/json
 Content-Length: 7
 body "{\"k\":1}"
-
-## quic client hello
-first datagram size 1250
-initial: dcid 8 bytes, scid 0 bytes, token 0 bytes
-extensions GREASE,10,16,5,13,18,51,45,43,57,27,GREASE
-legacy_version 0x0303
-session_id 0 bytes
-cipher_suites GREASE,4866,4867,4865
-compression 00
-ext 10: GREASE 4588 29 23 24 25
-ext 13: 1027 2052 1025 1283 2053 2053 1281 2054 1537 513
-ext 16: 0003026833
-ext 18: 
-ext 27: 1
-ext 43: GREASE 772
-ext 45: 0101
-ext 5: 0100000000
-ext 51: GREASE:1 4588:1216 29:32
-ext 57: GREASE 0x5=6291456 0x6=6291456 0x7=6291456 0x4=15728640 0x8=100 0x9=103 0x1=30000 0x3=1472 0xf=cid(0) 0x20=65536
-ext GREASE: 
-ext GREASE: 00
-
-## http/3
-connections 1
-uni streams 0x2,0x3
-control SETTINGS 0x1=16383 0x7=100 GREASE
---- request stream 0
-HEADERS
-  required-insert-count=0 base-sign=false delta-base=0
-  indexed static=true 17
-  indexed static=true 23
-  literal name-ref static=true 1 never=false huffman=true "/a"
-  literal name-ref static=true 0 never=false huffman=true "127.0.0.1:PORT"
-  literal name-ref static=true 29 never=false huffman=true "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-  literal name="sec-fetch-dest" name-huffman=true never=false huffman=true "document"
-  literal name="sec-fetch-mode" name-huffman=true never=false huffman=true "navigate"
-  literal name="sec-fetch-site" name-huffman=true never=false huffman=true "none"
-  literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
-  literal name-ref static=true 72 never=false huffman=true "en-US,en;q=0.9"
-  indexed static=true 31
-  literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
---- request stream 4
-HEADERS
-  required-insert-count=0 base-sign=false delta-base=0
-  indexed static=true 17
-  indexed static=true 23
-  literal name-ref static=true 1 never=false huffman=true "/b?q=1"
-  literal name-ref static=true 0 never=false huffman=true "127.0.0.1:PORT"
-  literal name-ref static=true 29 never=false huffman=true "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-  literal name="sec-fetch-dest" name-huffman=true never=false huffman=true "document"
-  literal name="sec-fetch-mode" name-huffman=true never=false huffman=true "navigate"
-  literal name="sec-fetch-site" name-huffman=true never=false huffman=true "none"
-  literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
-  literal name-ref static=true 72 never=false huffman=true "en-US,en;q=0.9"
-  indexed static=true 31
-  literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
---- request stream 8
-HEADERS
-  required-insert-count=0 base-sign=false delta-base=0
-  indexed static=true 17
-  indexed static=true 23
-  literal name-ref static=true 1 never=false huffman=true "/b?q=2"
-  literal name-ref static=true 0 never=false huffman=true "127.0.0.1:PORT"
-  literal name-ref static=true 29 never=false huffman=true "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-  literal name="sec-fetch-dest" name-huffman=true never=false huffman=true "document"
-  literal name="sec-fetch-mode" name-huffman=true never=false huffman=true "navigate"
-  literal name="sec-fetch-site" name-huffman=true never=false huffman=true "none"
-  literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
-  literal name-ref static=true 72 never=false huffman=true "en-US,en;q=0.9"
-  indexed static=true 31
-  literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
---- request stream 12
-HEADERS
-  required-insert-count=0 base-sign=false delta-base=0
-  indexed static=true 20
-  indexed static=true 23
-  literal name-ref static=true 1 never=false huffman=true "/c"
-  literal name-ref static=true 0 never=false huffman=true "127.0.0.1:PORT"
-  indexed static=true 29
-  literal name="sec-fetch-dest" name-huffman=true never=false huffman=true "empty"
-  literal name="sec-fetch-mode" name-huffman=true never=false huffman=true "cors"
-  literal name="sec-fetch-site" name-huffman=true never=false huffman=true "cross-site"
-  literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
-  literal name-ref static=true 72 never=false huffman=true "en-US,en;q=0.9"
-  indexed static=true 31
-  literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
-  indexed static=true 46
-  literal name-ref static=true 4 never=false huffman=true "7"
-DATA len=7
 
 ## describe
 {
   "version": 1,
   "preset": {
-    "name": "safari-18-ios",
+    "name": "safari-26-ios",
     "tls": {
       "client_hello": "ios-18",
       "quic_client_hello": "ios-18-quic"
@@ -277,34 +190,33 @@ DATA len=7
       "enable_push": false,
       "max_concurrent_streams": 100,
       "initial_window_size": 2097152,
-      "max_frame_size": 16384,
+      "max_frame_size": 0,
       "max_header_list_size": 0,
-      "connection_window_update": 10485760,
-      "stream_weight": 255,
+      "connection_window_update": 10420225,
+      "stream_weight": 0,
       "stream_exclusive": false,
       "no_rfc7540_priorities": true,
       "settings_order": [
         2,
-        4,
         3,
-        5,
+        4,
         9
       ],
       "pseudo_order": [
         ":method",
         ":scheme",
-        ":path",
-        ":authority"
+        ":authority",
+        ":path"
       ],
       "hpack_header_order": [
-        "accept",
         "sec-fetch-dest",
-        "sec-fetch-mode",
-        "sec-fetch-site",
-        "sec-fetch-user",
-        "accept-language",
-        "accept-encoding",
         "user-agent",
+        "accept",
+        "sec-fetch-site",
+        "sec-fetch-mode",
+        "accept-language",
+        "priority",
+        "accept-encoding",
         "referer",
         "cookie",
         "content-type",
@@ -320,71 +232,54 @@ DATA len=7
       "idle_ping_ms": 0,
       "priority_over_http1": true
     },
-    "http3": {
-      "qpack_max_table_capacity": 16383,
-      "qpack_blocked_streams": 100,
-      "max_field_section_size": 0,
-      "enable_datagrams": false,
-      "quic_initial_packet_size": 1250,
-      "quic_max_incoming_streams": 100,
-      "quic_max_incoming_uni_streams": 103,
-      "quic_allow_0rtt": true,
-      "quic_chrome_style_initial": false,
-      "quic_disable_hello_scramble": false,
-      "quic_transport_param_order": "random",
-      "quic_connection_id_length": 0,
-      "quic_max_datagram_frame_size": 65536,
-      "max_response_header_bytes": 262144,
-      "send_grease_frames": false
-    },
     "headers": {
-      "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+      "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1",
       "values": {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
         "Accept-Language": "en-US,en;q=0.9",
+        "Priority": "u=0, i",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1"
+        "Sec-Fetch-Site": "none"
       },
       "order": [
-        {
-          "key": "accept",
-          "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        },
         {
           "key": "sec-fetch-dest",
           "value": "document"
         },
         {
-          "key": "sec-fetch-mode",
-          "value": "navigate"
+          "key": "user-agent",
+          "value": ""
+        },
+        {
+          "key": "accept",
+          "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         },
         {
           "key": "sec-fetch-site",
           "value": "none"
         },
         {
-          "key": "sec-fetch-user",
-          "value": "?1"
+          "key": "sec-fetch-mode",
+          "value": "navigate"
         },
         {
           "key": "accept-language",
           "value": "en-US,en;q=0.9"
         },
         {
-          "key": "accept-encoding",
-          "value": "gzip, deflate, br"
+          "key": "priority",
+          "value": "u=0, i"
         },
         {
-          "key": "user-agent",
-          "value": ""
+          "key": "accept-encoding",
+          "value": "gzip, deflate, br, zstd"
         }
       ]
     },
     "protocols": {
-      "http3": true
+      "http3": false
     }
   }
 }

@@ -160,6 +160,7 @@ const Preset = {
   SAFARI_18: "safari-18",
   SAFARI_17_IOS: "safari-17-ios",
   SAFARI_18_IOS: "safari-18-ios",
+  SAFARI_26_IOS: "safari-26-ios",
   SAFARI_LATEST_IOS: "safari-latest-ios",
 
   // Backwards compatibility aliases (old "ios-chrome" / "android-chrome" naming)
@@ -179,6 +180,7 @@ const Preset = {
   ANDROID_CHROME_LATEST: "chrome-latest-android",
   IOS_SAFARI_17: "safari-17-ios",
   IOS_SAFARI_18: "safari-18-ios",
+  IOS_SAFARI_26: "safari-26-ios",
   IOS_SAFARI_LATEST: "safari-latest-ios",
 
   /**

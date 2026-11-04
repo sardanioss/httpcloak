@@ -131,7 +131,7 @@ Console.WriteLine(resp.StatusCode);
   (Windows / Linux / macOS / Android / iOS) where they differ. iOS
   goes up to 152.
 - **Firefox**: 133, 148.
-- **Safari**: 18 (desktop), 17 / 18 (iOS).
+- **Safari**: 18 (desktop), 17 / 18 / 26 (iOS). Safari 26 iOS currently covers HTTP/2; no QUIC capture is included.
 - **`chrome-latest` aliases**: `chrome-latest`, `chrome-latest-windows`,
   `chrome-latest-linux`, `chrome-latest-macos`, `chrome-latest-android`,
   `chrome-latest-ios`. Auto-track the newest shipped Chrome major

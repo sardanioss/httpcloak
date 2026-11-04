@@ -28,10 +28,12 @@ import (
 // priority frame plus the request headers (so the test can correlate by
 // :path or sec-fetch-dest).
 type h2Capture struct {
-	StreamID    uint32
-	HasPriority bool
-	Priority    http2.PriorityParam // wire-format weight (effective-1)
-	Headers     map[string]string
+	Settings     []http2.Setting
+	WindowUpdate uint32
+	StreamID     uint32
+	HasPriority  bool
+	Priority     http2.PriorityParam // wire-format weight (effective-1)
+	Headers      map[string]string
 	// HeaderOrder is the ordered list of header NAMES exactly as the client
 	// emitted them on the wire. Tests that need to verify HPACK position
 	// (vs. just presence/value) read this; existing tests stay on Headers.
@@ -160,6 +162,8 @@ func (s *h2CaptureServer) handleConn(t *testing.T, c net.Conn) {
 	var encBuf strings.Builder
 	enc = hpack.NewEncoder(&encBuf)
 
+	var settings []http2.Setting
+	var windowUpdate uint32
 	for {
 		frame, err := fr.ReadFrame()
 		if err != nil {
@@ -168,17 +172,25 @@ func (s *h2CaptureServer) handleConn(t *testing.T, c net.Conn) {
 		switch f := frame.(type) {
 		case *http2.SettingsFrame:
 			if !f.IsAck() {
+				f.ForeachSetting(func(setting http2.Setting) error {
+					settings = append(settings, setting)
+					return nil
+				})
 				_ = fr.WriteSettingsAck()
 			}
 		case *http2.WindowUpdateFrame:
-			// ignore
+			if f.StreamID == 0 {
+				windowUpdate = f.Increment
+			}
 		case *http2.MetaHeadersFrame:
 			cap := h2Capture{
-				StreamID:    f.StreamID,
-				HasPriority: f.HasPriority(),
-				Priority:    f.Priority,
-				Headers:     map[string]string{},
-				HeaderOrder: make([]string, 0, len(f.Fields)),
+				Settings:     append([]http2.Setting(nil), settings...),
+				WindowUpdate: windowUpdate,
+				StreamID:     f.StreamID,
+				HasPriority:  f.HasPriority(),
+				Priority:     f.Priority,
+				Headers:      map[string]string{},
+				HeaderOrder:  make([]string, 0, len(f.Fields)),
 			}
 			for _, hf := range f.Fields {
 				cap.Headers[hf.Name] = hf.Value
