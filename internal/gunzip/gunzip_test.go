@@ -2,16 +2,18 @@ package gunzip
 
 import (
 	"bytes"
+	"compress/flate"
 	"compress/gzip"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	mathrand "math/rand/v2"
-	"strings"
 	"sync"
 	"testing"
 	"testing/iotest"
+
+	kflate "github.com/klauspost/compress/flate"
 )
 
 // members gzips each payload as its own member and concatenates them, which is
@@ -426,11 +428,19 @@ func BenchmarkBytes(b *testing.B) {
 	}
 }
 
-// errorClass is an error's message without a trailing byte offset: a corrupt
-// stream is reported as "flate: corrupt input before offset N", and inflaters
-// legitimately disagree by a byte on where they noticed.
+// errorClass is what the lock compares errors by. A damaged deflate stream is
+// one class: when a body is both corrupt and cut short, which of the two an
+// inflater trips over first depends on how far it reads ahead, so the standard
+// library may say "corrupt input before offset N" where klauspost says
+// "unexpected EOF". Nothing above this package tells them apart. Every other
+// error, a bad header or checksum among them, must match by message.
 func errorClass(err error) string {
-	return strings.TrimRight(err.Error(), "0123456789")
+	var stdCorrupt flate.CorruptInputError
+	var kCorrupt kflate.CorruptInputError
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &stdCorrupt) || errors.As(err, &kCorrupt) {
+		return "damaged deflate stream"
+	}
+	return err.Error()
 }
 
 func BenchmarkStream(b *testing.B) {
