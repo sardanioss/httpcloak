@@ -76,7 +76,6 @@ static void hc_queue_signal(void) { WakeConditionVariable(&hc_queue_cv); }
 static int hc_queue_wait(unsigned ms) {
     return !SleepConditionVariableCS(&hc_queue_cv, &hc_lock, ms) && GetLastError() == ERROR_TIMEOUT;
 }
-static _Thread_local int hc_on_worker;
 static unsigned __stdcall hc_worker_main(void* arg);
 static int hc_spawn(void) {
     uintptr_t h = _beginthreadex(NULL, 0, hc_worker_main, NULL, 0, NULL);
@@ -107,7 +106,6 @@ static int hc_queue_wait(unsigned ms) {
     if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
     return pthread_cond_timedwait(&hc_queue_cv, &hc_lock, &ts) == ETIMEDOUT;
 }
-static _Thread_local int hc_on_worker;
 static void* hc_worker_main(void* arg);
 static int hc_spawn(void) {
     pthread_t t;
@@ -130,8 +128,20 @@ static hc_job* hc_tail = NULL;
 static int hc_queued = 0; // jobs waiting for a worker
 static int hc_idle = 0;   // workers waiting for a job
 
+// Test builds record which threads are the pool's so the tests can check that
+// callbacks never run on a Go thread. Release builds carry no thread-local
+// state at all: MinGW implements _Thread_local through libgcc_s_seh-1.dll, a
+// DLL stock Windows does not have, and 1.7.3 failed to load because of it (#131).
+#ifdef HC_TEST
+static _Thread_local int hc_on_worker;
+int hc_on_worker_thread(void) { return hc_on_worker; }
+#define HC_MARK_WORKER() (hc_on_worker = 1)
+#else
+#define HC_MARK_WORKER() ((void)0)
+#endif
+
 static void hc_worker_loop(void) {
-    hc_on_worker = 1;
+    HC_MARK_WORKER();
     HC_LOCK();
     for (;;) {
         while (hc_head == NULL) {
@@ -192,8 +202,6 @@ static void hc_dispatch(hc_job* j) {
     HC_UNLOCK();
     hc_job_cv_destroy(j);
 }
-
-int hc_on_worker_thread(void) { return hc_on_worker; }
 
 static void run_callback(hc_job* j) { ((async_callback)j->fn)(j->id, j->a, j->b); }
 // A getter's result stays owned by the callback, which may reuse or free it on

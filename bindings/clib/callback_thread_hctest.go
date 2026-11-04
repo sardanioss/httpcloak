@@ -7,6 +7,7 @@ package main
 // hctest build tag so they never reach a shipped library.
 
 /*
+#cgo CFLAGS: -DHC_TEST
 #include <stdint.h>
 #include <stdlib.h>
 #include "callback_pool.h"

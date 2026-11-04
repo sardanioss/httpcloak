@@ -50,7 +50,9 @@ HC_INTERNAL void invoke_async_cache_delete(async_cache_delete_callback cb, int64
 HC_INTERNAL void invoke_async_ech_get(async_ech_get_callback cb, int64_t request_id, const char* key);
 HC_INTERNAL void invoke_async_ech_put(async_ech_put_callback cb, int64_t request_id, const char* key, const char* value_base64, int64_t ttl_seconds);
 
+#ifdef HC_TEST
 // hc_on_worker_thread reports whether the calling thread is one of the pool's.
 HC_INTERNAL int hc_on_worker_thread(void);
+#endif
 
 #endif
