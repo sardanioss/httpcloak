@@ -232,6 +232,23 @@ body "{\"k\":1}"
       "idle_ping_ms": 0,
       "priority_over_http1": true
     },
+    "http3": {
+      "qpack_max_table_capacity": 16383,
+      "qpack_blocked_streams": 100,
+      "max_field_section_size": 0,
+      "enable_datagrams": false,
+      "quic_initial_packet_size": 1250,
+      "quic_max_incoming_streams": 100,
+      "quic_max_incoming_uni_streams": 103,
+      "quic_allow_0rtt": true,
+      "quic_chrome_style_initial": false,
+      "quic_disable_hello_scramble": false,
+      "quic_transport_param_order": "random",
+      "quic_connection_id_length": 0,
+      "quic_max_datagram_frame_size": 65536,
+      "max_response_header_bytes": 262144,
+      "send_grease_frames": false
+    },
     "headers": {
       "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1",
       "values": {
