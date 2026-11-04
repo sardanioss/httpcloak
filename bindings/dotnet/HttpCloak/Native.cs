@@ -80,11 +80,22 @@ internal static class Native
             return IntPtr.Zero;
 
         string? libPath = GetNativeLibraryPath();
-        if (libPath != null && NativeLibrary.TryLoad(libPath, out IntPtr handle))
-            return handle;
+        if (libPath == null)
+            return IntPtr.Zero; // not shipped next to us: let the default search try
 
-        // Fallback to default resolution
-        return IntPtr.Zero;
+        // The library is there but will not load, usually a missing dependency.
+        // Say so. Falling back to the default search finds our own managed
+        // HttpCloak.dll on Windows (file names are case-insensitive), which
+        // surfaces as a baffling "Unable to find an entry point named
+        // 'httpcloak_session_new'" instead (#131).
+        try
+        {
+            return NativeLibrary.Load(libPath);
+        }
+        catch (Exception e) when (e is DllNotFoundException || e is BadImageFormatException)
+        {
+            throw new DllNotFoundException($"httpcloak: found {libPath} but could not load it: {e.Message}", e);
+        }
     }
 
     private static string? GetNativeLibraryPath()
