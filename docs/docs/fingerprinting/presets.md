@@ -23,7 +23,7 @@ Pick one by name, send a request, the wire bytes match the real browser.
 
 - **Default to `chrome-latest`.** Works against the widest range of targets, and auto-tracks the newest Chrome we've shipped.
 - **Reach for `android-chrome-latest` when you need a mobile UA.** Mobile traffic gets scored differently on most anti-bot stacks. The TLS handshake is identical to desktop Chrome, but the User-Agent and `sec-ch-ua-mobile: ?1` route the request onto the mobile path.
-- **Use `ios-safari-18` (or `safari-18-ios`) for an iPhone fingerprint.** Different cipher list, different pseudo-header order, no RFC 7540 priorities, smaller QUIC stream window. Targets that profile iOS users will spot a Chrome preset pretending to be an iPhone in seconds.
+- **Use `safari-latest-ios` (Safari 26) or `safari-18-ios` for an iPhone fingerprint.** Different cipher list, different pseudo-header order, no RFC 7540 priorities, smaller QUIC stream window. Targets that profile iOS users will spot a Chrome preset pretending to be an iPhone in seconds.
 - **Pick `firefox-148` when the target only accepts Firefox.** Different cipher list, different SETTINGS layout (smaller initial window, smaller max frame size), different pseudo-header order (`m,p,a,s` vs Chrome's `m,a,s,p`).
 
 ## Available preset families
@@ -67,7 +67,8 @@ The per-OS variants differ from their base in the User-Agent only. Firefox does 
 |---|---|
 | `safari-18` (`safari-latest`) | Desktop macOS Safari 18, supports h3 |
 | `safari-17-ios` (`ios-safari-17`) | iPhone Safari 17, h2 only |
-| `safari-18-ios` (`ios-safari-18`, `safari-latest-ios`) | iPhone Safari 18, supports h3 |
+| `safari-18-ios` (`ios-safari-18`) | iPhone Safari 18, supports h3 |
+| `safari-26-ios` (`ios-safari-26`, `safari-latest-ios`, `ios-safari-latest`) | iPhone Safari 26 from a real capture, h2. h3 is off by default until there's a QUIC capture; forcing it still sends Safari's QUIC shape |
 
 Safari sets `NoRFC7540Priorities=true`, so it never emits the H2 PRIORITY frame, and RFC 9218 priority headers carry the signal instead. That's the single biggest tell that splits a Safari fingerprint from a Chrome one at the H2 layer, even though both ALPN as h2.
 
@@ -78,6 +79,7 @@ The older `<os>-<browser>-<version>` naming still works for code written against
 ```
 ios-chrome-148        → chrome-148-ios
 ios-safari-18         → safari-18-ios
+ios-safari-26         → safari-26-ios
 android-chrome-148    → chrome-148-android
 ios-chrome-latest     → chrome-155-ios
 android-chrome-latest → chrome-155-android
@@ -231,7 +233,7 @@ Things to spot:
 
 - Every Chrome desktop variant lands on the same JA4 / peetprint / akamai. The TLS handshake is identical across Windows / Linux / macOS Chrome. Only the User-Agent and `sec-ch-ua-platform` header tell you which OS you're on.
 - Android Chrome shares the same fingerprint as desktop Chrome. Same TLS, same H2. The wire-level difference is the UA string (Mobile Safari/537.36) and `sec-ch-ua-mobile: ?1`.
-- Chrome on iOS shows up as Safari at the wire level, since iOS WebKit forces every browser onto the system networking stack. `chrome-155-ios` (like 152) shares its TLS handshake and JA4 hash with `safari-18-ios`. They split only on H2 SETTINGS values (Chrome on iOS advertises `2,3,4,9` vs Safari's `2,4,3,5,9`) and the User-Agent.
+- Chrome on iOS shows up as Safari at the wire level, since iOS WebKit forces every browser onto the system networking stack. `chrome-155-ios` (like 152) shares its TLS handshake and JA4 hash with `safari-18-ios`. Against `safari-18-ios` they split on H2 SETTINGS (Chrome on iOS advertises `2,3,4,9`, Safari 18 `2,4,3,5,9`) and the User-Agent. Safari 26 moved to the same `2,3,4,9` layout, so `safari-26-ios` and `chrome-155-ios` differ mostly in headers and the User-Agent.
 - Firefox and Safari each get their own JA4 / peetprint / akamai. Different cipher list, different SETTINGS, different pseudo-header order.
 
 :::tip

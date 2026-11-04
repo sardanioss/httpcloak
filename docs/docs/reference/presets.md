@@ -69,7 +69,7 @@ Re-measured `2026-10-13` from the Linux build host for the Chrome 152 to 155 row
 | `chrome-148-windows` | h2 | rotates | `t13d1516h2_8daaf6152771_d8a2da3f94cd` | `52d84b11737d980aef856699f885ca86` | `1d4ffe9b0e34acac0bd883fa7f79d7b5` |
 | `firefox-148` | h2 | `6f7889b9fb1a62a9577e685c1fcfa919` | `t13d1717h2_5b57614c22b0_3cbfd9057e0d` | `6ea73faa8fc5aac76bded7bd238f6433` | `89d89662b21018947a9a46658c4f5ede` |
 | `safari-18` | h2 | `c8af4d593e65bd6ba927ef9a0bdef541` | `t13d2013h2_a09f3c656075_7f0f34a4126d` | `90d8353e47699c4c38ecd773e9b5a089` | `62b834de729e78a9f0ebd1dd099314a7` |
-| `safari-18-ios` | h2 | `e7c59d91e34d9d83e510732edf732b83` | `t13d2013h2_a09f3c656075_7f0f34a4126d` | `90d8353e47699c4c38ecd773e9b5a089` | `62b834de729e78a9f0ebd1dd099314a7` |
+| `safari-18-ios` | h2 | `ecdf4f49dd59effc439639da29186671` | `t13d2013h2_a09f3c656075_7f0f34a4126d` | `90d8353e47699c4c38ecd773e9b5a089` | `62b834de729e78a9f0ebd1dd099314a7` |
 | `safari-26-ios` | h2 | `ecdf4f49dd59effc439639da29186671` | `t13d2013h2_a09f3c656075_7f0f34a4126d` | `c52879e43202aeb92740be6e8c86ea96` | `62b834de729e78a9f0ebd1dd099314a7` |
 
 Notes:
@@ -214,7 +214,7 @@ Safari macOS:
 
 | Preset | UA | TLS | Notes |
 |---|---|---|---|
-| `safari-26-ios` | `...iPhone OS 18_7...Version/26.6.1 Mobile/15E148 Safari/604.1` | `HelloIOS_18` | Captured H2; HTTP/3 disabled pending a QUIC capture. |
+| `safari-26-ios` | `...iPhone OS 18_7...Version/26.6.1 Mobile/15E148 Safari/604.1` | `HelloIOS_18` | Captured H2. HTTP/3 is off by default until there's a QUIC capture; forcing it sends Safari's QUIC settings. |
 | `safari-18-ios` | `Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1` | `HelloIOS_18` | H3 via `HelloIOS_18_QUIC`. |
 | `safari-17-ios` | `...iPhone OS 17_0...Version/17.0 Mobile...` | `HelloIOS_17` | Older variant; H1 / H2 only (no proper H3 TLS spec for iOS Safari 17). |
 

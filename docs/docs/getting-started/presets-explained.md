@@ -78,7 +78,7 @@ Each preset family ships per-OS variants where the underlying browser differs by
 
 **Firefox**: 133 and 148 desktop. No per-OS split.
 
-**Safari**: `safari-18` desktop, `safari-17-ios`, `safari-18-ios`.
+**Safari**: `safari-18` desktop, `safari-17-ios`, `safari-18-ios`, `safari-26-ios`.
 
 **Latest aliases**: `chrome-latest`, `chrome-latest-windows`, `chrome-latest-linux`, `chrome-latest-macos`, `chrome-latest-android`, `chrome-latest-ios`, `firefox-latest`, `safari-latest`, `safari-latest-ios`. These re-point to the newest shipped major on every release (iOS Chrome excepted, as above). Use them when an exact build pin doesn't matter.
 

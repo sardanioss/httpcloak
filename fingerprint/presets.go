@@ -3563,9 +3563,10 @@ func IOSSafari26() *Preset {
 		"accept-language", "priority", "accept-encoding",
 		"referer", "cookie", "content-type", "content-length", "origin",
 	}
-	// The supplied capture is h2 only. Do not infer HTTP/3 settings from it.
+	// The capture is HTTP/2 only, so HTTP/3 stays off by default. H3Config is
+	// kept: a caller who forces HTTP/3 must still get Safari's QUIC shape,
+	// since a nil config falls back to Chrome's (the #125 mismatch).
 	p.SupportHTTP3 = false
-	p.H3Config = nil
 	return p
 }
 

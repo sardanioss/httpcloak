@@ -717,3 +717,16 @@ func TestH3GettersWithNilConfig(t *testing.T) {
 		t.Fatal("expected true")
 	}
 }
+
+// Forced HTTP/3 runs whether or not a preset turns HTTP/3 on by default, and a
+// nil H3Config falls back to Chrome's QUIC settings. A non-Chrome preset with a
+// QUIC hello and no H3Config would pair Chrome's QUIC shape with its own hello.
+func TestNonChromeQUICPresetsCarryH3Config(t *testing.T) {
+	for _, name := range Available() {
+		p := Get(name)
+		client := p.QUICClientHelloID.Client
+		if client != "" && client != "Chrome" && p.H3Config == nil {
+			t.Errorf("%s has a QUIC client hello but no H3Config", name)
+		}
+	}
+}
