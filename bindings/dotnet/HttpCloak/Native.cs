@@ -79,36 +79,67 @@ internal static class Native
         if (libraryName != LibraryName)
             return IntPtr.Zero;
 
-        string? libPath = GetNativeLibraryPath();
-        if (libPath == null)
-            return IntPtr.Zero; // not shipped next to us: let the default search try
+        bool windows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        string? libPath = GetNativeLibraryPath(out string? libName, out string[] probed);
 
-        // The library is there but will not load, usually a missing dependency.
-        // Say so. Falling back to the default search finds our own managed
-        // HttpCloak.dll on Windows (file names are case-insensitive), which
-        // surfaces as a baffling "Unable to find an entry point named
-        // 'httpcloak_session_new'" instead (#131).
-        try
+        if (libPath != null)
         {
-            return NativeLibrary.Load(libPath);
+            try
+            {
+                return NativeLibrary.Load(libPath);
+            }
+            catch (Exception e) when (e is DllNotFoundException || e is BadImageFormatException)
+            {
+                // The bundled library is there but will not load, usually a
+                // missing dependency or the wrong CPU. Off Windows, a build of
+                // the caller's own on the default search path (LD_LIBRARY_PATH,
+                // /usr/lib) still gets its chance, as it always had.
+                if (!windows && NativeLibrary.TryLoad(libraryName, assembly, searchPath, out IntPtr fallback))
+                    return fallback;
+                throw new DllNotFoundException(
+                    $"httpcloak: found {libPath} but could not load it: {e.Message.TrimEnd()}. " +
+                    "Set HTTPCLOAK_LIB_PATH to a working build to use that instead.", e);
+            }
         }
-        catch (Exception e) when (e is DllNotFoundException || e is BadImageFormatException)
-        {
-            throw new DllNotFoundException($"httpcloak: found {libPath} but could not load it: {e.Message}", e);
-        }
+
+        // Nothing bundled for this platform. Off Windows the default search is
+        // a real chance: the caller may have installed their own build. On
+        // Windows it is not. File names there are case-insensitive, so the
+        // default search for "httpcloak" finds this managed HttpCloak.dll, and
+        // the failure surfaces as a baffling "Unable to find an entry point
+        // named 'httpcloak_session_new'" (#131). Say what is missing instead.
+        if (!windows)
+            return IntPtr.Zero;
+        string what = libName ?? $"a library for {RuntimeInformation.ProcessArchitecture}";
+        throw new DllNotFoundException(
+            $"httpcloak: no native library {what} next to the application (looked in: {string.Join(", ", probed)}). " +
+            "Reinstall the HttpCloak package for this platform, or set HTTPCLOAK_LIB_PATH to the library.");
     }
 
-    private static string? GetNativeLibraryPath()
+    private static string? GetNativeLibraryPath(out string? libName, out string[] probed)
     {
-        string arch = RuntimeInformation.ProcessArchitecture switch
+        probed = Array.Empty<string>();
+        libName = null;
+
+        // Only the CPUs a library is built for. Anything else used to be
+        // mapped to x64, which can never load in that process.
+        string? arch = RuntimeInformation.ProcessArchitecture switch
         {
             Architecture.X64 => "x64",
             Architecture.Arm64 => "arm64",
-            _ => "x64"
+            _ => null
         };
 
+        string? overridePath = Environment.GetEnvironmentVariable("HTTPCLOAK_LIB_PATH");
+        if (arch == null)
+        {
+            // A caller-supplied build is still honoured on any CPU.
+            if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
+                return overridePath;
+            return null;
+        }
+
         string rid;
-        string libName;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -141,7 +172,6 @@ internal static class Native
         // under the usual name. A value that resolves to neither is ignored
         // rather than fatal, so a stale variable degrades to the normal search
         // instead of taking the process down.
-        string? overridePath = Environment.GetEnvironmentVariable("HTTPCLOAK_LIB_PATH");
         if (!string.IsNullOrWhiteSpace(overridePath))
         {
             if (File.Exists(overridePath))
@@ -151,16 +181,27 @@ internal static class Native
                 return inDir;
         }
 
-        // Try different locations
-        string assemblyDir = Path.GetDirectoryName(typeof(Native).Assembly.Location) ?? ".";
-        string[] searchPaths =
-        {
-            Path.Combine(assemblyDir, "runtimes", rid, "native", libName),
-            Path.Combine(assemblyDir, libName),
-            Path.Combine(assemblyDir, "native", libName),
-        };
+        // Look beside the assembly and beside the app. In a single-file app
+        // Assembly.Location is empty, so the app's own directory is the only
+        // anchor; without it the search ran relative to the working
+        // directory and failed for a service started anywhere else.
+        var dirs = new List<string>();
+        string location = typeof(Native).Assembly.Location;
+        if (!string.IsNullOrEmpty(location) && Path.GetDirectoryName(location) is string assemblyDir)
+            dirs.Add(assemblyDir);
+        if (!string.IsNullOrEmpty(AppContext.BaseDirectory) && !dirs.Contains(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)))
+            dirs.Add(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
 
-        foreach (string path in searchPaths)
+        var paths = new List<string>();
+        foreach (string dir in dirs)
+        {
+            paths.Add(Path.Combine(dir, "runtimes", rid, "native", libName));
+            paths.Add(Path.Combine(dir, libName));
+            paths.Add(Path.Combine(dir, "native", libName));
+        }
+        probed = paths.ToArray();
+
+        foreach (string path in paths)
         {
             if (File.Exists(path))
                 return path;
