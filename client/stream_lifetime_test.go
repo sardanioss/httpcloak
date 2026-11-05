@@ -19,8 +19,9 @@ import (
 // on the client.Client path: a stream that is still being read must survive the
 // pool reaper deciding the connection is too old for new requests.
 //
-// The connection is force-aged past maxConnAge and CloseIdle() is called
-// directly, so the 90s/5m timers never have to elapse.
+// The pool is given an age limit (it has none by default), the connection is
+// force-aged past it and CloseIdle() is called directly, so neither the 90s
+// idle timer nor the limit has to elapse.
 //
 // Test shape (real H2 httptest server driven with WithForceHTTP2) borrowed from
 // PR #84.
@@ -87,6 +88,7 @@ func TestDoStreamSurvivesConnectionRetirement(t *testing.T) {
 	// Age it past maxConnAge and run the reaper tick. Pre-fix this hard-closed
 	// the TLS socket under the live stream and the next read failed with
 	// "use of closed network connection".
+	hostPool.SetMaxConnAge(5 * time.Minute)
 	streamConn.CreatedAt = time.Now().Add(-10 * time.Minute)
 	hostPool.CloseIdle()
 

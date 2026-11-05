@@ -405,6 +405,15 @@ func (p *HostPool) SetMaxConns(max int) {
 	p.maxConns = max
 }
 
+// SetMaxConnAge stops new requests going out on a connection older than d.
+// Zero or less means no limit, the default. Requests already on an aged
+// connection still finish.
+func (p *HostPool) SetMaxConnAge(d time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.maxConnAge = max(d, 0)
+}
+
 // SetECHConfig sets a custom ECH configuration for this pool
 func (p *HostPool) SetECHConfig(echConfig []byte) {
 	p.mu.Lock()
