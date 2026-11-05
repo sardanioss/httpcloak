@@ -69,7 +69,7 @@ type CookieState struct {
 	Domain    string     `json:"domain,omitempty"`
 	Path      string     `json:"path,omitempty"`
 	Expires   *time.Time `json:"expires,omitempty"`
-	MaxAge    int        `json:"max_age,omitempty"`
+	MaxAge    int        `json:"max_age,omitempty"` // 0: unset; <0: delete immediately; >0: lifetime in seconds
 	Secure    bool       `json:"secure,omitempty"`
 	HttpOnly  bool       `json:"http_only,omitempty"`
 	SameSite  string     `json:"same_site,omitempty"`
