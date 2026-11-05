@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **HTTP/2 connections are no longer swapped out every five minutes**: a busy session closed its connection after five minutes and opened a new one, with a fresh handshake, even when nothing was wrong with it. Chrome keeps a connection for as long as the server does, and now so does every `Session` and `client.Client` pool, HTTP/3 included in the latter. Idle connections still close after 90 seconds, and `WithHTTP2MaxConnAge` brings a limit back for anyone who wants one.
 
+- **`HTTP3Transport.RoundTrip` sends the headers it is given**: called directly, rather than through `Transport` or `client.Client`, it used to fill in every preset header the request lacked, and the preset's User-Agent when the request had none. It now sends the request's headers as they are, as the HTTP/1.1 and HTTP/2 paths do. Code that relied on the fill-in should set those headers itself.
+
 ### Fixed
 
 - **The Windows library loads again** (#131): 1.7.3's DLL needed `libgcc_s_seh-1.dll`, a runtime library from the compiler toolchain that no Windows install has, so it failed to load on every machine. .NET reported it as `Unable to find an entry point named 'httpcloak_session_new' in DLL 'httpcloak'`, because once the real library failed to load it fell back to the managed `HttpCloak.dll`. Python and Node.js failed on load too. The dependency came from one thread-local variable in the code added for #114, which the Windows compiler implements through that library. Only a test ever read it, so it is now compiled into test builds only, and the DLL depends on nothing outside Windows again.
@@ -54,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A TLS connection is closed when the server picks a protocol it can't be used for** (#140): when ALPN came back with a different protocol than the one requested and no fallback took the connection over, the error was returned with the connection still open inside it, and nothing closed it. Each such request leaked a socket until the server dropped it.
 
 - **An HTTP/2 connection the server has said goodbye on is no longer reused** (thanks to #141 for the report): servers routinely send GOAWAY on a connection that has sat idle, and it stayed in the pool, so the next request to that host was sent on it, failed, and only got through on the automatic retry. A request whose body can't be replayed got no retry and failed outright. Such a connection is now skipped and a new one opened.
+
+- **HTTP/3 requests carry the headers the pipeline built**: the HTTP/3 transport put back every preset header a request did not carry, after the header pipeline had already built the request, so whatever the pipeline had taken off came back with the preset's navigation value. On HTTP/3 alone, a `fetch()`-shaped request went out with `sec-fetch-user: ?1` and `upgrade-insecure-requests: 1`, which Chrome sends on no fetch; `DisableClientHints` still sent the `sec-ch-ua` trio; and a per-request `TLSOnly` request carried the preset's whole navigation set, with the preset's User-Agent when it set none. Only a transport-wide TLS-only setting stopped it. HTTP/1.1 and HTTP/2 never did this, and the code predates the header pipeline. `client.Client` went through it on its MASQUE and SOCKS5 HTTP/3 paths; its direct HTTP/3 path did not.
 
 ### Security
 
