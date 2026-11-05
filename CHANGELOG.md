@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Cookies honor `Max-Age`** (#139): a `Max-Age` on a `Set-Cookie` header was stored but never turned into a deadline, so the cookie lived for the whole session, and `Max-Age=0` didn't delete it. It now expires when it should, wins over `Expires` as browsers do, and saved state keeps the absolute deadline. A malformed value is ignored instead of being read as a partial number. Copying cookies from one session to another keeps each one's original deadline rather than restarting it.
 
+- **A TLS connection is closed when the server picks a protocol it can't be used for** (#140): when ALPN came back with a different protocol than the one requested and no fallback took the connection over, the error was returned with the connection still open inside it, and nothing closed it. Each such request leaked a socket until the server dropped it.
+
 ### Security
 
 - **HTTP/1.1 requests with a line break in a header, the method, the path or the Host are refused**: the HTTP/1.1 writer printed them verbatim, so a CR or LF in a value let whoever controlled it add headers of their own, or a second request, on the same connection. HTTP/2 and HTTP/3 already refused these, as Chrome and Go's client do. Such a request now fails with an `invalid header field value` error before anything is sent.
