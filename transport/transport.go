@@ -135,8 +135,8 @@ type TransportConfig struct {
 	// QuicIdleTimeout is the idle timeout for QUIC connections (default: 30s)
 	QuicIdleTimeout time.Duration
 
-	// HTTP2MaxConnAge limits the age for reusing HTTP/2 connections. Zero keeps
-	// the five-minute default; negative values disable age-based retirement.
+	// HTTP2MaxConnAge stops new requests going out on an HTTP/2 connection
+	// older than this. Zero or less means no limit, the default, as in Chrome.
 	// In-flight responses still drain, and idle/abandoned-body limits still apply.
 	HTTP2MaxConnAge time.Duration
 

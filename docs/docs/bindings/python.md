@@ -101,6 +101,7 @@ httpcloak.Session(
     tcp_window_size: Optional[int] = None,
     tcp_window_scale: Optional[int] = None,
     tcp_df: Optional[bool] = None,
+    http2_max_conn_age: int = 0,     # seconds, 0 = no limit
 )
 ```
 

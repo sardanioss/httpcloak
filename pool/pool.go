@@ -385,7 +385,7 @@ func NewHostPoolWithConfig(host, sniHost, port string, preset *fingerprint.Prese
 		sessionCache:         sessionCache, // Use shared session cache for persistence
 		maxConns:             0,            // 0 = unlimited connections
 		maxIdleTime:          90 * time.Second,
-		maxConnAge:           5 * time.Minute,
+		maxConnAge:           0, // no age limit, as in Chrome
 		abandonedBodyTimeout: 10 * time.Minute,
 		connectTimeout:       30 * time.Second,
 		insecureSkipVerify:   insecureSkipVerify,
@@ -449,7 +449,7 @@ func (p *HostPool) isConnUsable(conn *Conn) bool {
 	if closed || retired {
 		return false
 	}
-	if time.Since(createdAt) > p.maxConnAge {
+	if p.maxConnAge > 0 && time.Since(createdAt) > p.maxConnAge {
 		return false
 	}
 	// Idle only counts when nothing is on the wire. Without this guard a long
@@ -497,7 +497,7 @@ func (p *HostPool) isConnDestroyable(conn *Conn) bool {
 	if h2Conn == nil {
 		return true
 	}
-	if time.Since(createdAt) > p.maxConnAge {
+	if p.maxConnAge > 0 && time.Since(createdAt) > p.maxConnAge {
 		return true
 	}
 	return time.Since(lastUsedAt) > p.maxIdleTime
@@ -537,7 +537,7 @@ func (p *HostPool) isConnRetirable(conn *Conn) bool {
 	if h2Conn == nil {
 		return true
 	}
-	return time.Since(createdAt) > p.maxConnAge
+	return p.maxConnAge > 0 && time.Since(createdAt) > p.maxConnAge
 }
 
 // GetConn returns an available connection or creates a new one

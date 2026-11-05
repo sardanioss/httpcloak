@@ -15,13 +15,12 @@ func TestHTTP2MaxConnAgeReusePolicy(t *testing.T) {
 		age     time.Duration
 		expired bool
 	}{
-		{"default_before_limit", nil, 4 * time.Minute, false},
-		{"default_after_limit", nil, 6 * time.Minute, true},
-		{"zero_keeps_default", &TransportConfig{}, 6 * time.Minute, true},
+		{"default_has_no_limit", nil, 24 * time.Hour, false},
+		{"zero_has_no_limit", &TransportConfig{}, 24 * time.Hour, false},
 		{"longer_custom_limit", &TransportConfig{HTTP2MaxConnAge: 20 * time.Minute}, 10 * time.Minute, false},
 		{"shorter_custom_limit", &TransportConfig{HTTP2MaxConnAge: time.Minute}, 2 * time.Minute, true},
 		{"custom_limit_not_reached", &TransportConfig{HTTP2MaxConnAge: time.Minute}, 30 * time.Second, false},
-		{"negative_disables_limit", &TransportConfig{HTTP2MaxConnAge: -1}, 24 * time.Hour, false},
+		{"negative_has_no_limit", &TransportConfig{HTTP2MaxConnAge: -1}, 24 * time.Hour, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := startH2Server(t, h2Config{})
@@ -165,8 +164,8 @@ func TestHTTP2MaxConnAgeSurvivesTransportRebuilds(t *testing.T) {
 		t.Run(age.String(), func(t *testing.T) {
 			tr := maxAgeTransport(t, &TransportConfig{HTTP2MaxConnAge: age})
 			want := age
-			if want == 0 {
-				want = 5 * time.Minute
+			if want < 0 {
+				want = 0
 			}
 			for _, step := range []struct {
 				name string

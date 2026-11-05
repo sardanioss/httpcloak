@@ -603,13 +603,14 @@ session := httpcloak.NewSession("chrome-latest",
 defer session.Close()
 ```
 
-Omitting this option or passing `0` keeps the five-minute default. A positive
-duration sets the maximum age for reusing a connection; a negative duration
-(for example, `-1`) disables age-based retirement. Responses already in flight
-can finish after the limit, while idle timeouts and connection/session closure
-still apply. The setting survives `Fork`, `Refresh`, and session save/load;
-saved JSON stores `http2MaxConnAge` as integer nanoseconds. This option applies
-to `Session` HTTP/2 connections, not the separate `Client` pool or HTTP/1.1/3.
+By default there's no age limit, same as Chrome: a connection is reused for as
+long as it stays healthy. Set one and any HTTP/2 connection older than that
+takes no new requests, so the next one opens a fresh connection. Responses
+already in flight still finish, and idle timeouts and a server's GOAWAY still
+apply. The value is rounded up to whole seconds, and it survives `Fork`,
+`Refresh` and session save/load. The bindings take it in seconds as
+`http2_max_conn_age` (Python) or `http2MaxConnAge` (Node.js, .NET, Android).
+It covers `Session`'s HTTP/2 connections, not HTTP/1.1 or HTTP/3.
 
 ### 🚫 Redirect Control
 

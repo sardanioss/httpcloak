@@ -300,7 +300,10 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		shuffleSeed:  shuffleSeed,
 		hasPSKSpec:   hasPSKSpec,
 		maxIdleTime:  90 * time.Second,
-		maxConnAge:   5 * time.Minute,
+		// No age limit by default: Chrome keeps an HTTP/2 connection for as
+		// long as it stays healthy and in use. Idle, GOAWAY and abandoned-body
+		// checks still retire it.
+		maxConnAge: 0,
 		// A response body that has not produced a single byte for this long is
 		// treated as abandoned by its caller, so the connection can be
 		// reclaimed. Without a bound here, a caller that never closes a body
@@ -309,7 +312,7 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		connectTimeout:       30 * time.Second,
 		stopCleanup:          make(chan struct{}),
 	}
-	if config != nil && config.HTTP2MaxConnAge != 0 {
+	if config != nil && config.HTTP2MaxConnAge > 0 {
 		t.maxConnAge = config.HTTP2MaxConnAge
 	}
 

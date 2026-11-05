@@ -297,6 +297,7 @@ type SessionConfig struct {
 	ECHConfigDomain               string                 `json:"ech_config_domain,omitempty"`                 // Domain to fetch ECH config from
 	TLSOnly                       bool                   `json:"tls_only,omitempty"`                          // TLS-only mode: skip preset headers, set all manually
 	QuicIdleTimeout               int                    `json:"quic_idle_timeout,omitempty"`                 // QUIC idle timeout in seconds (default: 30)
+	HTTP2MaxConnAge               int                    `json:"http2_max_conn_age,omitempty"`                // Seconds before an HTTP/2 connection takes no new requests (default: no limit)
 	LocalAddress                  string                 `json:"local_address,omitempty"`                     // Local IP to bind outgoing connections (IPv6 rotation)
 	KeyLogFile                    string                 `json:"key_log_file,omitempty"`                      // Path to write TLS key log for Wireshark decryption
 	DisableECH                    bool                   `json:"disable_ech,omitempty"`                       // Disable ECH lookup for faster first request
@@ -1187,6 +1188,11 @@ func httpcloak_session_new(configJSON *C.char) (hcRet C.int64_t) {
 	// Handle QUIC idle timeout
 	if config.QuicIdleTimeout > 0 {
 		opts = append(opts, httpcloak.WithQuicIdleTimeout(time.Duration(config.QuicIdleTimeout)*time.Second))
+	}
+
+	// Handle the HTTP/2 connection age limit
+	if config.HTTP2MaxConnAge > 0 {
+		opts = append(opts, httpcloak.WithHTTP2MaxConnAge(time.Duration(config.HTTP2MaxConnAge)*time.Second))
 	}
 
 	// Handle local address binding (for IPv6 rotation)

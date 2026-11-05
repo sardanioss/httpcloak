@@ -121,6 +121,7 @@ sudo apt install mingw-w64
 | timeout         | int    | 30           | Request timeout in seconds                               |
 | httpVersion     | string | "auto"       | HTTP version: "auto", "h1", "h2", "h3"                   |
 | quicIdleTimeout | int    | 30           | QUIC idle timeout in seconds (for HTTP/3 connections)    |
+| http2MaxConnAge | int    | 0 (no limit) | Seconds before an HTTP/2 connection takes no new requests |
 | tlsOnly         | bool   | false        | TLS-only mode: skip preset HTTP headers                  |
 
 ### Response Object

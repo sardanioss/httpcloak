@@ -73,6 +73,11 @@ public data class SessionConfig @JvmOverloads constructor(
     public val tcpWindowScale: Int? = null,
     /** IP Don't Fragment bit. */
     public val tcpDf: Boolean? = null,
+    /**
+     * Seconds after which an HTTP/2 connection takes no new requests and a
+     * fresh one is opened. Null means no limit, as in Chrome.
+     */
+    public val http2MaxConnAge: Int? = null,
 ) {
     internal fun toJson(): String {
         val json = JSONObject()
@@ -119,6 +124,7 @@ public data class SessionConfig @JvmOverloads constructor(
         put("tcp_window_size", tcpWindowSize)
         put("tcp_window_scale", tcpWindowScale)
         put("tcp_df", tcpDf)
+        put("http2_max_conn_age", http2MaxConnAge)
         return json.toString()
     }
 }

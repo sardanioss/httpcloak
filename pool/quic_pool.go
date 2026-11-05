@@ -316,7 +316,7 @@ func NewQUICHostPoolWithCachedSpec(host, sniHost, port string, preset *fingerpri
 		connections:           make([]*QUICConn, 0),
 		maxConns:              0, // 0 = unlimited
 		maxIdleTime:           90 * time.Second,
-		maxConnAge:            5 * time.Minute,
+		maxConnAge:            0, // no age limit, as in Chrome
 		abandonedBodyTimeout:  10 * time.Minute,
 		connectTimeout:        30 * time.Second,
 		cachedClientHelloSpec: cachedSpec,                       // Use manager's cached spec for consistent TLS shuffle
@@ -359,7 +359,7 @@ func (p *QUICHostPool) isConnUsable(conn *QUICConn) bool {
 	if closed || retired {
 		return false
 	}
-	if time.Since(createdAt) > p.maxConnAge {
+	if p.maxConnAge > 0 && time.Since(createdAt) > p.maxConnAge {
 		return false
 	}
 	if inFlight == 0 && time.Since(lastUsedAt) > p.maxIdleTime {
@@ -411,7 +411,7 @@ func (p *QUICHostPool) isConnDestroyable(conn *QUICConn) bool {
 		default:
 		}
 	}
-	if time.Since(createdAt) > p.maxConnAge {
+	if p.maxConnAge > 0 && time.Since(createdAt) > p.maxConnAge {
 		return true
 	}
 	return time.Since(lastUsedAt) > p.maxIdleTime

@@ -11,11 +11,14 @@ import (
 	"github.com/sardanioss/httpcloak/transport"
 )
 
-func requireHTTP2MaxConnAge(t *testing.T, s *Session, want time.Duration) {
+// requireHTTP2MaxConnAge checks the configured seconds and the limit the
+// transport ends up with, which is none for zero or less.
+func requireHTTP2MaxConnAge(t *testing.T, s *Session, seconds int) {
 	t.Helper()
-	if got := s.Config.HTTP2MaxConnAge; got != want {
-		t.Fatalf("session maximum age = %v, want %v", got, want)
+	if got := s.Config.HTTP2MaxConnAge; got != seconds {
+		t.Fatalf("session maximum age = %d, want %d", got, seconds)
 	}
+	want := time.Duration(max(seconds, 0)) * time.Second
 	cfg := s.transport.GetConfig()
 	if cfg == nil {
 		if want != 0 {
@@ -29,8 +32,8 @@ func requireHTTP2MaxConnAge(t *testing.T, s *Session, want time.Duration) {
 }
 
 func TestHTTP2MaxConnAgeSurvivesSessionLifecycle(t *testing.T) {
-	for _, age := range []time.Duration{0, 123456789 * time.Nanosecond, -1} {
-		t.Run(age.String(), func(t *testing.T) {
+	for _, age := range []int{0, 90, -1} {
+		t.Run(strconv.Itoa(age), func(t *testing.T) {
 			s := NewSession("", &protocol.SessionConfig{Preset: "chrome-latest", HTTP2MaxConnAge: age})
 			defer s.Close()
 			requireHTTP2MaxConnAge(t, s, age)
@@ -60,8 +63,8 @@ func TestHTTP2MaxConnAgeSurvivesSessionLifecycle(t *testing.T) {
 }
 
 func TestHTTP2MaxConnAgeForkWithoutParentTransportConfig(t *testing.T) {
-	for _, age := range []time.Duration{time.Minute, -1} {
-		t.Run(age.String(), func(t *testing.T) {
+	for _, age := range []int{60, -1} {
+		t.Run(strconv.Itoa(age), func(t *testing.T) {
 			s := NewSession("", &protocol.SessionConfig{Preset: "chrome-latest", HTTP2MaxConnAge: age})
 			defer s.Close()
 			// Exercise the fallback that reconstructs the transport config from
@@ -82,8 +85,8 @@ func TestHTTP2MaxConnAgeForkWithoutParentTransportConfig(t *testing.T) {
 }
 
 func TestHTTP2MaxConnAgePersistence(t *testing.T) {
-	for _, age := range []time.Duration{time.Nanosecond, 123456 * time.Nanosecond, 17 * time.Minute, -1, -time.Second} {
-		t.Run(age.String(), func(t *testing.T) {
+	for _, age := range []int{1, 1020} {
+		t.Run(strconv.Itoa(age), func(t *testing.T) {
 			s := NewSession("", &protocol.SessionConfig{Preset: "chrome-latest", HTTP2MaxConnAge: age})
 			defer s.Close()
 			data, err := s.Marshal()
@@ -98,8 +101,8 @@ func TestHTTP2MaxConnAgePersistence(t *testing.T) {
 			if err := json.Unmarshal(state["config"], &config); err != nil {
 				t.Fatalf("decode config: %v", err)
 			}
-			if got, want := string(config["http2MaxConnAge"]), strconv.FormatInt(int64(age), 10); got != want {
-				t.Fatalf("serialized maximum age = %q, want nanoseconds %q", got, want)
+			if got, want := string(config["http2MaxConnAge"]), strconv.Itoa(age); got != want {
+				t.Fatalf("serialized maximum age = %q, want seconds %q", got, want)
 			}
 			for _, version := range []int{4, 5} {
 				t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {

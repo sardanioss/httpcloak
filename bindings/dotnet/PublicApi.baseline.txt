@@ -8,7 +8,7 @@
 # shipped shape is missing, add a forwarding overload for it instead: see the
 # forwarders at the end of Session.cs, which carry the 1.6.8 and 1.7.0 shapes.
 #
-# 443 members.
+# 447 members.
 
 HttpCloak.Cookie.Domain : System.String
 HttpCloak.Cookie.Expires : System.String
@@ -216,10 +216,12 @@ HttpCloak.Presets.IosChrome148 : System.String
 HttpCloak.Presets.IosChromeLatest : System.String
 HttpCloak.Presets.IosSafari17 : System.String
 HttpCloak.Presets.IosSafari18 : System.String
+HttpCloak.Presets.IosSafari26 : System.String
 HttpCloak.Presets.IosSafariLatest : System.String
 HttpCloak.Presets.Safari17Ios : System.String
 HttpCloak.Presets.Safari18 : System.String
 HttpCloak.Presets.Safari18Ios : System.String
+HttpCloak.Presets.Safari26Ios : System.String
 HttpCloak.Presets.SafariLatest : System.String
 HttpCloak.Presets.SafariLatestIos : System.String
 HttpCloak.RedirectInfo.GetHeader(System.String) : System.String
@@ -247,6 +249,7 @@ HttpCloak.Response.Text : System.String
 HttpCloak.Response.Trailer : System.Collections.Generic.IReadOnlyDictionary<System.String, System.String[]>
 HttpCloak.Response.Url : System.String
 HttpCloak.Session..ctor(System.String, System.String, System.String, System.String, System.Int32, System.String, System.Boolean, System.Boolean, System.Int32, System.Int32, System.Int32[], System.Int32, System.Int32, System.Boolean, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Boolean, System.Int32, System.String, System.String, System.Boolean, System.String, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.Object>, System.Nullable<System.Int32>, System.Nullable<System.Int32>, System.Nullable<System.Int32>, System.Nullable<System.Int32>, System.Nullable<System.Boolean>)
+HttpCloak.Session..ctor(System.String, System.String, System.String, System.String, System.Int32, System.String, System.Boolean, System.Boolean, System.Int32, System.Int32, System.Int32[], System.Int32, System.Int32, System.Boolean, System.Nullable<System.ValueTuple<System.String, System.String>>, System.Collections.Generic.Dictionary<System.String, System.String>, System.String, System.Boolean, System.Int32, System.String, System.String, System.Boolean, System.String, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.Boolean, System.String, System.String, System.Collections.Generic.Dictionary<System.String, System.Object>, System.Nullable<System.Int32>, System.Nullable<System.Int32>, System.Nullable<System.Int32>, System.Nullable<System.Int32>, System.Nullable<System.Boolean>, System.Int32)
 HttpCloak.Session.Auth : System.Nullable<System.ValueTuple<System.String, System.String>>
 HttpCloak.Session.ClearCache() : System.Void
 HttpCloak.Session.ClearCookies() : System.Void

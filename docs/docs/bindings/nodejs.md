@@ -111,6 +111,7 @@ new Session(options?: SessionOptions);
   tcpWindowSize?: number;
   tcpWindowScale?: number;
   tcpDf?: boolean;
+  http2MaxConnAge?: number;    // seconds, 0 = no limit
 }
 ```
 

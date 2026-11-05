@@ -15,18 +15,19 @@ func TestSessionHTTP2MaxConnAgeOption(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		opts []SessionOption
-		want time.Duration
+		want int // seconds
 	}{
 		{name: "omitted"},
 		{name: "zero", opts: []SessionOption{WithHTTP2MaxConnAge(0)}},
-		{name: "custom", opts: []SessionOption{WithHTTP2MaxConnAge(123456789 * time.Nanosecond)}, want: 123456789 * time.Nanosecond},
-		{name: "disabled", opts: []SessionOption{WithHTTP2MaxConnAge(-1)}, want: -1},
+		{name: "minutes", opts: []SessionOption{WithHTTP2MaxConnAge(15 * time.Minute)}, want: 900},
+		{name: "rounds up", opts: []SessionOption{WithHTTP2MaxConnAge(1500 * time.Millisecond)}, want: 2},
+		{name: "negative", opts: []SessionOption{WithHTTP2MaxConnAge(-1)}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := NewSession("chrome-latest", tt.opts...)
 			defer s.Close()
 			if got := s.inner.Config.HTTP2MaxConnAge; got != tt.want {
-				t.Fatalf("session maximum age = %v, want %v", got, tt.want)
+				t.Fatalf("session maximum age = %d, want %d", got, tt.want)
 			}
 			cfg := s.GetTransport().GetConfig()
 			if cfg == nil {
@@ -35,8 +36,8 @@ func TestSessionHTTP2MaxConnAgeOption(t *testing.T) {
 				}
 				return
 			}
-			if got := cfg.HTTP2MaxConnAge; got != tt.want {
-				t.Fatalf("transport maximum age = %v, want %v", got, tt.want)
+			if got, want := cfg.HTTP2MaxConnAge, time.Duration(tt.want)*time.Second; got != want {
+				t.Fatalf("transport maximum age = %v, want %v", got, want)
 			}
 		})
 	}
@@ -51,8 +52,8 @@ func TestSessionHTTP2MaxConnAgeControlsReuse(t *testing.T) {
 		wantConns int32
 	}{
 		{name: "default", wantConns: 1},
-		{name: "expired", age: time.Nanosecond, wantConns: 2},
-		{name: "disabled", age: -1, wantConns: 1},
+		{name: "expired", age: time.Second, wantConns: 2},
+		{name: "negative", age: -1, wantConns: 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var connections atomic.Int32
@@ -76,6 +77,9 @@ func TestSessionHTTP2MaxConnAgeControlsReuse(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			for i := range 2 {
+				if i == 1 && tt.age > 0 {
+					time.Sleep(tt.age + 100*time.Millisecond)
+				}
 				resp, err := s.GetStream(ctx, srv.URL)
 				if err != nil {
 					t.Fatalf("request %d: %v", i+1, err)

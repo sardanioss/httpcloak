@@ -95,6 +95,7 @@ Pin or disable specific HTTP versions.
 |---|---|---|
 | `WithSessionTimeout(d time.Duration) SessionOption` | `30s` | Default per-request timeout. Each `Do` / `Get` can override via `req.Timeout`. |
 | `WithQuicIdleTimeout(d time.Duration) SessionOption` | `30s` | QUIC idle timeout. Connections close after this much silence. Match Chrome's default unless you need long-lived H3 sessions across request gaps. |
+| `WithHTTP2MaxConnAge(d time.Duration) SessionOption` | no limit | Once an HTTP/2 connection is older than `d`, new requests go out on a fresh one. Requests already on the old one finish. Chrome has no such limit, so leave it off unless you want connections rotated. Rounded up to whole seconds. Bindings: `http2_max_conn_age` / `http2MaxConnAge`, in seconds. |
 | `WithRetry(count int) SessionOption` | retry off | Enables retry with default backoff. `count` is total retry attempts (not including the first try). |
 | `WithoutRetry() SessionOption` | retry off | Explicitly disables retry. No-op if retry was never enabled. |
 | `WithRetryConfig(count int, waitMin, waitMax time.Duration, retryOnStatus []int) SessionOption` | see source | Full retry config. `waitMin/waitMax` define exponential backoff bounds. `retryOnStatus` is the set of HTTP statuses that trigger a retry. |
