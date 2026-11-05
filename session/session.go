@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -289,6 +290,44 @@ func cloneHeaders(h map[string][]string) map[string][]string {
 	return out
 }
 
+// hasHeaderAnyCase reports whether h holds name in any spelling.
+func hasHeaderAnyCase(h map[string][]string, name string) bool {
+	for k := range h {
+		if strings.EqualFold(k, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// takeCookieHeader removes every spelling of Cookie from h and returns the
+// caller's cookies as one string, joined in key order so the result does not
+// depend on map order. The transport keeps one spelling of a header name and
+// prefers the canonical one, so a caller's "cookie" left next to the jar's
+// "Cookie" would be dropped; folding it in first keeps both.
+func takeCookieHeader(h map[string][]string) string {
+	var keys []string
+	for k := range h {
+		if strings.EqualFold(k, "Cookie") {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		for _, v := range h[k] {
+			if v != "" {
+				parts = append(parts, v)
+			}
+		}
+		delete(h, k)
+	}
+	return strings.Join(parts, "; ")
+}
+
 // requestWithRedirects handles the actual request with redirect following
 func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Request, redirectCount int, history []*transport.RedirectInfo) (*transport.Response, error) {
 	// Work on a private copy of the caller's request. The session mutates
@@ -357,10 +396,11 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 	// hasn't opted out. Skipping here also means a fresh fetch on this URL.
 	if s.conditionalCacheEnabled && !req.DisableConditionalCache {
 		if cached, exists := s.cacheEntries[req.URL]; exists {
-			if cached.etag != "" {
+			// A validator the caller set, in any spelling, wins.
+			if cached.etag != "" && !hasHeaderAnyCase(req.Headers, "If-None-Match") {
 				req.Headers["If-None-Match"] = []string{cached.etag}
 			}
-			if cached.lastModified != "" {
+			if cached.lastModified != "" && !hasHeaderAnyCase(req.Headers, "If-Modified-Since") {
 				req.Headers["If-Modified-Since"] = []string{cached.lastModified}
 			}
 		}
@@ -400,10 +440,11 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 	requestPath := extractPath(req.URL)
 	requestSecure := isSecureURL(req.URL)
 
-	// Save original per-request Cookie header before retry loop to prevent accumulation
-	var origCookie string
-	if c := req.Headers["Cookie"]; len(c) > 0 {
-		origCookie = c[0]
+	// Save original per-request Cookie header before retry loop to prevent
+	// accumulation. Every spelling the caller used is folded into one.
+	origCookie := takeCookieHeader(req.Headers)
+	if origCookie != "" {
+		req.Headers["Cookie"] = []string{origCookie}
 	}
 
 	// A one-shot streaming body cannot go on the wire twice. Unlike a redirect,
@@ -652,15 +693,15 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 
 			// Copy safe headers
 			for k, v := range req.Headers {
+				lk := strings.ToLower(k)
 				// Don't copy Content-* headers on method change
-				if newMethod != req.Method && (k == "Content-Type" || k == "Content-Length" || k == "content-type" || k == "content-length") {
+				if newMethod != req.Method && (lk == "content-type" || lk == "content-length") {
 					continue
 				}
 				// Don't copy Cookie header (will be re-added from session)
-				if k == "Cookie" || k == "cookie" {
+				if lk == "cookie" {
 					continue
 				}
-				lk := strings.ToLower(k)
 				if schemeDowngrade && lk == "referer" {
 					continue
 				}
@@ -682,8 +723,11 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			// deletes: a Referer the caller put on the original request names the
 			// pre-redirect URL, and carrying it to the new host would leak exactly
 			// what the caller asked us not to send.
-			delete(newReq.Headers, "Referer")
-			delete(newReq.Headers, "referer")
+			for k := range newReq.Headers {
+				if strings.EqualFold(k, "Referer") {
+					delete(newReq.Headers, k)
+				}
+			}
 			if !req.DisableRedirectReferer {
 				if ref := redirectReferer(req.URL, schemeDowngrade, crossOrigin); ref != "" {
 					newReq.Headers["Referer"] = []string{ref}
@@ -1796,9 +1840,8 @@ func (s *Session) RequestStream(ctx context.Context, req *transport.Request) (*S
 		requestSecure := isSecureURL(req.URL)
 		sessionCookies := s.cookies.BuildCookieHeader(requestHost, requestPath, requestSecure)
 		if sessionCookies != "" {
-			existingCookies := req.Headers["Cookie"]
-			if len(existingCookies) > 0 && existingCookies[0] != "" {
-				req.Headers["Cookie"] = []string{existingCookies[0] + "; " + sessionCookies}
+			if existing := takeCookieHeader(req.Headers); existing != "" {
+				req.Headers["Cookie"] = []string{existing + "; " + sessionCookies}
 			} else {
 				req.Headers["Cookie"] = []string{sessionCookies}
 			}
