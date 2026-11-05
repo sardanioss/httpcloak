@@ -1632,6 +1632,24 @@ func (t *HTTP3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// HTTP/3 alone a fetch went out with navigation headers and a TLS-only
 	// request with the whole set. Only a transport-wide TLS-only setting
 	// stopped it, never a per-request one.
+	//
+	// User-Agent is the one exception. With no user-agent field at all,
+	// quic-go writes its own "quic-go HTTP/3", where HTTP/2 sends the
+	// preset's, so an exact-headers request without one would name the
+	// library. TLS-only requests are left alone: the pipeline gives them an
+	// empty User-Agent precisely so nothing is sent, and that key is present.
+	if t.config == nil || !t.config.TLSOnly {
+		hasUA := false
+		for key := range req.Header {
+			if strings.EqualFold(key, "User-Agent") {
+				hasUA = true
+				break
+			}
+		}
+		if !hasUA {
+			req.Header["User-Agent"] = []string{t.preset.UserAgent}
+		}
+	}
 
 	// Cookie crumbling (H3/QPACK). Chrome and Firefox split the Cookie header
 	// into one QPACK field per cookie-pair (Chromium ValueSplittingHeaderList,

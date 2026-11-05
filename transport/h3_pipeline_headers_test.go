@@ -20,14 +20,18 @@ import (
 // HTTP/2 never did this, so each request here has to reach an HTTP/3 server
 // with the same headers it sends over HTTP/2.
 func TestHTTP3SendsTheHeadersThePipelineBuilt(t *testing.T) {
-	h3Names := make(chan []string, 1)
+	type h3Seen struct {
+		names []string
+		ua    string
+	}
+	h3Got := make(chan h3Seen, 1)
 	origin := startH3Origin(t, shttp.HandlerFunc(func(w shttp.ResponseWriter, r *shttp.Request) {
 		var names []string
 		for k := range r.Header {
 			names = append(names, strings.ToLower(k))
 		}
 		slices.Sort(names)
-		h3Names <- names
+		h3Got <- h3Seen{names, r.Header.Get("User-Agent")}
 	}))
 	h2 := startH2CaptureServer(t)
 
@@ -53,9 +57,15 @@ func TestHTTP3SendsTheHeadersThePipelineBuilt(t *testing.T) {
 		{"exact headers", Request{ExactHeaders: []fingerprint.HeaderPair{
 			{Key: "user-agent", Value: "probe"}, {Key: "accept", Value: "*/*"}}},
 			[]string{"sec-fetch-mode", "sec-ch-ua", "priority"}},
+		// The one header HTTP/3 still fills in: with no user-agent field,
+		// quic-go would send its own name where HTTP/2 sends the preset's.
+		{"exact headers, no User-Agent", Request{ExactHeaders: []fingerprint.HeaderPair{
+			{Key: "accept", Value: "*/*"}}},
+			[]string{"sec-fetch-mode", "sec-ch-ua", "priority"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			sent := map[Protocol][]string{}
+			ua := map[Protocol]string{}
 			for _, proto := range []Protocol{ProtocolHTTP2, ProtocolHTTP3} {
 				tr := NewTransport("chrome-155-windows")
 				tr.SetProtocol(proto)
@@ -75,18 +85,24 @@ func TestHTTP3SendsTheHeadersThePipelineBuilt(t *testing.T) {
 				}
 				resp.Close()
 				if proto == ProtocolHTTP3 {
-					sent[proto] = <-h3Names
+					got := <-h3Got
+					sent[proto], ua[proto] = got.names, got.ua
 					continue
 				}
-				for k := range (<-h2.captures).Headers {
+				captured := (<-h2.captures).Headers
+				for k := range captured {
 					if !strings.HasPrefix(k, ":") {
 						sent[proto] = append(sent[proto], k)
 					}
 				}
+				ua[proto] = captured["user-agent"]
 				slices.Sort(sent[proto])
 			}
 			if !slices.Equal(sent[ProtocolHTTP3], sent[ProtocolHTTP2]) {
 				t.Errorf("HTTP/3 sent %v\nHTTP/2 sent %v", sent[ProtocolHTTP3], sent[ProtocolHTTP2])
+			}
+			if ua[ProtocolHTTP3] != ua[ProtocolHTTP2] {
+				t.Errorf("HTTP/3 User-Agent %q, HTTP/2 %q", ua[ProtocolHTTP3], ua[ProtocolHTTP2])
 			}
 			for _, name := range c.gone {
 				if slices.Contains(sent[ProtocolHTTP3], name) {
