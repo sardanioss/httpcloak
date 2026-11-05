@@ -651,30 +651,26 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 // even when the connection is fine. We'll handle errors during actual use.
 func (t *HTTP2Transport) isConnUsable(conn *persistentConn) bool {
 	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	// Already evicted and waiting for its last body to finish.
-	if conn.closeRequested {
+	// Not evicted and waiting for its last body, not too old, and not idle
+	// for too long. Idle time doesn't count while requests are in flight,
+	// or cleanup would kill long downloads (>maxIdleTime).
+	usable := !conn.closeRequested &&
+		time.Since(conn.createdAt) <= t.maxConnAge &&
+		(conn.inFlight > 0 || time.Since(conn.lastUsedAt) <= t.maxIdleTime)
+	h2Conn := conn.h2Conn
+	conn.mu.Unlock()
+	if !usable || h2Conn == nil {
 		return false
 	}
 
-	// Check age
-	if time.Since(conn.createdAt) > t.maxConnAge {
-		return false
-	}
-
-	// Check idle time — but not if requests are actively in-flight.
-	// Without this, long downloads (>maxIdleTime) get killed by cleanup.
-	if conn.inFlight == 0 && time.Since(conn.lastUsedAt) > t.maxIdleTime {
-		return false
-	}
-
-	// Just check if connection object exists - we'll handle errors during RoundTrip
-	if conn.h2Conn == nil {
-		return false
-	}
-
-	return true
+	// A connection the server has sent GOAWAY on, or that has died, can open
+	// no more streams. Handing it out only fails the request and leans on the
+	// retry to recover, which a request whose body can't be replayed doesn't
+	// get, and servers send GOAWAY on idle connections routinely (#141).
+	// The state lives behind the HTTP/2 layer's own lock, so ask it without
+	// holding conn.mu.
+	st := h2Conn.State()
+	return !st.Closed && !st.Closing
 }
 
 // isConnDestroyable reports whether a connection can be closed right now.

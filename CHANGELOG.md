@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A TLS connection is closed when the server picks a protocol it can't be used for** (#140): when ALPN came back with a different protocol than the one requested and no fallback took the connection over, the error was returned with the connection still open inside it, and nothing closed it. Each such request leaked a socket until the server dropped it.
 
+- **An HTTP/2 connection the server has said goodbye on is no longer reused** (thanks to #141 for the report): servers routinely send GOAWAY on a connection that has sat idle, and it stayed in the pool, so the next request to that host was sent on it, failed, and only got through on the automatic retry. A request whose body can't be replayed got no retry and failed outright. Such a connection is now skipped and a new one opened.
+
 ### Security
 
 - **HTTP/1.1 requests with a line break in a header, the method, the path or the Host are refused**: the HTTP/1.1 writer printed them verbatim, so a CR or LF in a value let whoever controlled it add headers of their own, or a second request, on the same connection. HTTP/2 and HTTP/3 already refused these, as Chrome and Go's client do. Such a request now fails with an `invalid header field value` error before anything is sent.
