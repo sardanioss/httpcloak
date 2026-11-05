@@ -28,6 +28,7 @@ func TestValidateH1RequestRefusesLineBreaks(t *testing.T) {
 		"host":          func(r *http.Request) { r.Host = "example.com\r\nInjected: 1" },
 		"request path":  func(r *http.Request) { r.URL.Opaque = "/a HTTP/1.1\r\nInjected: 1\r\n\r\nGET /b" },
 		"lowercase key": func(r *http.Request) { r.Header["x-lower"] = []string{"a\r\nb: c"} },
+		"NUL in value":  func(r *http.Request) { r.Header["X-B"] = []string{"a\x00b"} },
 	}
 	for name, mutate := range bad {
 		r := base()
@@ -46,5 +47,33 @@ func TestValidateH1RequestRefusesLineBreaks(t *testing.T) {
 	}
 	if err := validateH1Request(&http.Request{Method: "", URL: base().URL, Header: http.Header{"X": {strings.Repeat("a", 10)}}}); err != nil {
 		t.Fatalf("an empty method (GET) was refused: %v", err)
+	}
+}
+
+// Everything 1.7.3 sent that carries no line break must still go out: a
+// header dict copied from DevTools for an HTTP/2 request (pseudo-header
+// names, which the auto-mode HTTP/1.1 fallback has always carried), a raw
+// space in the query, a tab or obs-text in a value. Lenient servers answer
+// these, and refusing them broke working code.
+func TestValidateH1RequestKeepsWhat1_7_3Sent(t *testing.T) {
+	ok := map[string]func(r *http.Request){
+		"pseudo-header names": func(r *http.Request) {
+			r.Header[":authority"] = []string{"example.com"}
+			r.Header[":path"] = []string{"/"}
+		},
+		"space in query":    func(r *http.Request) { r.URL.RawQuery = "q=a b" },
+		"tab in value":      func(r *http.Request) { r.Header["X-T"] = []string{"a\tb"} },
+		"obs-text in value": func(r *http.Request) { r.Header["X-U"] = []string{"caf\xc3\xa9"} },
+		"name with a space": func(r *http.Request) { r.Header["X Odd"] = []string{"1"} },
+		"empty value":       func(r *http.Request) { r.Header["X-E"] = []string{""} },
+		"IPv6 host":         func(r *http.Request) { r.Host = "[::1]:8080" },
+	}
+	for name, mutate := range ok {
+		u, _ := url.Parse("http://example.com/path?q=1")
+		r := &http.Request{Method: "GET", URL: u, Header: http.Header{}}
+		mutate(r)
+		if err := validateH1Request(r); err != nil {
+			t.Errorf("%s: refused: %v", name, err)
+		}
 	}
 }

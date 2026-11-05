@@ -61,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **HTTP/1.1 requests with a line break in a header, the method, the path or the Host are refused**: the HTTP/1.1 writer printed them verbatim, so a CR or LF in a value let whoever controlled it add headers of their own, or a second request, on the same connection. HTTP/2 and HTTP/3 already refused these, as Chrome and Go's client do. Such a request now fails with an `invalid header field value` error before anything is sent.
+- **HTTP/1.1 requests with a line break in a header, the method, the path or the Host are refused**: the HTTP/1.1 writer printed them verbatim, so a CR or LF in a value let whoever controlled it add headers of their own, or a second request, on the same connection. HTTP/2 and HTTP/3 already refused these, as Chrome and Go's client do. A request carrying a CR, LF or NUL byte in any of those now fails before anything is sent. Nothing else is refused, so requests 1.7.3 sent, such as a raw space in the query or a header dict copied from DevTools, still go out as before.
 
 ## [1.7.3] - 2026-10-14
 

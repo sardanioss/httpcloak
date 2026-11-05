@@ -20,7 +20,6 @@ import (
 	"github.com/sardanioss/httpcloak/dns"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/proxy"
-	"github.com/sardanioss/net/http/httpguts"
 	utls "github.com/sardanioss/utls"
 )
 
@@ -1900,21 +1899,27 @@ func (t *HTTP1Transport) applyH1Spec(
 // header verbatim, so a CR or LF in any of them ends the line early and the
 // rest is read as headers of the caller's choosing, or as a second request.
 // Chrome, Go's own client and this library's HTTP/2 and HTTP/3 paths all
-// refuse such requests; this brings HTTP/1.1 in line. Bookkeeping entries
-// (header order, casing, the exact-headers marker) never reach the wire and
-// are skipped.
+// refuse such requests; this brings HTTP/1.1 in line.
+//
+// Only CR, LF and NUL are refused, the bytes that can end or truncate a line.
+// Anything else 1.7.3 sent, it still sends: a header name that is not a
+// token (a ':path' copied from DevTools, which the auto-mode HTTP/1.1
+// fallback relies on), a raw space in the query, obs-text in a value. Lenient
+// servers accept those, and refusing them broke requests that worked.
+// Bookkeeping entries (header order, casing, the exact-headers marker) never
+// reach the wire and are skipped.
 func validateH1Request(req *http.Request) error {
-	if req.Method != "" && !httpguts.ValidHeaderFieldName(req.Method) {
+	if hasLineBreak(req.Method) {
 		return fmt.Errorf("invalid HTTP method %q", req.Method)
 	}
-	if req.URL != nil && !validRequestTarget(req.URL.RequestURI()) {
+	if req.URL != nil && hasLineBreak(req.URL.RequestURI()) {
 		return fmt.Errorf("invalid request target %q", req.URL.RequestURI())
 	}
 	host := req.Host
 	if host == "" && req.URL != nil {
 		host = req.URL.Host
 	}
-	if !httpguts.ValidHostHeader(host) {
+	if hasLineBreak(host) {
 		return fmt.Errorf("invalid Host header %q", host)
 	}
 	for key, values := range req.Header {
@@ -1922,11 +1927,11 @@ func validateH1Request(req *http.Request) error {
 		case http.HeaderOrderKey, http.PHeaderOrderKey, h1HeaderCasingKey, exactHeadersKey:
 			continue
 		}
-		if !httpguts.ValidHeaderFieldName(key) {
+		if hasLineBreak(key) {
 			return fmt.Errorf("invalid header field name %q", key)
 		}
 		for _, v := range values {
-			if !httpguts.ValidHeaderFieldValue(v) {
+			if hasLineBreak(v) {
 				return fmt.Errorf("invalid header field value for %q", key)
 			}
 		}
@@ -1934,13 +1939,7 @@ func validateH1Request(req *http.Request) error {
 	return nil
 }
 
-// validRequestTarget reports whether a request target has no control
-// characters or spaces, either of which would split the request line.
-func validRequestTarget(uri string) bool {
-	for i := 0; i < len(uri); i++ {
-		if c := uri[i]; c <= ' ' || c == 0x7f {
-			return false
-		}
-	}
-	return true
+// hasLineBreak reports whether s holds a CR, LF or NUL.
+func hasLineBreak(s string) bool {
+	return strings.ContainsAny(s, "\r\n\x00")
 }
