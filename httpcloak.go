@@ -613,6 +613,7 @@ type sessionConfig struct {
 	echConfigDomain               string            // Domain to fetch ECH config from
 	tlsOnly                       bool              // TLS-only mode: skip preset headers, set all manually
 	quicIdleTimeout               time.Duration     // QUIC idle timeout (default: 30s)
+	http2MaxConnAge               time.Duration     // HTTP/2 connection age limit (0: 5m, negative: disabled)
 	localAddr                     string            // Local IP address to bind outgoing connections
 	keyLogFile                    string            // Path to write TLS key log for Wireshark decryption
 	disableECH                    bool              // Disable ECH lookup for faster first request
@@ -973,6 +974,18 @@ func WithQuicIdleTimeout(d time.Duration) SessionOption {
 	}
 }
 
+// WithHTTP2MaxConnAge sets the maximum age for reusing a Session's HTTP/2
+// connections. Zero keeps the default of five minutes; a negative duration
+// disables age-based retirement. Positive durations set a custom limit.
+// Responses already in flight are allowed to finish when the limit is reached.
+// Idle timeouts, peer shutdowns, and explicit session closure still apply.
+// This option does not configure Client, HTTP/1.1, or HTTP/3 connection pools.
+func WithHTTP2MaxConnAge(d time.Duration) SessionOption {
+	return func(c *sessionConfig) {
+		c.http2MaxConnAge = d
+	}
+}
+
 // WithSessionCache sets a distributed TLS session cache backend.
 // This enables TLS session ticket sharing across multiple instances (e.g., via Redis).
 // The errorCallback is optional and will be called when backend operations fail.
@@ -1115,6 +1128,7 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 		ECHConfigDomain:               cfg.echConfigDomain,
 		TLSOnly:                       cfg.tlsOnly,
 		QuicIdleTimeout:               int(cfg.quicIdleTimeout.Seconds()),
+		HTTP2MaxConnAge:               cfg.http2MaxConnAge,
 		LocalAddress:                  cfg.localAddr,
 		KeyLogFile:                    cfg.keyLogFile,
 		DisableECH:                    cfg.disableECH,

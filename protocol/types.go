@@ -12,6 +12,7 @@ package protocol
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"time"
 )
 
 // MessageType represents the type of IPC message
@@ -223,6 +224,11 @@ type SessionConfig struct {
 	// QUIC idle timeout in seconds (default: 30)
 	// Connections are closed after this duration of inactivity
 	QuicIdleTimeout int `json:"quicIdleTimeout,omitempty"`
+
+	// HTTP2MaxConnAge limits the age for reusing HTTP/2 connections. Zero keeps
+	// the five-minute default; negative values disable age-based retirement.
+	// JSON uses integer nanoseconds, preserving the full time.Duration precision.
+	HTTP2MaxConnAge time.Duration `json:"http2MaxConnAge,omitempty"`
 
 	// KeyLogFile is the path to write TLS key log for Wireshark decryption.
 	// If set, overrides the global SSLKEYLOGFILE environment variable for this session.

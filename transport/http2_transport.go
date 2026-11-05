@@ -309,6 +309,9 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		connectTimeout:       30 * time.Second,
 		stopCleanup:          make(chan struct{}),
 	}
+	if config != nil && config.HTTP2MaxConnAge != 0 {
+		t.maxConnAge = config.HTTP2MaxConnAge
+	}
 
 	// Apply localAddr from config
 	if config != nil && config.LocalAddr != "" {
@@ -655,7 +658,7 @@ func (t *HTTP2Transport) isConnUsable(conn *persistentConn) bool {
 	// for too long. Idle time doesn't count while requests are in flight,
 	// or cleanup would kill long downloads (>maxIdleTime).
 	usable := !conn.closeRequested &&
-		time.Since(conn.createdAt) <= t.maxConnAge &&
+		(t.maxConnAge <= 0 || time.Since(conn.createdAt) <= t.maxConnAge) &&
 		(conn.inFlight > 0 || time.Since(conn.lastUsedAt) <= t.maxIdleTime)
 	h2Conn := conn.h2Conn
 	conn.mu.Unlock()
@@ -699,7 +702,7 @@ func (t *HTTP2Transport) isConnDestroyable(conn *persistentConn) bool {
 	if h2Conn == nil {
 		return true
 	}
-	if time.Since(conn.createdAt) > t.maxConnAge {
+	if t.maxConnAge > 0 && time.Since(conn.createdAt) > t.maxConnAge {
 		return true
 	}
 	return time.Since(lastUsedAt) > t.maxIdleTime
