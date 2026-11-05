@@ -3563,6 +3563,11 @@ func IOSSafari26() *Preset {
 		"accept-language", "priority", "accept-encoding",
 		"referer", "cookie", "content-type", "content-length", "origin",
 	}
+	// The capture is HTTP/2 only, so nothing says Safari puts priority on an
+	// HTTP/1.1 request, and safari-18-ios, which the iOS aliases named before,
+	// never sent one there. Same WebKit stack, same answer as iOS Chrome.
+	noH1Priority := false
+	p.H2Config.PriorityOverHTTP1 = &noH1Priority
 	// The capture is HTTP/2 only, so HTTP/3 stays off by default. H3Config is
 	// kept: a caller who forces HTTP/3 must still get Safari's QUIC shape,
 	// since a nil config falls back to Chrome's (the #125 mismatch).
