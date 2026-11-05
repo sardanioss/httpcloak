@@ -1,7 +1,12 @@
 #!/bin/bash
 # HTTPCloak Version Bump Script
 # Usage: ./bump-version.sh <new_version>
-# Example: ./bump-version.sh 1.0.7
+# Example: ./bump-version.sh 1.0.7, or a prerelease: ./bump-version.sh 1.7.4-beta.1
+#
+# A prerelease keeps the same string everywhere. npm and NuGet read it as a
+# prerelease as written, and Python normalises it to 1.7.4b1 (PEP 440), so
+# pip, npm (published under the beta dist-tag) and NuGet all leave it out of a
+# plain install.
 
 set -e
 
@@ -17,8 +22,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "Bumping all versions to $NEW_VERSION..."
 
 # Validate version format
-if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Error: Version must be in format X.Y.Z (e.g., 1.0.6)"
+if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+    echo "Error: Version must be X.Y.Z or X.Y.Z-beta.N (alpha and rc too), e.g. 1.0.6 or 1.7.4-beta.1"
     exit 1
 fi
 
@@ -63,18 +68,18 @@ sed -i "s/^const libVersion = \".*\"/const libVersion = \"$NEW_VERSION\"/" httpc
 # Update Python __init__.py version string
 echo "  -> python/httpcloak/__init__.py"
 cd "$SCRIPT_DIR/python"
-sed -i "s/__version__ = \"[0-9]*\.[0-9]*\.[0-9]*\"/__version__ = \"$NEW_VERSION\"/" httpcloak/__init__.py
+sed -i "s/__version__ = \"[^\"]*\"/__version__ = \"$NEW_VERSION\"/" httpcloak/__init__.py
 
 # Update .NET HttpCloak.csproj version
 if [ -f "$SCRIPT_DIR/dotnet/HttpCloak/HttpCloak.csproj" ]; then
     echo "  -> dotnet/HttpCloak/HttpCloak.csproj"
     cd "$SCRIPT_DIR/dotnet/HttpCloak"
-    sed -i "s/<Version>[0-9]*\.[0-9]*\.[0-9]*<\/Version>/<Version>$NEW_VERSION<\/Version>/" HttpCloak.csproj
+    sed -i "s/<Version>[^<]*<\/Version>/<Version>$NEW_VERSION<\/Version>/" HttpCloak.csproj
 fi
 
 # Update Android library version
 echo "  -> android/httpcloak/build.gradle.kts"
-sed -i "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"$NEW_VERSION\"/" "$SCRIPT_DIR/android/httpcloak/build.gradle.kts"
+sed -i "s/^version = \"[^\"]*\"/version = \"$NEW_VERSION\"/" "$SCRIPT_DIR/android/httpcloak/build.gradle.kts"
 
 # Every file must now carry the new version. A pattern that stops matching
 # (as the clib one did when the version moved into libVersion, so 1.7.2-beta.2

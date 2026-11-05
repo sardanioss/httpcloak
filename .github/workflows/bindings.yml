@@ -7,8 +7,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Every package must say the same version, and on a tag, the tag's. A tag
+  # pushed before bump-version.sh ran would otherwise upload new libraries into
+  # the previous, live release. Everything else waits on this.
+  check-version:
+    name: Package versions match the tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check versions
+        run: python3 bindings/check_version.py "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}"
+
   build-native:
     name: Build native library (${{ matrix.os }}-${{ matrix.arch }})
+    needs: check-version
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -120,6 +132,7 @@ jobs:
   # Build darwin-amd64 from ARM runner (cross-compile)
   build-darwin-amd64:
     name: Build native library (darwin-amd64)
+    needs: check-version
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -161,6 +174,7 @@ jobs:
 
   build-android:
     name: Build Android library
+    needs: check-version
     runs-on: ubuntu-latest
     # Runs the Gradle wrapper, so it gets a read-only token and none left in
     # the checkout's git config.
@@ -367,8 +381,14 @@ jobs:
             image: quay.io/pypa/manylinux2014_aarch64
           - wheel: macosx_12_0_arm64
             runner: macos-14
+            pyarch: arm64
+          # The Intel wheel, on an x64 Python running under Rosetta.
+          - wheel: macosx_12_0_x86_64
+            runner: macos-14
+            pyarch: x64
           - wheel: win_amd64
             runner: windows-latest
+            pyarch: x64
     steps:
       - name: Download wheels
         uses: actions/download-artifact@v4
@@ -391,10 +411,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          architecture: ${{ matrix.pyarch }}
 
       - name: Install and use the wheel (macOS)
         if: runner.os == 'macOS'
         run: |
+          python -c "import platform; print('python is', platform.machine())"
           python -m pip install --no-index wheels/*-${{ matrix.wheel }}.whl
           python -c "import httpcloak; s = httpcloak.Session(); s.close(); print('httpcloak', httpcloak.version(), 'loaded')"
 

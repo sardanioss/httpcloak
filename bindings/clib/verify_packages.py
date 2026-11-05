@@ -48,14 +48,21 @@ MACOS_FLOOR = "12.0"
 failures = []
 
 
-def check(lib, target_os, max_glibc=GLIBC_FLOOR, max_macos=MACOS_FLOOR, what=""):
+def check(lib, target_os, max_glibc=GLIBC_FLOOR, max_macos=MACOS_FLOOR, what="", arch=None):
     if not os.path.isfile(lib):
         failures.append("%s: %s is missing" % (what, os.path.basename(lib)))
         print("FAIL: %s: %s is missing" % (what, lib))
         return
     cmd = [sys.executable, VERIFY, lib, "--os", target_os, "--max-glibc", max_glibc, "--max-macos", max_macos]
+    if arch:
+        cmd += ["--arch", arch]
     if subprocess.call(cmd) != 0:
         failures.append("%s: %s" % (what, os.path.basename(lib)))
+
+
+def platform_arch(name):
+    """CPU an npm platform folder or NuGet RID names: linux-x64 -> amd64."""
+    return {"x64": "amd64", "arm64": "arm64"}[name.rsplit("-", 1)[1]]
 
 
 def wheels(d):
@@ -71,23 +78,24 @@ def wheels(d):
         if len(libs) != 1:
             failures.append("%s: expected one native library, found %d" % (whl, len(libs)))
             continue
+        arch = "arm64" if tag.endswith(("_aarch64", "_arm64")) else "amd64" if tag.endswith(("_x86_64", "_amd64")) else None
         m = re.match(r"manylinux_(\d+)_(\d+)_", tag)
         if m:
-            check(libs[0], "linux", max_glibc="%s.%s" % m.groups(), what=os.path.basename(whl))
+            check(libs[0], "linux", max_glibc="%s.%s" % m.groups(), what=os.path.basename(whl), arch=arch)
             continue
         m = re.match(r"macosx_(\d+)_(\d+)_", tag)
         if m:
-            check(libs[0], "darwin", max_macos="%s.%s" % m.groups(), what=os.path.basename(whl))
+            check(libs[0], "darwin", max_macos="%s.%s" % m.groups(), what=os.path.basename(whl), arch=arch)
             continue
         if tag == "win_amd64":
-            check(libs[0], "windows", what=os.path.basename(whl))
+            check(libs[0], "windows", what=os.path.basename(whl), arch=arch)
             continue
         failures.append("%s: unrecognised platform tag %s" % (whl, tag))
 
 
 def npm(d):
     for platform, (target_os, name) in sorted(NPM_TARGETS.items()):
-        check(os.path.join(d, platform, name), target_os, what="npm " + platform)
+        check(os.path.join(d, platform, name), target_os, what="npm " + platform, arch=platform_arch(platform))
 
 
 def nuget(d):
@@ -98,7 +106,7 @@ def nuget(d):
     tmp = tempfile.mkdtemp()
     zipfile.ZipFile(pkgs[0]).extractall(tmp)
     for rid, (target_os, name) in sorted(NUGET_TARGETS.items()):
-        check(os.path.join(tmp, "runtimes", rid, "native", name), target_os, what="NuGet " + rid)
+        check(os.path.join(tmp, "runtimes", rid, "native", name), target_os, what="NuGet " + rid, arch=platform_arch(rid))
 
 
 def main():

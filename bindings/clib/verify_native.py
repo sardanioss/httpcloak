@@ -47,6 +47,23 @@ DARWIN_SYSTEM_LIB = re.compile(r"^(/usr/lib/|/System/Library/Frameworks/)")
 # broken, whatever else it exports.
 REQUIRED_EXPORTS = ("httpcloak_version", "httpcloak_session_new", "httpcloak_session_free", "httpcloak_free_string")
 
+# Every native function a binding calls has to be exported, or that binding
+# fails at the call (.NET: "Unable to find an entry point named ..."). The
+# names are read from the binding sources when they sit beside this script,
+# as they do in the repo; REQUIRED_EXPORTS is the floor without them.
+BINDING_SOURCES = ("python/httpcloak/*.py", "nodejs/lib/index.js", "dotnet/HttpCloak/Native.cs")
+
+
+def binding_symbols():
+    import glob
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    names = set()
+    for pattern in BINDING_SOURCES:
+        for f in glob.glob(os.path.join(root, pattern)):
+            with open(f, encoding="utf-8") as fh:
+                names |= set(re.findall(r"\bhttpcloak_[a-z0-9_]+\b", fh.read()))
+    return names
+
 
 def fail(msg):
     print("FAIL: " + msg)
@@ -72,8 +89,85 @@ def check_windows(path):
     bad = [d for d in dlls if not WINDOWS_SYSTEM_DLLS.match(d)]
     if bad:
         fail("%s imports DLLs a stock Windows does not have: %s" % (path, ", ".join(bad)))
-    exports = set(re.findall(r"\]\s+(?:\+base\[\s*\d+\]\s+)?[0-9a-f]+\s+(httpcloak_\w+)", out))
-    return dlls, exports
+    return dlls, pe_exports(path)
+
+
+def pe_exports(path):
+    """Exported names of a PE file, read from its export directory.
+
+    Read from the file rather than parsed out of objdump -p, whose export
+    table layout changed between binutils releases: 2.44 prints an ordinal
+    column the 2.42 on ubuntu-latest does not, and a pattern written for one
+    found nothing in the other and failed a good DLL."""
+    with open(path, "rb") as f:
+        b = f.read()
+    if b[:2] != b"MZ":
+        fail("%s: not a PE file" % path)
+    pe = struct.unpack_from("<I", b, 0x3C)[0]
+    if b[pe:pe + 4] != b"PE\0\0":
+        fail("%s: not a PE file" % path)
+    nsections = struct.unpack_from("<H", b, pe + 6)[0]
+    opt_size = struct.unpack_from("<H", b, pe + 20)[0]
+    opt = pe + 24
+    magic = struct.unpack_from("<H", b, opt)[0]
+    ddir = opt + (112 if magic == 0x20B else 96)  # PE32+ or PE32
+    export_rva = struct.unpack_from("<I", b, ddir)[0]
+    if export_rva == 0:
+        return set()
+    sections = []
+    for i in range(nsections):
+        sh = opt + opt_size + 40 * i
+        vsize, vaddr, rsize, raddr = struct.unpack_from("<IIII", b, sh + 8)
+        sections.append((vaddr, max(vsize, rsize), raddr))
+
+    def off(rva):
+        for vaddr, size, raddr in sections:
+            if vaddr <= rva < vaddr + size:
+                return rva - vaddr + raddr
+        fail("%s: RVA 0x%x is outside every section" % (path, rva))
+
+    ed = off(export_rva)
+    nnames, _, names_rva = struct.unpack_from("<III", b, ed + 24)
+    names = set()
+    table = off(names_rva)
+    for i in range(nnames):
+        start = off(struct.unpack_from("<I", b, table + 4 * i)[0])
+        end = b.index(b"\0", start)
+        names.add(b[start:end].decode("ascii", "replace"))
+    return {n for n in names if n.startswith("httpcloak_")}
+
+
+def binary_arch(path):
+    """The CPU a library is built for, read from its header: amd64, arm64,
+    or the raw machine id for anything else."""
+    with open(path, "rb") as f:
+        head = f.read(4096)
+    if head[:4] == b"\x7fELF":
+        machine = struct.unpack_from("<H", head, 18)[0]
+        return {62: "amd64", 183: "arm64"}.get(machine, "elf-machine-%d" % machine)
+    if head[:4] == b"\xcf\xfa\xed\xfe":
+        cpu = struct.unpack_from("<I", head, 4)[0]
+        return {0x01000007: "amd64", 0x0100000C: "arm64"}.get(cpu, "macho-cpu-0x%x" % cpu)
+    if head[:2] == b"MZ":
+        pe = struct.unpack_from("<I", head, 0x3C)[0]
+        machine = struct.unpack_from("<H", head, pe + 4)[0]
+        return {0x8664: "amd64", 0xAA64: "arm64"}.get(machine, "pe-machine-0x%x" % machine)
+    return "unknown"
+
+
+def check_arch(path, expected):
+    """A library built for the wrong CPU passes every other check and then
+    fails to load on every machine the package goes to. The expected CPU
+    comes from --arch, or else from the file name (libhttpcloak-OS-ARCH)."""
+    if not expected:
+        m = re.search(r"-(amd64|arm64)\.(?:so|dylib|dll)$", os.path.basename(path))
+        expected = m.group(1) if m else None
+    if not expected:
+        return None
+    got = binary_arch(path)
+    if got != expected:
+        fail("%s is built for %s; its name or package says %s" % (path, got, expected))
+    return got
 
 
 def check_linux(path, max_glibc):
@@ -172,6 +266,7 @@ def main():
     ap.add_argument("--os", choices=["linux", "darwin", "windows"])
     ap.add_argument("--max-glibc", default="2.17", help="newest glibc the package promises to support")
     ap.add_argument("--max-macos", default="12.0", help="oldest macOS the package promises to support")
+    ap.add_argument("--arch", choices=["amd64", "arm64"], help="CPU the package promises; defaults to the one in the file name")
     ap.add_argument("--load", action="store_true", help="also load the library on this machine")
     ap.add_argument("--load-only", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
@@ -182,6 +277,7 @@ def main():
 
     if not os.path.isfile(a.lib):
         fail("%s does not exist" % a.lib)
+    arch = check_arch(a.lib, a.arch)
     if a.os == "windows":
         deps, exports = check_windows(a.lib)
         detail = "imports " + ", ".join(deps)
@@ -193,10 +289,10 @@ def main():
         detail = "needs macOS %s (promised %s)" % (minos, a.max_macos)
     else:
         fail("--os is required")
-    missing = [e for e in REQUIRED_EXPORTS if e not in exports]
+    missing = sorted((set(REQUIRED_EXPORTS) | binding_symbols()) - set(exports))
     if missing:
         fail("%s does not export %s" % (a.lib, ", ".join(missing)))
-    print("ok: %s: %s" % (a.lib, detail))
+    print("ok: %s: %s%s" % (a.lib, detail, ", %s" % arch if arch else ""))
 
     if a.load:
         if a.os == "windows":
