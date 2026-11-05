@@ -108,19 +108,29 @@ func (j *CookieJar) Set(requestHost string, cookie *CookieData, requestSecure bo
 		HttpOnly: cookie.HttpOnly,
 		SameSite: cookie.SameSite,
 	}
-	j.store(stored, time.Now())
+	j.receive(stored, time.Now())
 }
 
-// store inserts an already scoped cookie. The caller must hold j.mu.
-// Resolve Max-Age only on receipt: saved state keeps this absolute deadline.
-func (j *CookieJar) store(cookie *CookieData, now time.Time) {
+// receive stores a cookie that just arrived on a Set-Cookie header, where
+// Max-Age wins over Expires (RFC 6265 5.3 step 3). The caller must hold j.mu.
+func (j *CookieJar) receive(cookie *CookieData, now time.Time) {
+	resolveMaxAge(cookie, now)
+	j.store(cookie, now)
+}
+
+// resolveMaxAge turns a positive Max-Age into an absolute deadline. Do it
+// once, on receipt: a copy carries that deadline and must not restart it.
+func resolveMaxAge(cookie *CookieData, now time.Time) {
 	if cookie.MaxAge > 0 {
 		// A valid int may still overflow when converted from seconds to Duration.
 		seconds := min(int64(cookie.MaxAge), int64((1<<63-1)/time.Second))
 		expires := now.Add(time.Duration(seconds) * time.Second)
 		cookie.Expires = &expires
 	}
+}
 
+// store inserts an already scoped cookie. The caller must hold j.mu.
+func (j *CookieJar) store(cookie *CookieData, now time.Time) {
 	domain := cookie.Domain
 	key := cookieKey(cookie.Path, cookie.Name)
 	if cookie.MaxAge < 0 || (cookie.Expires != nil && !cookie.Expires.After(now)) {
@@ -277,7 +287,7 @@ func (j *CookieJar) SetSimple(name, value, domain, path string, secure, httpOnly
 		path = "/"
 	}
 
-	j.store(&CookieData{
+	cookie := &CookieData{
 		Name:     name,
 		Value:    value,
 		Domain:   domain,
@@ -288,7 +298,15 @@ func (j *CookieJar) SetSimple(name, value, domain, path string, secure, httpOnly
 		Secure:   secure,
 		HttpOnly: httpOnly,
 		SameSite: sameSite,
-	}, time.Now())
+	}
+	now := time.Now()
+	// A cookie read back from GetCookies carries both fields, with Expires
+	// already resolved from Max-Age. Resolving again would restart its clock
+	// on every copy, so Max-Age only counts when no Expires came with it.
+	if expires == nil {
+		resolveMaxAge(cookie, now)
+	}
+	j.store(cookie, now)
 }
 
 // Delete removes cookies by name. If domain is empty, removes ALL cookies with

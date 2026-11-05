@@ -43,13 +43,13 @@ func TestCookieMaxAgeDeadlineAndReplacement(t *testing.T) {
 	key := cookieKey("/", "token")
 
 	// Fixed receipt times test TTL arithmetic without waiting for expiration.
-	jar.store(&CookieData{Name: "token", Value: "old", Domain: "example.test", Path: "/", MaxAge: 10, Expires: &past}, now)
+	jar.receive(&CookieData{Name: "token", Value: "old", Domain: "example.test", Path: "/", MaxAge: 10, Expires: &past}, now)
 	first := jar.cookies["example.test"][key]
 	if first.Expires == nil || !first.Expires.Equal(now.Add(10*time.Second)) {
 		t.Fatalf("Max-Age did not override expired Expires: %+v", first)
 	}
 	updatedAt := now.Add(5 * time.Second)
-	jar.store(&CookieData{Name: "token", Value: "new", Domain: "example.test", Path: "/", MaxAge: 20, Expires: &future}, updatedAt)
+	jar.receive(&CookieData{Name: "token", Value: "new", Domain: "example.test", Path: "/", MaxAge: 20, Expires: &future}, updatedAt)
 	updated := jar.cookies["example.test"][key]
 	if !updated.Expires.Equal(updatedAt.Add(20 * time.Second)) {
 		t.Fatalf("renewal deadline = %s, want %s", updated.Expires, updatedAt.Add(20*time.Second))
@@ -58,11 +58,11 @@ func TestCookieMaxAgeDeadlineAndReplacement(t *testing.T) {
 		t.Fatalf("replacement changed header ordering timestamp: %s", updated.CreatedAt)
 	}
 	newAt := now.Add(time.Minute)
-	jar.store(&CookieData{Name: "token", Domain: "example.test", Path: "/", MaxAge: 20}, newAt)
+	jar.receive(&CookieData{Name: "token", Domain: "example.test", Path: "/", MaxAge: 20}, newAt)
 	if !jar.cookies["example.test"][key].CreatedAt.Equal(newAt) {
 		t.Fatal("replacement of an expired cookie retained its old creation time")
 	}
-	jar.store(&CookieData{Name: "token", Domain: "example.test", Path: "/", Expires: &newAt}, newAt)
+	jar.receive(&CookieData{Name: "token", Domain: "example.test", Path: "/", Expires: &newAt}, newAt)
 	if jar.Count() != 0 {
 		t.Fatal("cookie at its expiration deadline was not deleted")
 	}
@@ -71,7 +71,7 @@ func TestCookieMaxAgeDeadlineAndReplacement(t *testing.T) {
 func TestCookieMaxAgeLargeLifetimeDoesNotOverflow(t *testing.T) {
 	jar := NewCookieJar()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	jar.store(&CookieData{Name: "long", Domain: "example.test", Path: "/", MaxAge: int(^uint(0) >> 1)}, now)
+	jar.receive(&CookieData{Name: "long", Domain: "example.test", Path: "/", MaxAge: int(^uint(0) >> 1)}, now)
 	cookie := jar.cookies["example.test"][cookieKey("/", "long")]
 	if cookie == nil || cookie.Expires == nil || !cookie.Expires.After(now) {
 		t.Fatalf("large positive Max-Age wrapped into the past: %+v", cookie)
@@ -100,9 +100,15 @@ func TestCookieMaxAgeSettersAndScopedDeletion(t *testing.T) {
 				}
 				jar.SetSimple(c.Name, c.Value, c.Domain, c.Path, c.Secure, c.HttpOnly, c.SameSite, c.MaxAge, c.Expires)
 			}
-			past := time.Now().Add(-time.Hour)
+			// Max-Age beats Expires on a Set-Cookie header. SetSimple takes an
+			// Expires as already resolved, so it gets Max-Age alone here.
+			var past *time.Time
+			if api == "Set" {
+				p := time.Now().Add(-time.Hour)
+				past = &p
+			}
 			before := time.Now()
-			set(&CookieData{Name: "token", Value: "root", Domain: ".example.test", Path: "/", MaxAge: 60, Expires: &past})
+			set(&CookieData{Name: "token", Value: "root", Domain: ".example.test", Path: "/", MaxAge: 60, Expires: past})
 			after := time.Now()
 			cookie := jar.cookies[".example.test"][cookieKey("/", "token")]
 			if cookie == nil || cookie.Expires == nil || cookie.Expires.Before(before.Add(time.Minute)) || cookie.Expires.After(after.Add(time.Minute)) {
@@ -199,12 +205,32 @@ func TestCookieMaxAgeImportKeepsAbsoluteDeadline(t *testing.T) {
 func TestCookieMaxAgeExpiredCookiesAreFiltered(t *testing.T) {
 	jar := NewCookieJar()
 	// Fixed historical receipt time makes this expire without a sleep.
-	jar.store(&CookieData{Name: "token", Domain: "example.test", Path: "/", MaxAge: 10}, time.Unix(0, 0))
+	jar.receive(&CookieData{Name: "token", Domain: "example.test", Path: "/", MaxAge: 10}, time.Unix(0, 0))
 	if len(jar.Get("example.test", "/", false)) != 0 || len(jar.GetAll()) != 0 || len(jar.Export()) != 0 {
 		t.Fatal("expired Max-Age cookie is visible in requests or saved state")
 	}
 	jar.ClearExpired()
 	if jar.Count() != 0 {
 		t.Fatal("ClearExpired retained an expired Max-Age cookie")
+	}
+}
+
+// Copying cookies from one session to another, or back into the same one,
+// must keep each cookie's deadline. GetCookies hands back the Max-Age next to
+// the Expires it was resolved into, and resolving it again would push the
+// deadline out by the full lifetime on every copy.
+func TestCookieMaxAgeCopyKeepsDeadline(t *testing.T) {
+	src := NewCookieJar()
+	src.Set("www.example.test", &CookieData{Name: "sid", Value: "v", Path: "/", MaxAge: 3600}, true)
+	want := *src.GetAll()[0].Expires
+
+	time.Sleep(20 * time.Millisecond)
+	dst := NewCookieJar()
+	for _, c := range src.GetAll() {
+		dst.SetSimple(c.Name, c.Value, c.Domain, c.Path, c.Secure, c.HttpOnly, c.SameSite, c.MaxAge, c.Expires)
+	}
+	got := dst.GetAll()
+	if len(got) != 1 || got[0].Expires == nil || !got[0].Expires.Equal(want) {
+		t.Fatalf("copied cookie expires = %v, want %v", got, want)
 	}
 }
