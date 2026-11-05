@@ -1682,8 +1682,24 @@ def _apply_auth(
     credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
 
     headers = headers.copy() if headers else {}
+    # auth= wins over an Authorization header in any spelling, as in requests,
+    # and only one goes out.
+    for key in [k for k in headers if k.lower() == "authorization"]:
+        del headers[key]
     headers["Authorization"] = f"Basic {credentials}"
     return headers
+
+
+def _default_header(headers: Dict[str, str], name: str, value: str) -> None:
+    """Set name to value unless the caller already set it, in any spelling.
+
+    The transport sends one spelling of a header name and prefers the
+    canonical one, so a default added beside a caller's lowercase spelling
+    would replace the caller's value.
+    """
+    lname = name.lower()
+    if not any(k.lower() == lname for k in headers):
+        headers[name] = value
 
 
 def version() -> str:
@@ -2067,9 +2083,12 @@ class Session:
         if headers:
             # Header names are case-insensitive: a request's "authorization"
             # replaces the session's "Authorization" instead of going out
-            # beside it as a second Authorization line.
+            # beside it as a second Authorization line. A list or tuple of
+            # (name, value) pairs is accepted too, as dict.update and
+            # requests accept it.
             names = {k.lower(): k for k in merged}
-            for key, value in headers.items():
+            items = headers.items() if hasattr(headers, "items") else headers
+            for key, value in items:
                 previous = names.get(key.lower())
                 if previous is not None and previous != key:
                     del merged[previous]
@@ -2261,12 +2280,12 @@ class Session:
         elif json is not None:
             body = json_module.dumps(json).encode("utf-8")
             merged_headers = merged_headers or {}
-            merged_headers.setdefault("Content-Type", "application/json")
+            _default_header(merged_headers, "Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
                 body = urlencode(data).encode("utf-8")
                 merged_headers = merged_headers or {}
-                merged_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+                _default_header(merged_headers, "Content-Type", "application/x-www-form-urlencoded")
             elif isinstance(data, str):
                 body = data.encode("utf-8")
             else:
@@ -2374,12 +2393,12 @@ class Session:
         elif json is not None:
             body_bytes = json_module.dumps(json).encode("utf-8")
             merged_headers = merged_headers or {}
-            merged_headers.setdefault("Content-Type", "application/json")
+            _default_header(merged_headers, "Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
                 body_bytes = urlencode(data).encode("utf-8")
                 merged_headers = merged_headers or {}
-                merged_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+                _default_header(merged_headers, "Content-Type", "application/x-www-form-urlencoded")
             elif isinstance(data, str):
                 body_bytes = data.encode("utf-8")
             elif isinstance(data, bytes):
@@ -2653,12 +2672,12 @@ class Session:
         elif json_data is not None:
             body = _json.dumps(json_data).encode("utf-8")
             merged_headers = merged_headers or {}
-            merged_headers.setdefault("Content-Type", "application/json")
+            _default_header(merged_headers, "Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
                 body = urlencode(data).encode("utf-8")
                 merged_headers = merged_headers or {}
-                merged_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+                _default_header(merged_headers, "Content-Type", "application/x-www-form-urlencoded")
             elif isinstance(data, str):
                 body = data.encode("utf-8")
             else:
@@ -2774,12 +2793,12 @@ class Session:
         elif json_data is not None:
             body = _json.dumps(json_data)
             merged_headers = merged_headers or {}
-            merged_headers.setdefault("Content-Type", "application/json")
+            _default_header(merged_headers, "Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
                 body = urlencode(data)
                 merged_headers = merged_headers or {}
-                merged_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+                _default_header(merged_headers, "Content-Type", "application/x-www-form-urlencoded")
             elif isinstance(data, bytes):
                 body = base64.b64encode(data).decode("ascii")
                 body_encoding = "base64"
@@ -3999,12 +4018,12 @@ class Session:
         if json_data is not None:
             body = _json.dumps(json_data).encode("utf-8")
             merged_headers = merged_headers or {}
-            merged_headers.setdefault("Content-Type", "application/json")
+            _default_header(merged_headers, "Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
                 body = urlencode(data).encode("utf-8")
                 merged_headers = merged_headers or {}
-                merged_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+                _default_header(merged_headers, "Content-Type", "application/x-www-form-urlencoded")
             elif isinstance(data, str):
                 body = data.encode("utf-8")
             else:
@@ -4384,12 +4403,12 @@ class Session:
         if json_data is not None:
             body = _json.dumps(json_data)
             merged_headers = merged_headers or {}
-            merged_headers.setdefault("Content-Type", "application/json")
+            _default_header(merged_headers, "Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
                 body = urlencode(data)
                 merged_headers = merged_headers or {}
-                merged_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+                _default_header(merged_headers, "Content-Type", "application/x-www-form-urlencoded")
             elif isinstance(data, bytes):
                 body = data.decode("utf-8")
             else:
@@ -4482,12 +4501,12 @@ class Session:
         if json_data is not None:
             body = _json.dumps(json_data)
             merged_headers = merged_headers or {}
-            merged_headers.setdefault("Content-Type", "application/json")
+            _default_header(merged_headers, "Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
                 body = urlencode(data)
                 merged_headers = merged_headers or {}
-                merged_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+                _default_header(merged_headers, "Content-Type", "application/x-www-form-urlencoded")
             elif isinstance(data, bytes):
                 body = data.decode("utf-8")
             else:

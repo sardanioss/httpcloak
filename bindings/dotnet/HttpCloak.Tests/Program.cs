@@ -22,6 +22,11 @@ if (testArg == "proxy")
     return;
 }
 
+if (testArg == "headers")
+{
+    Environment.Exit(TestHeaderSpelling.Run() ? 0 : 1);
+}
+
 if (testArg == "cache")
 {
     Environment.Exit(await TestSessionCache.RunAsync() ? 0 : 1);

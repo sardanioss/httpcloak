@@ -1417,8 +1417,25 @@ function applyAuth(headers, auth) {
   const credentials = Buffer.from(`${username}:${password}`).toString("base64");
 
   headers = headers ? { ...headers } : {};
+  // auth wins over an Authorization header in any spelling, and only one goes out.
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === "authorization") delete headers[key];
+  }
   headers["Authorization"] = `Basic ${credentials}`;
   return headers;
+}
+
+/**
+ * Set name to value unless the caller already set it, in any spelling. The
+ * transport sends one spelling of a header name and prefers the canonical
+ * one, so a default added beside a caller's lowercase spelling would replace
+ * the caller's value.
+ */
+function defaultHeader(headers, name, value) {
+  const lname = name.toLowerCase();
+  if (!Object.keys(headers).some((k) => k.toLowerCase() === lname)) {
+    headers[name] = value;
+  }
 }
 
 /**
@@ -2036,15 +2053,11 @@ class Session {
     } else if (json !== null) {
       bodyBuffer = Buffer.from(JSON.stringify(json), "utf8");
       mergedHeaders = mergedHeaders || {};
-      if (!mergedHeaders["Content-Type"]) {
-        mergedHeaders["Content-Type"] = "application/json";
-      }
+      defaultHeader(mergedHeaders, "Content-Type", "application/json");
     } else if (data !== null && typeof data === "object") {
       bodyBuffer = Buffer.from(new URLSearchParams(data).toString(), "utf8");
       mergedHeaders = mergedHeaders || {};
-      if (!mergedHeaders["Content-Type"]) {
-        mergedHeaders["Content-Type"] = "application/x-www-form-urlencoded";
-      }
+      defaultHeader(mergedHeaders, "Content-Type", "application/x-www-form-urlencoded");
     } else if (Buffer.isBuffer(body)) {
       bodyBuffer = body;
     } else if (typeof body === "string") {
@@ -2123,15 +2136,11 @@ class Session {
     } else if (json !== null) {
       bodyBuffer = Buffer.from(JSON.stringify(json), "utf8");
       mergedHeaders = mergedHeaders || {};
-      if (!mergedHeaders["Content-Type"]) {
-        mergedHeaders["Content-Type"] = "application/json";
-      }
+      defaultHeader(mergedHeaders, "Content-Type", "application/json");
     } else if (data !== null && typeof data === "object") {
       bodyBuffer = Buffer.from(new URLSearchParams(data).toString(), "utf8");
       mergedHeaders = mergedHeaders || {};
-      if (!mergedHeaders["Content-Type"]) {
-        mergedHeaders["Content-Type"] = "application/x-www-form-urlencoded";
-      }
+      defaultHeader(mergedHeaders, "Content-Type", "application/x-www-form-urlencoded");
     } else if (Buffer.isBuffer(body)) {
       bodyBuffer = body;
     } else if (typeof body === "string") {
@@ -2275,17 +2284,13 @@ class Session {
     else if (json !== null) {
       body = JSON.stringify(json);
       mergedHeaders = mergedHeaders || {};
-      if (!mergedHeaders["Content-Type"]) {
-        mergedHeaders["Content-Type"] = "application/json";
-      }
+      defaultHeader(mergedHeaders, "Content-Type", "application/json");
     }
     // Handle form data
     else if (data !== null && typeof data === "object") {
       body = new URLSearchParams(data).toString();
       mergedHeaders = mergedHeaders || {};
-      if (!mergedHeaders["Content-Type"]) {
-        mergedHeaders["Content-Type"] = "application/x-www-form-urlencoded";
-      }
+      defaultHeader(mergedHeaders, "Content-Type", "application/x-www-form-urlencoded");
     }
     // Handle Buffer body (binary payload). base64-encode so NUL bytes and
     // non-UTF-8 sequences survive the cgo C-string round-trip intact.
@@ -2376,17 +2381,13 @@ class Session {
     else if (json !== null) {
       body = JSON.stringify(json);
       mergedHeaders = mergedHeaders || {};
-      if (!mergedHeaders["Content-Type"]) {
-        mergedHeaders["Content-Type"] = "application/json";
-      }
+      defaultHeader(mergedHeaders, "Content-Type", "application/json");
     }
     // Handle form data
     else if (data !== null && typeof data === "object") {
       body = new URLSearchParams(data).toString();
       mergedHeaders = mergedHeaders || {};
-      if (!mergedHeaders["Content-Type"]) {
-        mergedHeaders["Content-Type"] = "application/x-www-form-urlencoded";
-      }
+      defaultHeader(mergedHeaders, "Content-Type", "application/x-www-form-urlencoded");
     }
     // Handle Buffer body (binary payload). base64-encode so non-UTF-8 bytes
     // and NUL bytes survive JSON.stringify + the C boundary.
@@ -3119,10 +3120,10 @@ class Session {
     let body = null;
     if (jsonBody) {
       body = JSON.stringify(jsonBody);
-      mergedHeaders["Content-Type"] = mergedHeaders["Content-Type"] || "application/json";
+      defaultHeader(mergedHeaders, "Content-Type", "application/json");
     } else if (form) {
       body = Object.entries(form).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
-      mergedHeaders["Content-Type"] = mergedHeaders["Content-Type"] || "application/x-www-form-urlencoded";
+      defaultHeader(mergedHeaders, "Content-Type", "application/x-www-form-urlencoded");
     } else if (bodyOpt) {
       body = typeof bodyOpt === "string" ? bodyOpt : bodyOpt.toString();
     }
