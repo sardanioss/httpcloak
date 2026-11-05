@@ -48,6 +48,7 @@ var (
 
 // ALPNMismatchError is returned when ALPN negotiates a different protocol than expected.
 // It carries the TLS connection so it can be reused for the negotiated protocol.
+// Transport.Do and Transport.DoStream close it before returning a terminal error.
 type ALPNMismatchError struct {
 	Expected   string      // Expected protocol (e.g., "h2")
 	Negotiated string      // Actually negotiated protocol (e.g., "http/1.1")
@@ -62,6 +63,16 @@ func (e *ALPNMismatchError) Error() string {
 
 func (e *ALPNMismatchError) Unwrap() error {
 	return ErrALPNMismatch
+}
+
+// closeUnusedALPNConn releases an unpooled TLS connection once protocol
+// selection has finished and no fallback will consume it. Keep this at the
+// public request boundary: buffered automatic fallback reuses the connection.
+func closeUnusedALPNConn(err error) {
+	var mismatch *ALPNMismatchError
+	if errors.As(err, &mismatch) && mismatch.TLSConn != nil {
+		mismatch.TLSConn.Close()
+	}
 }
 
 // TransportError provides detailed error information
