@@ -654,9 +654,11 @@ proxy.close();        // Stop the proxy
 
 ## Platform Support
 
-- Linux (x64, arm64)
-- macOS (x64, arm64)
-- Windows (x64, arm64)
+- Linux (x64, arm64), glibc 2.17 or later
+- macOS 12 or later (x64, arm64)
+- Windows 10 or later (x64)
+
+Alpine and other musl systems aren't supported yet.
 - Node.js 16+
 
 ## License

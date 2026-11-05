@@ -77,6 +77,8 @@ public object Presets {
     public const val FIREFOX_LATEST_MACOS: String = "firefox-latest-macos"
     public const val SAFARI_LATEST: String = "safari-latest"
     public const val SAFARI_LATEST_IOS: String = "safari-latest-ios"
+    public const val SAFARI_26_IOS: String = "safari-26-ios"
+    public const val IOS_SAFARI_26: String = SAFARI_26_IOS
 }
 
 /**

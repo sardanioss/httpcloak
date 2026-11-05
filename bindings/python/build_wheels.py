@@ -2,8 +2,12 @@
 """
 Build platform-specific wheels for httpcloak.
 
-This script builds wheels with bundled native libraries for each platform.
-Run this on each target platform or use CI/CD to build all wheels.
+This script builds wheels with bundled native libraries for each platform,
+for local testing only. Releases come from CI (.github/workflows/bindings.yml),
+which builds Linux inside manylinux2014 so the library really runs on glibc
+2.17 and checks every library before publishing. A Linux wheel from here is
+built against this machine's glibc, so its manylinux_2_17 tag is only true if
+this machine is that old; bindings/clib/verify_native.py will tell you.
 """
 
 import os
@@ -17,10 +21,9 @@ from pathlib import Path
 PLATFORM_TAGS = {
     ("linux", "amd64"): "manylinux_2_17_x86_64",
     ("linux", "arm64"): "manylinux_2_17_aarch64",
-    ("darwin", "amd64"): "macosx_10_9_x86_64",
-    ("darwin", "arm64"): "macosx_11_0_arm64",
+    ("darwin", "amd64"): "macosx_12_0_x86_64",
+    ("darwin", "arm64"): "macosx_12_0_arm64",
     ("windows", "amd64"): "win_amd64",
-    ("windows", "arm64"): "win_arm64",
 }
 
 LIB_EXTENSIONS = {
@@ -214,8 +217,7 @@ def main():
     print("To install:")
     print(f"  pip install {wheel_path}")
     print()
-    print("To upload to PyPI:")
-    print(f"  twine upload {wheel_path}")
+    print("This wheel is for local testing. Releases are built and published by CI.")
 
 
 if __name__ == "__main__":

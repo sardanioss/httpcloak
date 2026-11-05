@@ -13,10 +13,12 @@ Native language bindings for HTTPCloak, providing direct FFI access to the Go li
 
 | Platform | amd64 (x64) | arm64 |
 |----------|-------------|-------|
-| Linux    | Yes         | Yes   |
-| macOS    | Yes         | Yes   |
-| Windows  | Yes         | Yes   |
+| Linux (glibc 2.17+) | Yes | Yes |
+| macOS 12+ | Yes         | Yes   |
+| Windows 10+ | Yes       | No prebuilt library |
 | Android  | Yes (x86_64, x86) | Yes (arm64-v8a, armeabi-v7a) |
+
+Alpine and other musl systems aren't supported yet.
 
 ## Quick Start
 

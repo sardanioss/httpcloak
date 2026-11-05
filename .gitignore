@@ -111,3 +111,7 @@ cmd/
 debugs/
 issues_reply/
 library_locations.md
+
+# Saved session transcripts land in the repo root as <date>-<time>-<title>.txt.
+# They are notes, never part of the project.
+/20??-??-??-*.txt
