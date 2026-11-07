@@ -115,6 +115,7 @@ npm install httpcloak        # Node.js
 go get github.com/sardanioss/httpcloak   # Go
 dotnet add package HttpCloak # C#
 # Android (Kotlin): build the AAR from bindings/android, see bindings/android/README.md
+# Rust: httpcloak = { git = "https://github.com/sardanioss/httpcloak" }, see bindings/rust/README.md
 ```
 
 ---

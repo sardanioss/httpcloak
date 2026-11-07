@@ -137,12 +137,12 @@ HEADERS stream=7 flags=0x24 exclusive=true dep=0 weight=220
   indexed 75                                                   :authority: 127.0.0.1:PORT
   indexed 7                                                    :scheme: https
   without-indexing name=4 value-huffman=false                  :path: /c
-  indexed 72                                                   sec-ch-ua-platform: "Windows"
-  indexed 70                                                   user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36
-  indexed 74                                                   sec-ch-ua: "Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"
-  indexed 73                                                   sec-ch-ua-mobile: ?0
-  incremental name=31 value-huffman=true                       content-type: application/json
   incremental name=28 value-huffman=false                      content-length: 7
+  indexed 73                                                   sec-ch-ua-platform: "Windows"
+  indexed 71                                                   user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36
+  indexed 75                                                   sec-ch-ua: "Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"
+  incremental name=31 value-huffman=true                       content-type: application/json
+  indexed 75                                                   sec-ch-ua-mobile: ?0
   incremental name=19 value-huffman=false                      accept: */*
   incremental name=71 value-huffman=true                       sec-fetch-site: cross-site
   incremental name=71 value-huffman=true                       sec-fetch-mode: cors
@@ -205,12 +205,12 @@ Accept-Language: en-US,en;q=0.9
 POST /c HTTP/1.1
 Host: 127.0.0.1:PORT
 Connection: keep-alive
+Content-Length: 7
 sec-ch-ua-platform: "Windows"
 User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36
 sec-ch-ua: "Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"
-sec-ch-ua-mobile: ?0
 Content-Type: application/json
-Content-Length: 7
+sec-ch-ua-mobile: ?0
 Accept: */*
 Sec-Fetch-Site: cross-site
 Sec-Fetch-Mode: cors
@@ -318,8 +318,8 @@ HEADERS
   literal name="sec-ch-ua-platform" name-huffman=true never=false huffman=true "\"Windows\""
   literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
   literal name="sec-ch-ua" name-huffman=true never=false huffman=true "\"Google Chrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
-  literal name="sec-ch-ua-mobile" name-huffman=true never=false huffman=true "?0"
   indexed static=true 46
+  literal name="sec-ch-ua-mobile" name-huffman=true never=false huffman=true "?0"
   indexed static=true 29
   literal name="sec-fetch-site" name-huffman=true never=false huffman=true "cross-site"
   literal name="sec-fetch-mode" name-huffman=true never=false huffman=true "cors"
@@ -412,6 +412,7 @@ DATA len=7
         ":path"
       ],
       "hpack_header_order": [
+        "content-length",
         "cache-control",
         "sec-ch-ua",
         "sec-ch-ua-arch",
@@ -423,15 +424,15 @@ DATA len=7
         "sec-ch-ua-platform-version",
         "sec-ch-ua-wow64",
         "upgrade-insecure-requests",
-        "user-agent",
         "content-type",
-        "content-length",
-        "accept",
+        "user-agent",
         "origin",
+        "accept",
         "sec-fetch-site",
         "sec-fetch-mode",
         "sec-fetch-user",
         "sec-fetch-dest",
+        "sec-fetch-storage-access",
         "referer",
         "if-none-match",
         "if-modified-since",
@@ -457,6 +458,35 @@ DATA len=7
         "content-type",
         "content-length",
         "accept",
+        "sec-fetch-site",
+        "sec-fetch-mode",
+        "sec-fetch-dest",
+        "sec-fetch-storage-access",
+        "referer",
+        "if-none-match",
+        "if-modified-since",
+        "accept-encoding",
+        "accept-language",
+        "cookie",
+        "priority"
+      ],
+      "hpack_header_order_fetch": [
+        "content-length",
+        "pragma",
+        "cache-control",
+        "sec-ch-ua-platform",
+        "sec-ch-ua-platform-version",
+        "user-agent",
+        "sec-ch-ua",
+        "sec-ch-ua-arch",
+        "sec-ch-ua-bitness",
+        "sec-ch-ua-full-version-list",
+        "content-type",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-model",
+        "sec-ch-ua-wow64",
+        "accept",
+        "origin",
         "sec-fetch-site",
         "sec-fetch-mode",
         "sec-fetch-dest",

@@ -23,6 +23,7 @@ import (
 	"github.com/sardanioss/httpcloak/internal/compress"
 	"github.com/sardanioss/httpcloak/internal/gunzip"
 	"github.com/sardanioss/httpcloak/protocol"
+	"golang.org/x/net/publicsuffix"
 )
 
 // Protocol represents the HTTP protocol version
@@ -847,43 +848,52 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 	t.h2Transport = NewHTTP2TransportWithConfig(preset, dnsCache, routing.tcpProxy, config)
 
 	// Create HTTP/3 transport - with UDP proxy support if applicable
-	if udpProxy := routing.udpProxyConfig(); udpProxy != nil {
-		udpProxyURL := routing.udpProxyURL
-		if isSOCKS5Proxy(udpProxyURL) {
-			// SOCKS5 supports UDP relay for HTTP/3
-			h3Transport, err := NewHTTP3TransportWithConfig(preset, dnsCache, udpProxy, config)
-			if err != nil {
-				// Store the error - don't silently fallback to direct connection!
-				// H3 requests will fail with explicit error instead of bypassing proxy
-				t.h3ProxyError = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
-				// Still create a basic H3 transport for non-proxied use cases
-				// but h3ProxyError will prevent it from being used when proxy is expected
-				t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
-			} else {
-				t.h3Transport = h3Transport
-			}
-		} else if isMASQUEProxy(udpProxyURL) {
-			// MASQUE supports HTTP/3 through HTTP/3 proxy
-			h3Transport, err := NewHTTP3TransportWithMASQUE(preset, dnsCache, udpProxy, config)
-			if err != nil {
-				// Store the error - don't silently fallback to direct connection!
-				t.h3ProxyError = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
-				t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
-			} else {
-				t.h3Transport = h3Transport
-			}
-		} else {
-			// HTTP proxy - HTTP/3 doesn't work through HTTP proxies
-			// Store error so H3 requests fail explicitly
-			t.h3ProxyError = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
-			t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
-		}
-	} else {
-		// No proxy - HTTP/3 works directly
-		t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
-	}
+	t.h3Transport, t.h3ProxyError = newHTTP3ForRouting(preset, dnsCache, routing, config)
 
 	return t
+}
+
+// newHTTP3ForRouting builds the HTTP/3 transport for a proxy routing, with
+// the session's transport config, and the error HTTP/3 requests must fail with
+// when the configured proxy cannot carry them (they fail rather than fall back
+// to a direct dial that would leak the real address).
+//
+// The constructor, SetProxy and SetPreset each used to build it themselves,
+// and only the constructor passed the config: after SetProxy or SetPreset,
+// HTTP/3 quietly lost the custom JA3, the ECH config domain, DisableECH, the
+// local address, the QUIC idle timeout and the session cache backend, while
+// HTTP/1.1 and HTTP/2 kept them.
+func newHTTP3ForRouting(preset *fingerprint.Preset, dnsCache *dns.Cache, routing proxyRouting, config *TransportConfig) (*HTTP3Transport, error) {
+	udpProxy := routing.udpProxyConfig()
+	if udpProxy == nil {
+		// No proxy - HTTP/3 works directly
+		h3, _ := NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+		return h3, nil
+	}
+	var proxyErr error
+	switch {
+	case isSOCKS5Proxy(routing.udpProxyURL):
+		// SOCKS5 supports UDP relay for HTTP/3
+		h3, err := NewHTTP3TransportWithConfig(preset, dnsCache, udpProxy, config)
+		if err == nil {
+			return h3, nil
+		}
+		proxyErr = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
+	case isMASQUEProxy(routing.udpProxyURL):
+		// MASQUE supports HTTP/3 through HTTP/3 proxy
+		h3, err := NewHTTP3TransportWithMASQUE(preset, dnsCache, udpProxy, config)
+		if err == nil {
+			return h3, nil
+		}
+		proxyErr = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
+	default:
+		// HTTP proxy - HTTP/3 doesn't work through HTTP proxies
+		proxyErr = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
+	}
+	// Still create a basic H3 transport for non-proxied use cases; the stored
+	// error stops it being used when the proxy is expected.
+	h3, _ := NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+	return h3, proxyErr
 }
 
 // SetProtocol sets the preferred protocol
@@ -966,34 +976,7 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 
 	// Recreate HTTP/3 - with proxy support if applicable. Keyed off the UDP proxy
 	// (UDPProxy, else the unified URL), so a split TCP/UDP config still gets H3.
-	var newH3 *HTTP3Transport
-	var newH3Err error
-	if h3Proxy := routing.udpProxyConfig(); h3Proxy != nil {
-		udpProxyURL := routing.udpProxyURL
-		if isSOCKS5Proxy(udpProxyURL) {
-			h3Transport, err := NewHTTP3TransportWithProxy(preset, t.dnsCache, h3Proxy)
-			if err != nil {
-				newH3Err = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
-				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-			} else {
-				newH3 = h3Transport
-			}
-		} else if isMASQUEProxy(udpProxyURL) {
-			h3Transport, err := NewHTTP3TransportWithMASQUE(preset, t.dnsCache, h3Proxy, nil)
-			if err != nil {
-				newH3Err = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
-				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-			} else {
-				newH3 = h3Transport
-			}
-		} else {
-			// HTTP proxy does not support HTTP/3 (QUIC requires UDP)
-			newH3Err = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
-			newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-		}
-	} else {
-		newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-	}
+	newH3, newH3Err := newHTTP3ForRouting(preset, t.dnsCache, routing, t.config)
 
 	// Re-apply insecureSkipVerify to the fresh transports before publishing them.
 	if t.insecureSkipVerify {
@@ -1062,33 +1045,7 @@ func (t *Transport) SetPreset(presetName string) {
 	newH2 := NewHTTP2TransportWithConfig(preset, t.dnsCache, routing.tcpProxy, t.config)
 
 	// Recreate HTTP/3 - with proxy support if applicable.
-	var newH3 *HTTP3Transport
-	var newH3Err error
-	if h3Proxy := routing.udpProxyConfig(); h3Proxy != nil {
-		udpProxyURL := routing.udpProxyURL
-		if isSOCKS5Proxy(udpProxyURL) {
-			h3Transport, err := NewHTTP3TransportWithProxy(preset, t.dnsCache, h3Proxy)
-			if err != nil {
-				newH3Err = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
-				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-			} else {
-				newH3 = h3Transport
-			}
-		} else if isMASQUEProxy(udpProxyURL) {
-			h3Transport, err := NewHTTP3TransportWithMASQUE(preset, t.dnsCache, h3Proxy, nil)
-			if err != nil {
-				newH3Err = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
-				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-			} else {
-				newH3 = h3Transport
-			}
-		} else {
-			newH3Err = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
-			newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-		}
-	} else {
-		newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-	}
+	newH3, newH3Err := newHTTP3ForRouting(preset, t.dnsCache, routing, t.config)
 
 	// Re-apply insecureSkipVerify to the fresh transports before publishing them.
 	if t.insecureSkipVerify {
@@ -1421,12 +1378,32 @@ func (t *Transport) getPreset() *fingerprint.Preset {
 	return p
 }
 
+// checkScheme refuses a URL that is not http or https. Anything else used to go
+// out as plain HTTP, since the dispatch only asks whether the scheme is
+// "https": ftps://host/ was fetched unencrypted, and a redirect to ftp:// was
+// followed the same way. url.Parse has already lowercased the scheme.
+func checkScheme(u *url.URL) error {
+	switch u.Scheme {
+	case "http", "https":
+		return nil
+	case "":
+		return NewRequestError("parse_url", u.Host, "", "",
+			fmt.Errorf("unsupported protocol scheme in %q: the URL needs http:// or https://", u.String()))
+	default:
+		return NewRequestError("parse_url", u.Host, "", "",
+			fmt.Errorf("unsupported protocol scheme %q", u.Scheme))
+	}
+}
+
 // Do executes an HTTP request
 func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 	// Parse URL to determine scheme
 	parsedURL, err := url.Parse(req.URL)
 	if err != nil {
 		return nil, NewRequestError("parse_url", "", "", "", err)
+	}
+	if err := checkScheme(parsedURL); err != nil {
+		return nil, err
 	}
 
 	// Snapshot the mutable fields once so a concurrent SetProxy/SetPreset/
@@ -2367,13 +2344,15 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 		method = "GET"
 	}
 
+	// An empty body stays nil here, unlike on HTTP/1.1 and HTTP/2: quic-go's request
+	// writer sends "content-length: 0" for a bodiless POST, PUT or PATCH only when
+	// the body is nil, and takes the http.NoBody an empty reader becomes as a body
+	// of unknown length, leaving the header out (servers then answer 411).
 	var bodyReader io.Reader
 	if req.BodyReader != nil {
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -2866,7 +2845,10 @@ func applyExactHeaders(httpReq *http.Request, exact []fingerprint.HeaderPair, pr
 
 // mergeCallerHeaders folds Request.Headers over whatever the preset pipeline
 // produced. The first value replaces, the rest append, so a caller can both
-// override a preset header and send one name twice.
+// override a preset header and send one name twice. A name whose only value is
+// "" is removed instead: that is how a caller drops a header the preset would
+// send (the Priority Chrome leaves off an async script, say), as the headers
+// documentation promises. An empty field is nothing a browser puts on the wire.
 //
 // It is a no-op under ExactHeaders. That mode promises the wire carries the
 // listed pairs and nothing else, and req.Headers is not only what the caller
@@ -2896,6 +2878,10 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request) {
 	backing := make([]string, 0, len(req.Headers))
 	for key, values := range req.Headers {
 		if len(values) == 0 {
+			continue
+		}
+		if len(values) == 1 && values[0] == "" {
+			delete(httpReq.Header, canonicalHeaderName(key))
 			continue
 		}
 		start := len(backing)
@@ -3020,16 +3006,28 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 			userMode := headerVal(userHeaders, "Sec-Fetch-Mode")
 			userDest := headerVal(userHeaders, "Sec-Fetch-Dest")
 			userSite := headerVal(userHeaders, "Sec-Fetch-Site")
-			httpReq.Header["Sec-Fetch-Mode"] = []string{cmp.Or(userMode, "cors")}
-			httpReq.Header["Sec-Fetch-Dest"] = []string{cmp.Or(userDest, "empty")}
-			httpReq.Header["Sec-Fetch-Site"] = []string{cmp.Or(userSite, "cross-site")}
+			mode := cmp.Or(userMode, "cors")
+			dest := cmp.Or(userDest, "empty")
+			// The Referer names the page that made the call, which decides
+			// Sec-Fetch-Site and the Origin. Without one the page is unknown,
+			// and cross-site, the old default, is the reading that claims
+			// least.
+			referer := headerVal(userHeaders, "Referer")
+			site := subresourceFetchSite(referer, httpReq.URL)
+			httpReq.Header["Sec-Fetch-Mode"] = []string{mode}
+			httpReq.Header["Sec-Fetch-Dest"] = []string{dest}
+			httpReq.Header["Sec-Fetch-Site"] = []string{cmp.Or(userSite, site)}
 			delete(httpReq.Header, "Sec-Fetch-User")
 			delete(httpReq.Header, "Upgrade-Insecure-Requests")
-			// Real browsers send Accept: */* on fetch()/XHR unless the user
-			// explicitly asked for something else — no user Accept means swap
-			// the navigation Accept (text/html,...) for the CORS default.
+			if origin := requestOrigin(referer, mode, cmp.Or(userSite, site), httpReq.Method); origin != "" && headerVal(userHeaders, "Origin") == "" {
+				httpReq.Header["Origin"] = []string{origin}
+			}
+			// Real browsers send Accept: */* on fetch()/XHR, and a per-type
+			// Accept on no-cors subresource loads, unless the user explicitly
+			// asked for something else — no user Accept means swap the
+			// navigation Accept (text/html,...) for the one this load sends.
 			if headerVal(userHeaders, "Accept") == "" {
-				httpReq.Header["Accept"] = []string{"*/*"}
+				httpReq.Header["Accept"] = []string{subresourceAccept(preset, mode, dest)}
 			}
 			// CORS uses u=1,i priority (lower urgency than navigation's u=0,i)
 			// — used as the static fallback when the preset has no per-dest
@@ -3037,6 +3035,17 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 			// override this below.
 			if p := httpReq.Header["Priority"]; len(p) > 0 && p[0] != "" {
 				httpReq.Header["Priority"] = []string{"u=1, i"}
+			}
+		} else if referer := headerVal(userHeaders, "Referer"); wire.sendsSecFetch && referer != "" {
+			// A navigation that names a page in its Referer was started on that
+			// page: a link followed or a form submitted there. Its Sec-Fetch-Site
+			// is the page's relation to the target, as on a fetch(), and a form
+			// that is not a GET also carries the page's Origin. Without a Referer
+			// the navigation was typed or opened from outside, and stays "none".
+			site := cmp.Or(headerVal(userHeaders, "Sec-Fetch-Site"), subresourceFetchSite(referer, httpReq.URL))
+			httpReq.Header["Sec-Fetch-Site"] = []string{site}
+			if origin := requestOrigin(referer, "navigate", site, httpReq.Method); origin != "" && headerVal(userHeaders, "Origin") == "" {
+				httpReq.Header["Origin"] = []string{origin}
 			}
 		}
 
@@ -3102,7 +3111,7 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 	// run, and the priority table a few lines up reads the same field.
 	httpReq.Header[http.HeaderOrderKey] = CompleteHeaderOrder(
 		customHeaderOrder,
-		preset.H2HeaderOrderFor(httpReq.Header.Get("Sec-Fetch-Dest")),
+		preset.H2HeaderOrderFor(httpReq.Header.Get("Sec-Fetch-Dest"), httpReq.Header.Get("Sec-Purpose")),
 		httpReq.Header, userHeaders)
 
 	// Set pseudo-header order: custom (Akamai) > preset H2Config > heuristic
@@ -3176,6 +3185,66 @@ func sniffXHRMode(method string, userHeaders map[string][]string) bool {
 	// POSTs from scrapers are overwhelmingly API calls; form submissions
 	// always carry one of the form Content-Types handled above.
 	return true
+}
+
+// subresourceFetchSite is the Sec-Fetch-Site of a fetch() or subresource load
+// made by the page at referer: same-origin, same-site (the same registrable
+// domain, by the public suffix list, and scheme) or cross-site. Without a
+// readable referer the page is unknown, and it is cross-site.
+func subresourceFetchSite(referer string, target *url.URL) string {
+	page, err := url.Parse(referer)
+	if referer == "" || err != nil || page.Host == "" || target == nil {
+		return "cross-site"
+	}
+	if page.Scheme == target.Scheme && strings.EqualFold(page.Host, target.Host) {
+		return "same-origin"
+	}
+	if page.Scheme == target.Scheme && strings.EqualFold(registrableDomain(page.Hostname()), registrableDomain(target.Hostname())) {
+		return "same-site"
+	}
+	return "cross-site"
+}
+
+// registrableDomain is host's eTLD+1 (www.example.co.uk is example.co.uk), or
+// the host itself where it has none, as an IP address does.
+func registrableDomain(host string) string {
+	if domain, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil {
+		return domain
+	}
+	return host
+}
+
+// requestOrigin is the Origin a browser sends with a request from the page at
+// referer, by the Fetch standard: with every CORS request that leaves the
+// page's origin, and with every request whose method is not GET or HEAD.
+// Without a referer the page's origin is unknown, and no Origin is invented.
+func requestOrigin(referer, mode, site, method string) string {
+	page, err := url.Parse(referer)
+	if referer == "" || err != nil || page.Scheme == "" || page.Host == "" {
+		return ""
+	}
+	readOnly := method == "" || method == http.MethodGet || method == http.MethodHead
+	if readOnly && (mode != "cors" || site == "same-origin") {
+		return ""
+	}
+	return page.Scheme + "://" + page.Host
+}
+
+// subresourceAccept is the Accept Chrome sends with a request of this mode and
+// destination: */* on fetch(), and on a no-cors load the destination's own,
+// such as the preset's image Accept on an <img>.
+func subresourceAccept(preset *fingerprint.Preset, mode, dest string) string {
+	if mode != "no-cors" {
+		return "*/*"
+	}
+	switch dest {
+	case "image":
+		return preset.ResolveImageAccept()
+	case "style":
+		return "text/css,*/*;q=0.1"
+	default:
+		return "*/*"
+	}
 }
 
 func headerVal(h map[string][]string, name string) string {
@@ -3454,7 +3523,17 @@ func readBodyOptimized(body io.Reader, contentLength int64) ([]byte, error) {
 	if contentLength > 0 {
 		buf := make([]byte, contentLength)
 		n, err := io.ReadFull(body, buf)
-		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		// A body that stops short of its Content-Length was cut off: the
+		// connection closed early. It used to be returned as if whole, so a
+		// truncated download looked like a successful one; Chrome fails the
+		// same response with ERR_CONTENT_LENGTH_MISMATCH. A plain EOF with
+		// nothing read is a response with no body at all (HEAD, 204, 304),
+		// which still declares the length the full response would have.
+		if err == io.ErrUnexpectedEOF {
+			return nil, fmt.Errorf("%w: the body ended after %d of the %d bytes its Content-Length announced",
+				err, n, contentLength)
+		}
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
 		return buf[:n], nil

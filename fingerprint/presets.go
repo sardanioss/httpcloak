@@ -422,7 +422,13 @@ type H2FingerprintConfig struct {
 	// then the rest of the hint cluster. Nil means "use HPACKHeaderOrder for
 	// everything", which is what every non-Chromium preset wants.
 	HPACKHeaderOrderSubresource []string `json:"hpack_header_order_subresource,omitempty"`
-	HPACKIndexingPolicy         string   // "chrome"/"never"/"always"/"default". "" = "chrome".
+	// HPACKHeaderOrderFetch is the order for a page script's fetch() or
+	// XMLHttpRequest (Sec-Fetch-Dest: empty, and no Sec-Purpose, which marks a
+	// <link rel=prefetch> instead). Chrome adds Origin to those after Accept,
+	// where the document's own CORS loads (fonts, module scripts, prefetches)
+	// carry it in front. Nil means "use HPACKHeaderOrderSubresource".
+	HPACKHeaderOrderFetch []string `json:"hpack_header_order_fetch,omitempty"`
+	HPACKIndexingPolicy   string   // "chrome"/"never"/"always"/"default". "" = "chrome".
 	// DataFrameMaxSize caps the payload of a DATA frame this profile will send.
 	// nil means derive it from the client family; see H2DataFrameMaxSize.
 	DataFrameMaxSize *uint32
@@ -697,23 +703,9 @@ func (p *Preset) H2HeaderOrder() []string {
 	if p.H2Config != nil && p.H2Config.HPACKHeaderOrder != nil {
 		return p.H2Config.HPACKHeaderOrder
 	}
-	// Chrome 143 header order (verified via tls.peet.ws). Kept in lockstep with
-	// chromeH2Config().HPACKHeaderOrder so the nil-H2Config fallback path emits
-	// the session-injected client hints in the same deterministic wire order.
-	return []string{
-		"cache-control",
-		"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
-		"sec-ch-ua-mobile", "sec-ch-ua-model",
-		"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-wow64",
-		"upgrade-insecure-requests", "user-agent",
-		"content-type", "content-length",
-		"accept", "origin",
-		"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
-		"referer",
-		"if-none-match", "if-modified-since",
-		"accept-encoding", "accept-language",
-		"cookie", "priority",
-	}
+	// Chrome's, so the nil-H2Config fallback path emits the session-injected
+	// client hints in the same deterministic wire order as chromeH2Config.
+	return chromeHeaderOrder
 }
 
 // H2HPACKIndexingPolicy returns the HPACK indexing policy name.
@@ -847,17 +839,25 @@ func (p *Preset) H2SettingsOrder() []uint16 {
 // H2PseudoHeaderOrder returns the pseudo-header order for HTTP/2.
 // nil signals "use heuristic" (Chrome m,a,s,p / Safari m,s,p,a).
 // H2HeaderOrderFor returns the wire header order for a request with the given
-// sec-fetch-dest.
+// sec-fetch-dest and sec-purpose.
 //
 // Chrome emits a different order for a top-level navigation than for everything
-// the page then fetches, so a preset carrying one order gets one of the two
-// wrong. An empty dest means the caller could not tell, and is treated as a
-// navigation because that is the shape a bare Get() has.
-func (p *Preset) H2HeaderOrderFor(dest string) []string {
+// the page then fetches, and another again for a script's fetch() or XHR, so a
+// preset carrying one order gets the others wrong. An empty dest means the
+// caller could not tell, and is treated as a navigation because that is the
+// shape a bare Get() has. A dest of "empty" with a Sec-Purpose is a
+// <link rel=prefetch>, which the document loads like any subresource.
+func (p *Preset) H2HeaderOrderFor(dest, purpose string) []string {
 	if dest == "" || dest == "document" || dest == "iframe" {
 		return p.H2HeaderOrder()
 	}
-	if p.H2Config != nil && len(p.H2Config.HPACKHeaderOrderSubresource) > 0 {
+	if p.H2Config == nil {
+		return p.H2HeaderOrder()
+	}
+	if dest == "empty" && purpose == "" && len(p.H2Config.HPACKHeaderOrderFetch) > 0 {
+		return p.H2Config.HPACKHeaderOrderFetch
+	}
+	if len(p.H2Config.HPACKHeaderOrderSubresource) > 0 {
 		return p.H2Config.HPACKHeaderOrderSubresource
 	}
 	return p.H2HeaderOrder()
@@ -1146,37 +1146,53 @@ func (p *Preset) H3QUICInitialConnectionReceiveWindow() uint64 {
 	return 0
 }
 
+// chromeHeaderOrder is Chrome's order for a top-level navigation (and any
+// request that names no Sec-Fetch-Dest). Shared, never written to: presets and
+// the nil-H2Config fallback all read this one list.
+//
+// A request with a body leads with content-length, and a form post puts
+// its content-type before user-agent and its origin before accept (Chrome
+// 156 on Linux, read from its network log: form posts into an iframe; the
+// GET navigations of the same capture match the rest of this order). A
+// cross-site iframe's navigation carries sec-fetch-storage-access, between
+// sec-fetch-dest and referer.
+var chromeHeaderOrder = []string{
+	"content-length",
+	"cache-control",
+	// Low- AND high-entropy UA client hints emit as one fixed cluster.
+	// The session injects the high-entropy set (sec-ch-ua-arch, -bitness,
+	// -full-version-list, -model, -platform-version, -wow64) once a host
+	// advertises Accept-CH; without them in this table they'd fall through
+	// to Go map iteration = random wire order per request = a stable tell.
+	// Real Chrome groups the high-entropy hints with the trio in this
+	// sequence, so we mirror it here.
+	"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
+	"sec-ch-ua-mobile", "sec-ch-ua-model",
+	"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-wow64",
+	"upgrade-insecure-requests",
+	"content-type", "user-agent",
+	"origin", "accept",
+	"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest", "sec-fetch-storage-access",
+	"referer",
+	// Conditional-cache validators in a fixed slot (ETag validator first),
+	// so the session-injected If-None-Match / If-Modified-Since don't shuffle.
+	"if-none-match", "if-modified-since",
+	"accept-encoding", "accept-language",
+	"cookie", "priority",
+}
+
 // chromeH2Config returns the explicit H2 fingerprint config for Chrome presets.
 func chromeH2Config() *H2FingerprintConfig {
 	f := false
 	return &H2FingerprintConfig{
-		HPACKHeaderOrder: []string{
-			"cache-control",
-			// Low- AND high-entropy UA client hints emit as one fixed cluster.
-			// The session injects the high-entropy set (sec-ch-ua-arch, -bitness,
-			// -full-version-list, -model, -platform-version, -wow64) once a host
-			// advertises Accept-CH; without them in this table they'd fall through
-			// to Go map iteration = random wire order per request = a stable tell.
-			// Real Chrome groups the high-entropy hints with the trio in this
-			// sequence, so we mirror it here.
-			"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
-			"sec-ch-ua-mobile", "sec-ch-ua-model",
-			"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-wow64",
-			"upgrade-insecure-requests", "user-agent",
-			"content-type", "content-length",
-			"accept", "origin",
-			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest",
-			"referer",
-			// Conditional-cache validators in a fixed slot (ETag validator first),
-			// so the session-injected If-None-Match / If-Modified-Since don't shuffle.
-			"if-none-match", "if-modified-since",
-			"accept-encoding", "accept-language",
-			"cookie", "priority",
-		},
-		// Everything that is not a top-level navigation. Captured from Chrome 152
-		// on Windows across 20 requests covering script, style, image, font,
-		// manifest and empty: all six produce this one order, so the split is
-		// navigation-vs-not rather than per resource type.
+		HPACKHeaderOrder: chromeHeaderOrder,
+		// Everything that is not a top-level navigation or a script's fetch()
+		// (HPACKHeaderOrderFetch, below). Captured from Chrome 152 on Windows
+		// across 20 requests covering script, style, image, font, manifest and
+		// empty: all six produce this one order, so the split is
+		// navigation-vs-not rather than per resource type. Chrome 156's network
+		// log agrees for the document's own loads, and shows its "empty" here
+		// was a prefetch: a fetch() puts origin after accept instead.
 		//
 		// The difference from the navigation order above is confined to the head:
 		// sec-ch-ua-platform and user-agent lead, then the rest of the hint
@@ -1202,6 +1218,28 @@ func chromeH2Config() *H2FingerprintConfig {
 			"sec-ch-ua-mobile", "sec-ch-ua-model", "sec-ch-ua-wow64",
 			"content-type", "content-length",
 			"accept",
+			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-storage-access",
+			"referer",
+			"if-none-match", "if-modified-since",
+			"accept-encoding", "accept-language",
+			"cookie", "priority",
+		},
+		// A script's fetch() or XHR, GET or POST alike (Chrome 156 on Linux, read
+		// from its network log: 60 POSTs from a dozen origins' scripts, sendBeacon
+		// among them, and their GETs). Unlike the document's own loads above,
+		// origin follows accept. A body leads with content-length, and the
+		// content-type a script sets sits between sec-ch-ua and sec-ch-ua-mobile,
+		// where Chrome puts every header a script sets; its place among the
+		// high-entropy hints was not observed, as above.
+		HPACKHeaderOrderFetch: []string{
+			"content-length",
+			"pragma", "cache-control",
+			"sec-ch-ua-platform", "sec-ch-ua-platform-version",
+			"user-agent",
+			"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
+			"content-type",
+			"sec-ch-ua-mobile", "sec-ch-ua-model", "sec-ch-ua-wow64",
+			"accept", "origin",
 			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-storage-access",
 			"referer",
 			"if-none-match", "if-modified-since",

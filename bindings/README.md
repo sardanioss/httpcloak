@@ -8,6 +8,7 @@ Native language bindings for HTTPCloak, providing direct FFI access to the Go li
 - **Node.js** - Promises + callbacks with koffi
 - **.NET** - P/Invoke, sync + `Task` async
 - **Android (Kotlin)** - Coroutines over a thin JNI bridge, see [android/README.md](android/README.md)
+- **Rust** - Safe API, statically linked, blocking and async, see [rust/README.md](rust/README.md)
 
 ## Supported Platforms
 
@@ -51,6 +52,18 @@ response = session.get("https://example.com")
 print(response.status_code, response.protocol)
 ```
 
+### Rust
+
+```bash
+cd rust && cargo test --workspace
+```
+
+```rust
+let session = httpcloak::Session::builder().preset("chrome-latest").build()?;
+let response = session.get("https://example.com").send()?;
+println!("{} {:?}", response.status(), response.version());
+```
+
 ### Node.js
 
 ```bash
@@ -88,6 +101,9 @@ bindings/
   android/        # Android library (Gradle project)
     httpcloak/src/main/cpp/     # JNI bridge
     httpcloak/src/main/kotlin/  # Kotlin API
+  rust/           # Rust crates (cargo workspace)
+    httpcloak-sys/  # FFI declarations; build.rs links the Go library
+    httpcloak/      # Safe API
   Makefile        # Build orchestration
 ```
 
