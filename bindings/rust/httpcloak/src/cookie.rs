@@ -161,8 +161,8 @@ impl Cookie {
         self
     }
 
-    /// Checks the cookie can be put in a jar and sent: a name that is a token,
-    /// and a name and value that cannot break out of a `Cookie` header.
+    /// Checks the cookie can be put in a jar and sent: a name and value that
+    /// cannot break out of a `Cookie` header.
     pub(crate) fn validate(&self) -> Result<()> {
         validate_pair(&self.name, &self.value)?;
         if self.expires.is_some_and(|e| !representable(e)) {
@@ -214,8 +214,15 @@ impl Cookie {
 }
 
 /// Checks a cookie name and value for use in a jar or a `Cookie` header.
+///
+/// A name is what browsers take one to be (RFC 6265bis, as Chrome and Firefox
+/// read `Set-Cookie`): anything but control characters, `;` and `=`, with no
+/// space around it. That is wider than an HTTP token: Azure AD B2C, for one,
+/// names its session `x-ms-cpim-sso:<tenant>_0`, and the jar stores such a
+/// cookie from a response all the same.
 pub(crate) fn validate_pair(name: &str, value: &str) -> Result<()> {
-    if !crate::headers::valid_name(name) {
+    let control = |b: u8| b < 0x20 || b == 0x7f;
+    if name.is_empty() || name.trim() != name || name.bytes().any(|b| control(b) || b == b';' || b == b'=') {
         return Err(Error::invalid_input(format!("{name:?} is not a valid cookie name")));
     }
     if value.bytes().any(|b| b < 0x20 || b == 0x7f || b == b';') {
@@ -340,7 +347,13 @@ mod tests {
     fn rejects_cookies_that_would_break_a_header() {
         assert!(Cookie::new("ok", "fine value").validate().is_ok());
         assert!(Cookie::new("", "v").validate().is_err());
-        assert!(Cookie::new("a b", "v").validate().is_err());
+        assert!(Cookie::new(" a", "v").validate().is_err());
+        assert!(Cookie::new("a=b", "v").validate().is_err());
+        assert!(Cookie::new("a;b", "v").validate().is_err());
+        assert!(Cookie::new("a\tb", "v").validate().is_err());
+        // Names browsers keep that are no HTTP token.
+        assert!(Cookie::new("x-ms-cpim-sso:jbhaub2cprod.onmicrosoft.com_0", "v").validate().is_ok());
+        assert!(Cookie::new("a b", "v").validate().is_ok());
         assert!(Cookie::new("a", "v; other=1").validate().is_err());
         assert!(Cookie::new("a", "v\r\nSet-Cookie: x").validate().is_err());
         assert!(Cookie::new("a", "v").with_domain("x;y").validate().is_err());

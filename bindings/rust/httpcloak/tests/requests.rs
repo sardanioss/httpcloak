@@ -232,6 +232,12 @@ fn cookies_round_trip_through_the_jar() {
 
     s.set_cookie(&httpcloak::Cookie::new("manual", "m").with_domain("localhost").with_path("/")).unwrap();
     assert!(echoed_cookies(&echo(&s.get(https("/echo")).send().unwrap())).contains("manual=m"));
+    // A name browsers keep though it is no HTTP token (Azure AD B2C's session cookie).
+    let b2c = "x-ms-cpim-sso:tenant.onmicrosoft.com_0";
+    s.set_cookie(&httpcloak::Cookie::new(b2c, "s").with_domain("localhost").with_path("/")).unwrap();
+    assert!(echoed_cookies(&echo(&s.get(https("/echo")).send().unwrap())).contains(&format!("{b2c}=s")));
+    assert!(s.cookies().unwrap().iter().any(|c| c.name() == b2c));
+    s.delete_cookie(b2c, None).unwrap();
     s.delete_cookie("manual", None).unwrap();
     assert!(!s.cookies().unwrap().iter().any(|c| c.name() == "manual"));
     s.clear_cookies();
