@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **C library: the base64 decoder behind `httpcloak_upload_write` corrupted line-wrapped input**: the hand-written decoder skipped unknown characters inside a group of four, so a line break shifted every byte after it, and garbage was dropped instead of reported. It now uses the standard decoder, which ignores line breaks and rejects invalid input. Both this and the `Max-Age` bug were found by fuzz targets added for the C layer's parsers (`bindings/clib/fuzz_test.go`).
 
+- **Through an HTTP proxy, a request that may have reached the server was sent again over HTTP/1.1**: in auto mode behind an HTTP proxy (and behind a SOCKS5 or MASQUE proxy whose HTTP/3 could not start), any HTTP/2 failure but an ALPN downgrade was followed by a fresh HTTP/1.1 attempt, whatever HTTP/2 had done with the request. A POST whose stream was reset after the server had read it went out twice. These paths now follow the rule direct connections already did: HTTP/1.1 is tried only when nothing of the request was sent, or when it is idempotent and its body is held in memory. Requests that succeed, and GETs, go out as before.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added

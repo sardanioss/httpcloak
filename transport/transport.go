@@ -1485,16 +1485,7 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 				if tcpBlocked != nil {
 					return nil, snap.h3ProxyError
 				}
-				resp, err := t.doHTTP2(ctx, req)
-				if err == nil {
-					return resp, nil
-				}
-				// Reuse TLS conn if proxy negotiated h1.1 instead of h2 (e.g. Charles, mitmproxy)
-				var alpnErr *ALPNMismatchError
-				if errors.As(err, &alpnErr) {
-					return t.doHTTP1WithTLSConn(ctx, req, alpnErr)
-				}
-				return t.doHTTP1(ctx, req)
+				return t.doHTTP2OrHTTP1(ctx, req)
 			}
 
 			if SupportsQUIC(udpEffectiveProxyURL) {
@@ -1515,16 +1506,7 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 			if tcpBlocked != nil {
 				return nil, tcpBlocked
 			}
-			resp, err := t.doHTTP2(ctx, req)
-			if err == nil {
-				return resp, nil
-			}
-			// Reuse TLS conn if proxy negotiated h1.1 instead of h2 (e.g. Charles, mitmproxy)
-			var alpnErr *ALPNMismatchError
-			if errors.As(err, &alpnErr) {
-				return t.doHTTP1WithTLSConn(ctx, req, alpnErr)
-			}
-			return t.doHTTP1(ctx, req)
+			return t.doHTTP2OrHTTP1(ctx, req)
 
 		default:
 			if tcpBlocked != nil {
@@ -1567,21 +1549,7 @@ func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error)
 		case ProtocolHTTP3:
 			return t.doHTTP3(ctx, req)
 		case ProtocolHTTP2:
-			resp, err := t.doHTTP2(ctx, req)
-			if err == nil {
-				return resp, nil
-			}
-			// Check if ALPN mismatch - reuse connection for H1
-			var alpnErr *ALPNMismatchError
-			if errors.As(err, &alpnErr) {
-				return t.doHTTP1WithTLSConn(ctx, req, alpnErr)
-			}
-			// H2 failed for another reason: try H1 on a new connection, if
-			// that cannot send the request a second time.
-			if !canResendOnAnotherProtocol(req, err) {
-				return nil, err
-			}
-			return t.doHTTP1(ctx, req)
+			return t.doHTTP2OrHTTP1(ctx, req)
 		case ProtocolHTTP1:
 			return t.doHTTP1(ctx, req)
 		}
@@ -1678,6 +1646,32 @@ func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error)
 		return nil, err
 	}
 	return resp, nil
+}
+
+// doHTTP2OrHTTP1 sends req over HTTP/2, and then over HTTP/1.1: on the same
+// connection when the server negotiated HTTP/1.1, or on a new one when the
+// HTTP/2 attempt failed in a way that cannot have the request sent twice (see
+// canResendOnAnotherProtocol).
+//
+// It is the one path from HTTP/2 to HTTP/1.1 for a host known to be HTTP/2
+// and for HTTP proxies, which carry no HTTP/3. Through a proxy it used to
+// resend whatever HTTP/2 had done with the request, a POST whose stream was
+// reset after the server read it included.
+func (t *Transport) doHTTP2OrHTTP1(ctx context.Context, req *Request) (*Response, error) {
+	resp, err := t.doHTTP2(ctx, req)
+	if err == nil {
+		return resp, nil
+	}
+	// Reuse the TLS connection when the server (or a proxy such as Charles or
+	// mitmproxy) negotiated HTTP/1.1 instead of HTTP/2.
+	var alpnErr *ALPNMismatchError
+	if errors.As(err, &alpnErr) {
+		return t.doHTTP1WithTLSConn(ctx, req, alpnErr)
+	}
+	if !canResendOnAnotherProtocol(req, err) {
+		return nil, err
+	}
+	return t.doHTTP1(ctx, req)
 }
 
 // canResendOnAnotherProtocol reports whether a request whose attempt on one
