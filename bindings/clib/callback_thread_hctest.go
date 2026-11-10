@@ -9,6 +9,7 @@ package main
 /*
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include "callback_pool.h"
 
 static volatile int t_async_calls = 0;
@@ -41,7 +42,20 @@ static char* t_reentrant_get_cb(const char* key) {
     return t_get_value;
 }
 
+// t_record_cb keeps a copy of the error each call is given, for a test to
+// read back; the copies are never freed, which a test can afford.
+static char* volatile t_recorded_err = 0;
+static volatile int t_recorded_calls = 0;
+static void t_record_cb(int64_t id, const char* resp, const char* err) {
+    (void)id; (void)resp;
+    t_recorded_err = err ? strdup(err) : 0;
+    __sync_fetch_and_add(&t_recorded_calls, 1);
+}
+
 static async_callback t_async_ptr(void) { return t_async_cb; }
+static async_callback t_record_ptr(void) { return t_record_cb; }
+static int t_recorded(void) { return t_recorded_calls; }
+static char* t_recorded_error(void) { return t_recorded_err; }
 static session_cache_get_callback t_get_ptr(void) { return t_get_cb; }
 static session_cache_get_callback t_reentrant_get_ptr(void) { return t_reentrant_get_cb; }
 static int t_counts(int which) {
@@ -57,11 +71,27 @@ import "C"
 
 import (
 	"context"
+	"time"
 	"unsafe"
 )
 
 func hcTestRegisterAsync() int64 {
 	return int64(httpcloak_register_callback(C.async_callback(C.t_async_ptr())))
+}
+
+func hcTestRegisterRecording() int64 {
+	return int64(httpcloak_register_callback(C.async_callback(C.t_record_ptr())))
+}
+
+// hcTestRecorded waits for the recording callback to have been called n times
+// in all, and returns the error the last call was given.
+func hcTestRecorded(n int) (string, bool) {
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		if int(C.t_recorded()) >= n {
+			return C.GoString(C.t_recorded_error()), true
+		}
+	}
+	return "", false
 }
 
 func hcTestCounts() (asyncCalls, asyncOnWorker, getCalls, getOnWorker int) {

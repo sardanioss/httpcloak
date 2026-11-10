@@ -35,15 +35,27 @@ func init() {
 	// Initialize library
 }
 
-// decodeRequestBody decodes the request body based on encoding type
+// decodeRequestBody decodes the request body based on encoding type. A body
+// that does not decode refuses the request before anything is sent.
 func decodeRequestBody(body, encoding string) ([]byte, error) {
 	if body == "" {
 		return nil, nil
 	}
 	if encoding == "base64" {
-		return base64.StdEncoding.DecodeString(body)
+		b, err := base64.StdEncoding.DecodeString(body)
+		if err != nil {
+			return nil, refused(fmt.Errorf("invalid base64 body: %w", err))
+		}
+		return b, nil
 	}
 	return []byte(body), nil
+}
+
+// refused is err for a request this library refused before handing it to a
+// session (a request JSON or a body it cannot read, a session handle that is
+// not one): nothing of it was sent, which the error object says (not_sent).
+func refused(err error) error {
+	return transport.MarkNotSent(err)
 }
 
 // encodeResponseBody serializes a response body into ResponseData.Body/BodyEncoding.
@@ -1111,8 +1123,7 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 		var err error
 		bodyBytes, err = decodeRequestBody(config.Body, config.BodyEncoding)
 		if err != nil {
-			setLastError(handle, "request body could not be decoded as %s: %v",
-				config.BodyEncoding, err)
+			setLastError(handle, "%v", err)
 			return -1
 		}
 	}
@@ -1709,7 +1720,7 @@ func httpcloak_post(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.
 		// embedded NUL bytes without C.GoString truncating them at the first NUL.
 		rawBody, decodeErr := decodeRequestBody(bodyStr, options.BodyEncoding)
 		if decodeErr != nil {
-			return makeErrorJSON(fmt.Errorf("invalid base64 body: %w", decodeErr))
+			return makeErrorJSON(decodeErr)
 		}
 		if len(rawBody) > 0 {
 			bodyReader = bytes.NewReader(rawBody)
@@ -1749,7 +1760,7 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) (hcRet *C.char) {
 	if requestJSON != nil {
 		jsonStr := C.GoString(requestJSON)
 		if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
-			return makeErrorJSON(err)
+			return makeErrorJSON(refused(fmt.Errorf("invalid request JSON: %w", err)))
 		}
 	}
 
@@ -1910,7 +1921,7 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 		defer cancel()
 		defer guardAsync("get_async goroutine", int64(callbackID))
 		if session == nil {
-			invokeCallback(int64(callbackID), "", ErrInvalidSession.Error())
+			invokeCallback(int64(callbackID), "", errorJSON(ErrInvalidSession))
 			return
 		}
 
@@ -1977,7 +1988,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		defer cancel()
 		defer guardAsync("post_async goroutine", int64(callbackID))
 		if session == nil {
-			invokeCallback(int64(callbackID), "", ErrInvalidSession.Error())
+			invokeCallback(int64(callbackID), "", errorJSON(ErrInvalidSession))
 			return
 		}
 
@@ -1985,7 +1996,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		if bodyStr != "" {
 			rawBody, decodeErr := decodeRequestBody(bodyStr, options.BodyEncoding)
 			if decodeErr != nil {
-				invokeCallback(int64(callbackID), "", errorJSON(fmt.Errorf("invalid base64 body: %w", decodeErr)))
+				invokeCallback(int64(callbackID), "", errorJSON(decodeErr))
 				return
 			}
 			if len(rawBody) > 0 {
@@ -2021,10 +2032,15 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 	defer guardVoid("httpcloak_request_async")
 	session := getSession(handle)
 
+	// A request JSON that does not parse is refused, as httpcloak_request and
+	// httpcloak_stream_request_async refuse it. It used to be ignored, and a
+	// GET went out to the empty URL the zero config held.
 	var config RequestConfig
 	if requestJSON != nil {
-		jsonStr := C.GoString(requestJSON)
-		json.Unmarshal([]byte(jsonStr), &config)
+		if err := json.Unmarshal([]byte(C.GoString(requestJSON)), &config); err != nil {
+			go invokeCallback(int64(callbackID), "", errorJSON(refused(fmt.Errorf("invalid request JSON: %w", err))))
+			return
+		}
 	}
 
 	// Create cancellable context and store cancel func for this request
@@ -2037,7 +2053,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 		defer cancel()
 		defer guardAsync("request_async goroutine", int64(callbackID))
 		if session == nil {
-			invokeCallback(int64(callbackID), "", ErrInvalidSession.Error())
+			invokeCallback(int64(callbackID), "", errorJSON(ErrInvalidSession))
 			return
 		}
 
@@ -2704,7 +2720,9 @@ func httpcloak_get_ech_dns_servers() (hcRet *C.char) {
 // ============================================================================
 
 var (
-	ErrInvalidSession    = errors.New("invalid session handle")
+	// ErrInvalidSession is marked as not sent: no request made with a handle
+	// that is not a session's goes anywhere.
+	ErrInvalidSession    = refused(errors.New("invalid session handle"))
 	ErrInvalidStream     = errors.New("invalid stream handle")
 	ErrInvalidLocalProxy = errors.New("invalid local proxy handle")
 	ErrInvalidPresetPool = errors.New("invalid preset pool handle")
@@ -3741,8 +3759,7 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 		bodyBytes, err := decodeRequestBody(config.Body, config.BodyEncoding)
 		if err != nil {
 			cancel()
-			setLastError(sessionHandle, "request body could not be decoded as %s: %v",
-				config.BodyEncoding, err)
+			setLastError(sessionHandle, "%v", err)
 			return -1
 		}
 		bodyReader = bytes.NewReader(bodyBytes)
@@ -3806,7 +3823,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 	if requestJSON != nil {
 		if err := json.Unmarshal([]byte(C.GoString(requestJSON)), &config); err != nil {
 			go func() {
-				invokeCallback(int64(callbackID), "", errorJSON(fmt.Errorf("invalid request JSON: %w", err)))
+				invokeCallback(int64(callbackID), "", errorJSON(refused(fmt.Errorf("invalid request JSON: %w", err))))
 			}()
 			return
 		}

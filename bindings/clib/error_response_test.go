@@ -121,3 +121,49 @@ func TestFailuresCrossWithWhatTheirTypesSay(t *testing.T) {
 		})
 	}
 }
+
+// A request the library refuses before handing it to a session (a request
+// JSON or a body it cannot read, a handle that is no session's) was not sent,
+// and its error object says so, through the synchronous export and the
+// asynchronous one the bindings use. They said nothing, which reads as "may
+// have been sent"; and the asynchronous export went on with a request JSON it
+// could not read, sending a GET to an empty URL.
+func TestARequestRefusedBeforeSendingSaysItWasNotSent(t *testing.T) {
+	h := hcTestSessionNew(`{"preset":"chrome-latest"}`)
+	defer hcTestSessionFree(h)
+	url := "http://" + nothingListens(t) + "/pay"
+	cases := []struct {
+		name    string
+		session int64
+		request string
+	}{
+		{"request JSON that does not parse", h, `{"method":"POST","url":`},
+		{"body that is not base64", h, `{"method":"POST","url":"` + url + `","body":"%%%","body_encoding":"base64"}`},
+		{"no such session", -1, `{"method":"POST","url":"` + url + `","body":"x"}`},
+	}
+	notSent := func(t *testing.T, out string) {
+		t.Helper()
+		var got ErrorResponse
+		if err := json.Unmarshal([]byte(out), &got); err != nil || got.Error == "" {
+			t.Fatalf("not an error object: %q", out)
+		}
+		if !got.NotSent {
+			t.Fatalf("not marked as not sent: %+v", got)
+		}
+	}
+	calls := 0
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			notSent(t, hcTestRequest(c.session, c.request))
+
+			id := hcTestRegisterRecording()
+			hcTestRequestAsync(c.session, c.request, id)
+			calls++
+			out, ok := hcTestRecorded(calls)
+			if !ok {
+				t.Fatal("the asynchronous export never called back")
+			}
+			notSent(t, out)
+		})
+	}
+}
