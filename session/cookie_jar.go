@@ -17,6 +17,8 @@ type CookieJar struct {
 	// Primary key: domain (normalized)
 	// Secondary key: path + "\x00" + name
 	cookies map[string]map[string]*CookieData
+	// lastCreated is the creation time put gave the last cookie it stored.
+	lastCreated time.Time
 }
 
 // CookieData extends CookieState with creation time for sorting
@@ -39,6 +41,17 @@ func NewCookieJar() *CookieJar {
 	return &CookieJar{
 		cookies: make(map[string]map[string]*CookieData),
 	}
+}
+
+// canonicalHost is a request host as the jar keys it: lowercase, without a
+// port ("example.com:443", "[::1]:443") or the brackets of an IPv6 address. A
+// bare IPv6 address ("::1") is kept whole: its colons are not a port.
+func canonicalHost(host string) string {
+	host = strings.ToLower(host)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 }
 
 // cookieKey generates a unique key for a cookie within a domain
@@ -90,9 +103,17 @@ func (j *CookieJar) put(domain string, c *CookieData, now time.Time) {
 		}
 		return
 	}
-	c.CreatedAt = now
 	if old != nil {
 		c.CreatedAt = old.CreatedAt
+	} else {
+		// Later than any cookie stored before, even on a clock too coarse to
+		// tell two apart, so that cookies keep the order they were set in
+		// (one response's Set-Cookie headers, say), as they do in Chrome.
+		if !now.After(j.lastCreated) {
+			now = j.lastCreated.Add(time.Nanosecond)
+		}
+		j.lastCreated = now
+		c.CreatedAt = now
 	}
 	if j.cookies[domain] == nil {
 		j.cookies[domain] = make(map[string]*CookieData)
@@ -114,14 +135,7 @@ func (j *CookieJar) Set(requestHost, requestPath string, cookie *CookieData, req
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	// Normalize the request host (lowercase, no port)
-	requestHost = strings.ToLower(requestHost)
-	if idx := strings.LastIndex(requestHost, ":"); idx != -1 {
-		// Check if it's not an IPv6 address
-		if !strings.Contains(requestHost, "]") || idx > strings.Index(requestHost, "]") {
-			requestHost = requestHost[:idx]
-		}
-	}
+	requestHost = canonicalHost(requestHost)
 
 	// A Domain attribute loses its leading dot (5.2.3). The jar keeps a domain
 	// cookie under the domain with a dot in front, and a host-only one under
@@ -188,13 +202,7 @@ func (j *CookieJar) Get(requestHost, requestPath string, requestSecure bool) []*
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 
-	// Normalize
-	requestHost = strings.ToLower(requestHost)
-	if idx := strings.LastIndex(requestHost, ":"); idx != -1 {
-		if !strings.Contains(requestHost, "]") || idx > strings.Index(requestHost, "]") {
-			requestHost = requestHost[:idx]
-		}
-	}
+	requestHost = canonicalHost(requestHost)
 
 	if requestPath == "" {
 		requestPath = "/"
@@ -235,12 +243,24 @@ func (j *CookieJar) Get(requestHost, requestPath string, requestSecure bool) []*
 		}
 	}
 
-	// Sort: longer path first, then older creation time first
+	// The Cookie header's order (RFC 6265 5.4 step 2, and Chrome's
+	// CookieSorter): longer path first, then older creation time first. The
+	// jar gives the cookies it stores distinct creation times (see put), but
+	// imported ones can share one, and the matches come out of maps in no
+	// order, so ties go by domain, path and name, for one order every time.
 	sort.Slice(matches, func(i, k int) bool {
-		if len(matches[i].Path) != len(matches[k].Path) {
-			return len(matches[i].Path) > len(matches[k].Path)
+		a, b := matches[i], matches[k]
+		switch {
+		case len(a.Path) != len(b.Path):
+			return len(a.Path) > len(b.Path)
+		case !a.CreatedAt.Equal(b.CreatedAt):
+			return a.CreatedAt.Before(b.CreatedAt)
+		case a.Domain != b.Domain:
+			return a.Domain < b.Domain
+		case a.Path != b.Path:
+			return a.Path < b.Path
 		}
-		return matches[i].CreatedAt.Before(matches[k].CreatedAt)
+		return a.Name < b.Name
 	})
 
 	return matches

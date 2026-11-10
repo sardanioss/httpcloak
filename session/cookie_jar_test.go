@@ -205,3 +205,58 @@ func TestSetCookieTakesMaxAgeAndDeletesWithAnExpiry(t *testing.T) {
 		t.Fatalf("sent %q, want only the cookie on the other path", got)
 	}
 }
+
+// The host a cookie is kept under is the URL's host as net/url parses it. A
+// URL with a query and no path was cut at its first "/", which gave the host
+// "a.test?x=1"; a bare IPv6 address was cut at its last ":" as if that began
+// a port, so every host sharing all but its last group shared one key.
+func TestACookiesHostIsTheURLsHost(t *testing.T) {
+	s := jarSession(t)
+	received(s, "https://shop.test?ref=1", "q=1; Domain=shop.test", "h=1")
+	for _, url := range []string{"https://shop.test/", "https://shop.test?ref=2", "https://www.shop.test/cart"} {
+		want := "q=1; h=1"
+		if strings.Contains(url, "www.") {
+			want = "q=1"
+		}
+		if got := sent(s, url); got != want {
+			t.Errorf("to %s: sent %q, want %q", url, got, want)
+		}
+	}
+
+	received(s, "http://[2001:db8::1]/", "one=1")
+	received(s, "http://[2001:db8::2]:8080/", "two=2")
+	for url, want := range map[string]string{
+		"http://[2001:db8::1]/":      "one=1",
+		"http://[2001:db8::1]:8443/": "one=1",
+		"http://[2001:db8::2]/":      "two=2",
+		"http://[2001:db8::3]/":      "",
+	} {
+		if got := sent(s, url); got != want {
+			t.Errorf("to %s: sent %q, want %q", url, got, want)
+		}
+	}
+}
+
+// Cookies of the same path go in the order they were created (RFC 6265 5.4,
+// Chrome's CookieSorter): one response's in its Set-Cookie order. Cookies that
+// share a creation time, as imported ones can, go by name, the same every
+// time, where they went in the order a map gave them.
+func TestCookiesOfOnePathGoInTheOrderTheyWereCreated(t *testing.T) {
+	s := jarSession(t)
+	received(s, "https://shop.test/", "zeta=1", "alpha=2", "mid=3")
+	if got := sent(s, "https://shop.test/"); got != "zeta=1; alpha=2; mid=3" {
+		t.Fatalf("sent %q, want the Set-Cookie order", got)
+	}
+
+	created := time.Now().Add(-time.Hour)
+	var imported []CookieState
+	for _, name := range []string{"c", "a", "e", "b", "d"} {
+		imported = append(imported, CookieState{Name: name, Value: "1", Domain: "tie.test", Path: "/", CreatedAt: &created})
+	}
+	s.cookies.Import(map[string][]CookieState{"tie.test": imported})
+	for i := 0; i < 50; i++ {
+		if got := sent(s, "https://tie.test/"); got != "a=1; b=1; c=1; d=1; e=1" {
+			t.Fatalf("sent %q, want the cookies that share a creation time by name", got)
+		}
+	}
+}

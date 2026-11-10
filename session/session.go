@@ -1192,55 +1192,31 @@ func contains(s, substr string) bool {
 	return indexOf(s, substr) != -1
 }
 
-// extractHost extracts the host from a URL string
+// extractHost is a request URL's host, lowercase, without its port or an IPv6
+// address's brackets: what the cookie jar and the per-host state are keyed
+// on. A URL that does not parse has no host, which no cookie matches.
 func extractHost(urlStr string) string {
-	// Remove protocol prefix
-	host := urlStr
-	if idx := indexOf(host, "://"); idx != -1 {
-		host = host[idx+3:]
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
 	}
-	// Remove path
-	if idx := indexOf(host, "/"); idx != -1 {
-		host = host[:idx]
-	}
-	// Remove port for matching (IPv6-aware)
-	if len(host) > 0 && host[0] == '[' {
-		// IPv6 bracketed: [::1]:443 → ::1
-		if idx := indexOf(host, "]"); idx != -1 {
-			host = host[1:idx]
-		}
-	} else if idx := indexOf(host, ":"); idx != -1 {
-		host = host[:idx]
-	}
-	return host
+	return strings.ToLower(u.Hostname())
 }
 
-// extractPath extracts the path from a URL string
+// extractPath is a request URL's path as it goes on the wire, "/" when it
+// has none (RFC 6265 5.1.4 takes the request-target's path).
 func extractPath(urlStr string) string {
-	// Remove protocol prefix
-	path := urlStr
-	if idx := indexOf(path, "://"); idx != -1 {
-		path = path[idx+3:]
+	u, err := url.Parse(urlStr)
+	if err != nil || u.EscapedPath() == "" {
+		return "/"
 	}
-	// Find path start
-	if idx := indexOf(path, "/"); idx != -1 {
-		path = path[idx:]
-		// Remove query string
-		if qIdx := indexOf(path, "?"); qIdx != -1 {
-			path = path[:qIdx]
-		}
-		// Remove fragment
-		if fIdx := indexOf(path, "#"); fIdx != -1 {
-			path = path[:fIdx]
-		}
-		return path
-	}
-	return "/"
+	return u.EscapedPath()
 }
 
-// isSecureURL returns true if the URL uses HTTPS
+// isSecureURL reports whether the URL is https.
 func isSecureURL(urlStr string) bool {
-	return len(urlStr) >= 8 && urlStr[:8] == "https://"
+	u, err := url.Parse(urlStr)
+	return err == nil && u.Scheme == "https"
 }
 
 // IsActive returns whether the session is active
