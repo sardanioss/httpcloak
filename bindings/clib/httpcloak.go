@@ -476,11 +476,9 @@ func parseSetCookieHeaders(headers map[string][]string) []Cookie {
 
 		cookie := Cookie{}
 
-		// Split by semicolon to get name=value and attributes
-		parts := splitBySemicolon(line)
-		if len(parts) == 0 {
-			continue
-		}
+		// Split by semicolon to get name=value and attributes. The split is by
+		// byte, so a value's UTF-8 passes through whole.
+		parts := strings.Split(line, ";")
 
 		// First part is name=value
 		firstPart := trim(parts[0])
@@ -555,24 +553,6 @@ func parseSetCookieHeaders(headers map[string][]string) []Cookie {
 	}
 
 	return cookies
-}
-
-// splitBySemicolon splits a string by semicolon
-func splitBySemicolon(s string) []string {
-	var result []string
-	var current string
-	for i := 0; i < len(s); i++ {
-		if s[i] == ';' {
-			result = append(result, current)
-			current = ""
-		} else {
-			current += string(s[i])
-		}
-	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
 }
 
 // toLower converts a string to lowercase (simple ASCII)
@@ -2221,10 +2201,28 @@ func httpcloak_get_cookies(handle C.int64_t) (hcRet *C.char) {
 		return makeErrorJSON(ErrInvalidSession)
 	}
 
-	cookieStates := session.GetCookies()
-	// Convert to clib Cookie format with RFC1123 expires string
-	var cookies []Cookie
-	for _, c := range cookieStates {
+	return C.CString(cookiesJSON(session.GetCookies()))
+}
+
+// httpcloak_get_cookies_for_url returns the cookies a request to url would
+// carry, in the order its Cookie header would list them, as
+// httpcloak_get_cookies returns cookies.
+//
+//export httpcloak_get_cookies_for_url
+func httpcloak_get_cookies_for_url(handle C.int64_t, url *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_get_cookies_for_url", &hcRet)
+	session := getSession(handle)
+	if session == nil {
+		return makeErrorJSON(ErrInvalidSession)
+	}
+	return C.CString(cookiesJSON(session.CookiesFor(C.GoString(url))))
+}
+
+// cookiesJSON is cookies in the clib's Cookie format, with RFC 1123 expiry
+// dates, as a JSON array.
+func cookiesJSON(states []httpcloak.CookieInfo) string {
+	cookies := make([]Cookie, 0, len(states))
+	for _, c := range states {
 		cookie := Cookie{
 			Name:     c.Name,
 			Value:    c.Value,
@@ -2240,11 +2238,8 @@ func httpcloak_get_cookies(handle C.int64_t) (hcRet *C.char) {
 		}
 		cookies = append(cookies, cookie)
 	}
-	if cookies == nil {
-		cookies = []Cookie{}
-	}
 	data, _ := json.Marshal(cookies)
-	return C.CString(string(data))
+	return string(data)
 }
 
 //export httpcloak_set_cookie

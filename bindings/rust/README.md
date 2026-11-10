@@ -171,7 +171,7 @@ session cache, say) crosses into the library.
 
 ### Everything else
 
-Cookies (`Session::cookies`, `set_cookie`, `delete_cookie`), proxies switched at
+Cookies (`Session::cookies`, `cookies_for`, `set_cookie`, `delete_cookie`), proxies switched at
 run time, `fork`, `refresh`, `warmup`, `save`/`load` and `marshal`/`unmarshal`,
 session statistics, custom presets (`load_preset`, `describe_preset`), preset
 pools (`PresetPool`), the local proxy (`LocalProxy`) and an external TLS session

@@ -100,7 +100,8 @@ impl Cookie {
     }
 
     /// When the cookie expires; `None` for a session cookie, or when the
-    /// server's date could not be read.
+    /// server's date could not be read. For a cookie in a jar, the expiry its
+    /// `Max-Age` or `Expires` gave it.
     pub fn expires(&self) -> Option<SystemTime> {
         self.expires
     }
@@ -139,8 +140,11 @@ impl Cookie {
         self
     }
 
-    /// Sets `Max-Age`. The library stores it but decides expiry by
-    /// [`expires`](Cookie::with_expires) alone.
+    /// Sets `Max-Age`. A jar takes the cookie as expiring that long after it
+    /// takes it, whatever [`expires`](Cookie::with_expires) says, and at most
+    /// 400 days on, as Chrome does; zero has it expired at once, which removes
+    /// the cookie of the same name, domain and path instead. The jar keeps
+    /// the expiry, so a cookie read back from it has none.
     pub fn with_max_age(mut self, max_age: Duration) -> Cookie {
         self.max_age = Some(i64::try_from(max_age.as_secs()).unwrap_or(i64::MAX));
         self
@@ -189,7 +193,13 @@ impl Cookie {
             domain: self.domain.clone(),
             path: self.path.clone(),
             expires: self.expires.map(httpdate::fmt_http_date).unwrap_or_default(),
-            max_age: self.max_age.unwrap_or(0),
+            // The library reads 0 as no Max-Age, and one below zero as
+            // expired now (net/http's convention).
+            max_age: match self.max_age {
+                None => 0,
+                Some(0) => -1,
+                Some(seconds) => seconds,
+            },
             secure: self.secure,
             http_only: self.http_only,
             same_site: self.same_site.as_ref().map(|s| s.as_str().to_string()).unwrap_or_default(),

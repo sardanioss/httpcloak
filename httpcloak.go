@@ -1315,6 +1315,12 @@ func (s *Session) GetCookiesDetailed() []CookieInfo {
 	return s.inner.GetCookies()
 }
 
+// CookiesFor returns the cookies a request to url would carry, in the order its
+// Cookie header would list them.
+func (s *Session) CookiesFor(url string) []CookieInfo {
+	return s.inner.CookiesFor(url)
+}
+
 // SetCookie sets a cookie in the session with full metadata
 func (s *Session) SetCookie(cookie CookieInfo) {
 	s.inner.SetCookie(cookie.Name, cookie.Value, cookie.Domain, cookie.Path, cookie.Secure, cookie.HttpOnly, cookie.SameSite, cookie.MaxAge, cookie.Expires)

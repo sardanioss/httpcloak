@@ -245,6 +245,38 @@ fn cookies_round_trip_through_the_jar() {
     assert_eq!(echoed_cookies(&echo(&s.get(https("/echo")).send().unwrap())), "");
 }
 
+/// `cookies_for` is what a request to the URL carries, in its header's order,
+/// and the jar expires and deletes cookies by `Max-Age` and `Expires`.
+#[test]
+fn cookies_for_a_url_are_what_its_request_carries() {
+    let s = session();
+    let set = |name: &str, path: &str| httpcloak::Cookie::new(name, "1").with_domain("localhost").with_path(path);
+    let names = |url: &str| s.cookies_for(url).unwrap().iter().map(|c| c.name().to_string()).collect::<Vec<_>>();
+    s.set_cookie(&set("root", "/")).unwrap();
+    std::thread::sleep(Duration::from_millis(2));
+    s.set_cookie(&set("deep", "/a")).unwrap();
+    std::thread::sleep(Duration::from_millis(2));
+    s.set_cookie(&set("secure", "/").with_secure(true)).unwrap();
+    s.set_cookie(&httpcloak::Cookie::new("elsewhere", "1").with_domain("example.com").with_path("/")).unwrap();
+
+    assert_eq!(names("https://localhost/a/b"), ["deep", "root", "secure"]);
+    assert_eq!(names("http://localhost/a/b"), ["deep", "root"]);
+    assert_eq!(names("https://localhost/b?q=1"), ["root", "secure"]);
+    assert!(s.cookies_for("ftp://localhost/").unwrap_err().is_invalid_input());
+    let sent = echoed_cookies(&echo(&s.get(https("/echo")).send().unwrap()));
+    assert_eq!(sent, "root=1; secure=1", "the header lists what cookies_for does");
+
+    s.set_cookie(&set("brief", "/").with_max_age(Duration::from_secs(1))).unwrap();
+    assert!(names("https://localhost/").contains(&"brief".to_string()));
+    std::thread::sleep(Duration::from_millis(1100));
+    assert!(!names("https://localhost/").contains(&"brief".to_string()), "gone after its Max-Age");
+    assert!(!s.cookies().unwrap().iter().any(|c| c.name() == "brief"));
+
+    s.set_cookie(&set("root", "/").with_max_age(Duration::ZERO)).unwrap();
+    s.set_cookie(&set("secure", "/").with_expires(std::time::UNIX_EPOCH + Duration::from_secs(10))).unwrap();
+    assert_eq!(names("https://localhost/a/b"), ["deep"]);
+}
+
 #[test]
 fn a_request_timeout_is_exact() {
     let start = Instant::now();

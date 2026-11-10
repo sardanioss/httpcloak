@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::cookie::{Cookie, WireCookie};
 use crate::error::{Error, ErrorKind, Result};
 use crate::ffi::{self, cpath, cstring};
-use crate::request::RequestBuilder;
+use crate::request::{check_scheme, RequestBuilder};
 use crate::upload::UploadBuilder;
 
 /// An HTTP client whose TLS, HTTP/2 and HTTP/3 fingerprints match a real
@@ -792,6 +792,21 @@ impl Session {
         let json = ffi::checked(result, "reading the cookies")?;
         let cookies: Option<Vec<WireCookie>> = ffi::parse_json(&json, "the cookies")?;
         Ok(cookies.unwrap_or_default().into_iter().map(Cookie::from_wire).collect())
+    }
+
+    /// The cookies a request to `url` would carry, in the order its `Cookie`
+    /// header would list them: the host's own and its parent domains', on a
+    /// path `url`'s is under, `Secure` ones only for `https`, longer paths
+    /// first and then the oldest. A page at `url` sees these as
+    /// `document.cookie`, except the [`http_only`](Cookie::http_only) ones.
+    pub fn cookies_for(&self, url: &str) -> Result<Vec<Cookie>> {
+        check_scheme(url)?;
+        let c_url = cstring(url, "the URL")?;
+        // SAFETY: a valid NUL-terminated string; the result is ours to free.
+        let result = unsafe { ffi::take_string(sys::httpcloak_get_cookies_for_url(self.handle(), c_url.as_ptr())) };
+        let json = ffi::checked(result, "reading the cookies")?;
+        let cookies: Vec<WireCookie> = ffi::parse_json(&json, "the cookies")?;
+        Ok(cookies.into_iter().map(Cookie::from_wire).collect())
     }
 
     /// Puts `cookie` in the jar, replacing one with the same name, domain and

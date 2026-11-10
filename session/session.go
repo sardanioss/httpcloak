@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -798,6 +800,7 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 	}
 
 	requestHost := extractHost(requestURL)
+	requestPath := extractPath(requestURL)
 	requestSecure := isSecureURL(requestURL)
 
 	// Each Set-Cookie header is now a separate element in the slice
@@ -808,12 +811,14 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 		}
 
 		cookie := &CookieData{}
+		// The last valid Max-Age and the last readable Expires, which decide
+		// the expiry together (RFC 6265 5.3 step 3).
+		var maxAge *int64
+		var expires *time.Time
 
-		// Split by semicolon to get name=value and attributes
-		parts := splitBySemicolon(line)
-		if len(parts) == 0 {
-			continue
-		}
+		// Split by semicolon to get name=value and attributes. The split is by
+		// byte, so a value's UTF-8 passes through whole.
+		parts := strings.Split(line, ";")
 
 		// First part is name=value
 		firstPart := trim(parts[0])
@@ -863,10 +868,12 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 			case "expires":
 				// Parse expiration time
 				if t, err := parseHTTPDate(attrValue); err == nil {
-					cookie.Expires = &t
+					expires = &t
 				}
 			case "max-age":
-				cookie.MaxAge = parseIntSimple(attrValue)
+				if seconds, ok := parseMaxAge(attrValue); ok {
+					maxAge = &seconds
+				}
 			case "samesite":
 				// Normalize to capitalized form
 				sameSiteLower := toLowerASCII(attrValue)
@@ -883,55 +890,41 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 			}
 		}
 
+		cookie.Expires = expiry(time.Now(), maxAge, expires)
+
 		// Use CookieJar to store with proper domain scoping
-		s.cookies.Set(requestHost, cookie, requestSecure)
+		s.cookies.Set(requestHost, requestPath, cookie, requestSecure)
 	}
 }
 
-// splitBySemicolon splits a string by semicolon
-func splitBySemicolon(s string) []string {
-	var result []string
-	var current string
-	for i := 0; i < len(s); i++ {
-		if s[i] == ';' {
-			result = append(result, current)
-			current = ""
-		} else {
-			current += string(s[i])
+// parseMaxAge reads a Max-Age attribute's value as RFC 6265 5.2.2 has it: an
+// optional "-" and one or more digits, else it is not a Max-Age at all. A
+// value too large for an int64 saturates, which the jar's cap makes 400 days
+// (or, negative, expired).
+func parseMaxAge(v string) (int64, bool) {
+	digits := strings.TrimPrefix(v, "-")
+	if digits == "" || strings.TrimLeft(digits, "0123456789") != "" {
+		return 0, false
+	}
+	seconds, err := strconv.ParseInt(v, 10, 64)
+	if errors.Is(err, strconv.ErrRange) {
+		if v[0] == '-' {
+			return math.MinInt64, true
 		}
+		return math.MaxInt64, true
 	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
-}
-
-// parseIntSimple parses an integer from a string, returns 0 on error
-func parseIntSimple(s string) int {
-	result := 0
-	negative := false
-	start := 0
-	if len(s) > 0 && s[0] == '-' {
-		negative = true
-		start = 1
-	}
-	for i := start; i < len(s); i++ {
-		if s[i] >= '0' && s[i] <= '9' {
-			result = result*10 + int(s[i]-'0')
-		} else {
-			break
-		}
-	}
-	if negative {
-		result = -result
-	}
-	return result
+	return seconds, true
 }
 
 // parseHTTPDate parses an HTTP date string (RFC1123 format)
 func parseHTTPDate(s string) (time.Time, error) {
 	// Try RFC1123 format first (most common)
 	if t, err := time.Parse(time.RFC1123, s); err == nil {
+		return t, nil
+	}
+	// The Netscape cookie date, with dashes, which PHP and Java servers send
+	// (and net/http reads the same way).
+	if t, err := time.Parse("Mon, 02-Jan-2006 15:04:05 MST", s); err == nil {
 		return t, nil
 	}
 	// Try RFC1123Z (with numeric timezone)
@@ -1388,6 +1381,13 @@ func (s *Session) GetCookies() []CookieState {
 // GetCookiesDetailed is an alias for GetCookies, returning full cookie metadata.
 func (s *Session) GetCookiesDetailed() []CookieState {
 	return s.cookies.GetAll()
+}
+
+// CookiesFor returns the cookies a request to rawURL would carry, in the order
+// its Cookie header would list them: what a page at rawURL reads as
+// document.cookie, HttpOnly ones aside.
+func (s *Session) CookiesFor(rawURL string) []CookieState {
+	return s.cookies.For(extractHost(rawURL), extractPath(rawURL), isSecureURL(rawURL))
 }
 
 // SetCookie sets a cookie with full metadata.
