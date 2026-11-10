@@ -132,6 +132,7 @@ extern "C" {
     // --- Cookies ---
     pub fn httpcloak_get_cookies(handle: i64) -> *mut c_char;
     pub fn httpcloak_get_cookies_for_url(handle: i64, url: *const c_char) -> *mut c_char;
+    pub fn httpcloak_session_asked_client_hints(handle: i64, url: *const c_char) -> *mut c_char;
     pub fn httpcloak_set_cookie(handle: i64, cookie_json: *const c_char);
     pub fn httpcloak_delete_cookie(handle: i64, name: *const c_char, domain: *const c_char);
     pub fn httpcloak_clear_cookies(handle: i64);

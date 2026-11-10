@@ -1061,39 +1061,70 @@ func (s *Session) applyClientHintPolicy(host string, req *transport.Request) {
 // overwritten (matched case-insensitively), which makes per-request overrides
 // deterministic.
 func (s *Session) applyClientHints(host string, headers map[string][]string) {
+	for _, hint := range s.askedClientHints(host) {
+		// Don't clobber a value the caller supplied (any header case).
+		if headerKeyPresent(headers, hint.header) {
+			continue
+		}
+		headers[hint.header] = []string{hint.value}
+	}
+}
+
+// clientHint is a high-entropy client hint as a request carries it.
+type clientHint struct {
+	header string
+	value  string
+}
+
+// askedClientHints returns the high-entropy client hints host has asked for
+// with Accept-CH and the preset has a value for, by header name.
+func (s *Session) askedClientHints(host string) []clientHint {
 	s.mu.RLock()
 	hints, exists := s.clientHints[host]
 	s.mu.RUnlock()
 
 	if !exists || len(hints) == 0 {
-		return
+		return nil
 	}
 
 	ch := s.resolveClientHints()
-
-	// Map of Accept-CH hint names to their header name and resolved value.
-	hintValues := map[string]struct {
-		header string
-		value  string
+	asked := make([]clientHint, 0, 6)
+	for _, hint := range []struct {
+		name string
+		clientHint
 	}{
-		"sec-ch-ua-arch":              {"Sec-Ch-Ua-Arch", ch.UAArch},
-		"sec-ch-ua-bitness":           {"Sec-Ch-Ua-Bitness", ch.UABitness},
-		"sec-ch-ua-full-version-list": {"Sec-Ch-Ua-Full-Version-List", ch.UAFullVersionList},
-		"sec-ch-ua-model":             {"Sec-Ch-Ua-Model", ch.UAModel},
-		"sec-ch-ua-platform-version":  {"Sec-Ch-Ua-Platform-Version", ch.UAPlatformVersion},
-		"sec-ch-ua-wow64":             {"Sec-Ch-Ua-Wow64", ch.UAWow64},
+		{"sec-ch-ua-arch", clientHint{"Sec-Ch-Ua-Arch", ch.UAArch}},
+		{"sec-ch-ua-bitness", clientHint{"Sec-Ch-Ua-Bitness", ch.UABitness}},
+		{"sec-ch-ua-full-version-list", clientHint{"Sec-Ch-Ua-Full-Version-List", ch.UAFullVersionList}},
+		{"sec-ch-ua-model", clientHint{"Sec-Ch-Ua-Model", ch.UAModel}},
+		{"sec-ch-ua-platform-version", clientHint{"Sec-Ch-Ua-Platform-Version", ch.UAPlatformVersion}},
+		{"sec-ch-ua-wow64", clientHint{"Sec-Ch-Ua-Wow64", ch.UAWow64}},
+	} {
+		if hints[hint.name] && hint.value != "" {
+			asked = append(asked, hint.clientHint)
+		}
 	}
+	return asked
+}
 
-	for hintName, hintInfo := range hintValues {
-		if !hints[hintName] || hintInfo.value == "" {
-			continue
-		}
-		// Don't clobber a value the caller supplied (any header case).
-		if headerKeyPresent(headers, hintInfo.header) {
-			continue
-		}
-		headers[hintInfo.header] = []string{hintInfo.value}
+// AskedClientHints returns the names of the high-entropy client hints
+// the session adds to a request to rawURL that sets none of them itself: the
+// ones its host has asked for with Accept-CH, unless the session sends no
+// client hints or no high-entropy ones. A caller that works out a request's
+// header order from the headers it holds needs these, which it does not set.
+func (s *Session) AskedClientHints(rawURL string) []string {
+	s.mu.RLock()
+	enabled := s.clientHintsEnabled && s.highEntropyClientHintsEnabled
+	s.mu.RUnlock()
+	if !enabled {
+		return nil
 	}
+	asked := s.askedClientHints(extractHost(rawURL))
+	names := make([]string, 0, len(asked))
+	for _, hint := range asked {
+		names = append(names, hint.header)
+	}
+	return names
 }
 
 // resolveClientHints returns the coherent UA client hints for this session's

@@ -64,6 +64,11 @@ pub struct RequestHead<'a> {
     pub headers: &'a [(String, String)],
     /// Whether the request has a body. An empty one counts as none.
     pub has_body: bool,
+    /// The names of the high-entropy client hints the library adds to the
+    /// request, which are not among `headers`: the ones its host has asked for
+    /// with `Accept-CH` and the request does not set itself. None when the
+    /// request or its session turns them off.
+    pub client_hints: &'a [String],
 }
 
 /// The header orders of a request, which
@@ -526,8 +531,19 @@ impl RequestBuilder {
                 .with_url(url));
             }
             Some(order_with) => {
-                let order =
-                    order_with(&RequestHead { method: &self.method, headers: &headers, has_body: body.is_some() });
+                let client_hints = if self.disable_client_hints || self.disable_high_entropy_client_hints {
+                    Vec::new()
+                } else {
+                    let mut hints = self.session.asked_client_hints(&url)?;
+                    hints.retain(|hint| !headers.iter().any(|(name, _)| name.eq_ignore_ascii_case(hint)));
+                    hints
+                };
+                let order = order_with(&RequestHead {
+                    method: &self.method,
+                    headers: &headers,
+                    has_body: body.is_some(),
+                    client_hints: &client_hints,
+                });
                 if let Some(name) = order.request.iter().chain(&order.redirects).find(|name| !valid_name(name)) {
                     return Err(Error::invalid_input(format!("{name:?} is not a valid header name")).with_url(url));
                 }
@@ -876,7 +892,8 @@ mod tests {
 
     #[test]
     fn header_order_with_orders_what_the_request_holds_when_it_is_sent() {
-        let s = session();
+        // A real session: the order is told the client hints its hosts asked for.
+        let s = Session::builder().build().unwrap();
         // The order is asked for once everything is set: the headers set
         // after the call, the cookies as one header, the implied type last.
         let reversed = |head: &RequestHead<'_>| {

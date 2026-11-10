@@ -808,6 +808,20 @@ impl Session {
         Ok(cookies.into_iter().map(Cookie::from_wire).collect())
     }
 
+    /// The names of the high-entropy client hints the session adds to a
+    /// request to `url` that sets none of them itself: the ones its host has
+    /// asked for with `Accept-CH`. None when the session sends no client
+    /// hints, or no high-entropy ones.
+    pub fn asked_client_hints(&self, url: &str) -> Result<Vec<String>> {
+        check_scheme(url)?;
+        let c_url = cstring(url, "the URL")?;
+        // SAFETY: a valid NUL-terminated string; the result is ours to free.
+        let result =
+            unsafe { ffi::take_string(sys::httpcloak_session_asked_client_hints(self.handle(), c_url.as_ptr())) };
+        let json = ffi::checked(result, "reading the client hints")?;
+        ffi::parse_json(&json, "the client hints")
+    }
+
     /// Puts `cookie` in the jar, replacing one with the same name, domain and
     /// path. A cookie with no domain is sent to every host.
     pub fn set_cookie(&self, cookie: &Cookie) -> Result<()> {

@@ -1336,6 +1336,13 @@ func (s *Session) CookiesFor(url string) []CookieInfo {
 	return s.inner.CookiesFor(url)
 }
 
+// AskedClientHints returns the names of the high-entropy client hints the
+// session adds to a request to url that sets none of them itself: the ones its
+// host has asked for with Accept-CH.
+func (s *Session) AskedClientHints(url string) []string {
+	return s.inner.AskedClientHints(url)
+}
+
 // SetCookie sets a cookie in the session with full metadata
 func (s *Session) SetCookie(cookie CookieInfo) {
 	s.inner.SetCookie(cookie.Name, cookie.Value, cookie.Domain, cookie.Path, cookie.Secure, cookie.HttpOnly, cookie.SameSite, cookie.MaxAge, cookie.Expires)

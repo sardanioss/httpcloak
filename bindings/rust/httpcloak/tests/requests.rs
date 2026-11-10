@@ -205,6 +205,49 @@ fn a_redirected_request_takes_the_redirect_order() {
     assert_eq!(names(server.next_head())[..2], ["x-late", "user-agent"]);
 }
 
+/// The order a caller computes for a request may depend on every header it
+/// goes out with, so it is told the high-entropy client hints the session adds
+/// once the host has asked for them, which the caller never set.
+#[test]
+fn a_computed_order_is_told_the_client_hints_the_session_adds() {
+    let session = session();
+    let told = |request: httpcloak::RequestBuilder| {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let note = seen.clone();
+        let response = request
+            .header_order_with(move |head: &RequestHead<'_>| {
+                *note.lock().unwrap() = head.client_hints.to_vec();
+                HeaderOrder::default()
+            })
+            .send()
+            .unwrap();
+        let hints = seen.lock().unwrap().clone();
+        (hints, echo(&response))
+    };
+
+    let (hints, _) = told(session.get(https("/echo")));
+    assert!(hints.is_empty(), "the host has asked for none yet: {hints:?}");
+
+    session.get(https("/accept-ch")).send().unwrap();
+    let (hints, sent) = told(session.get(https("/echo")));
+    assert!(hints.iter().any(|hint| hint.eq_ignore_ascii_case("sec-ch-ua-arch")), "{hints:?}");
+    for hint in &hints {
+        assert!(echoed_header(&sent, hint).is_some(), "told of {hint}, which the request lacks");
+    }
+    let carried = sent["headers"].as_array().unwrap().iter().map(|h| h[0].as_str().unwrap().to_ascii_lowercase());
+    let high_entropy: Vec<String> = carried
+        .filter(|n| n.starts_with("sec-ch-ua-") && n != "sec-ch-ua-mobile" && n != "sec-ch-ua-platform")
+        .collect();
+    assert_eq!(high_entropy.len(), hints.len(), "told {hints:?}, sent {high_entropy:?}");
+
+    // One the request sets itself is among its headers, not the library's.
+    let (hints, _) = told(session.get(https("/echo")).header("Sec-CH-UA-Arch", "\"arm\""));
+    assert!(!hints.is_empty() && !hints.iter().any(|hint| hint.eq_ignore_ascii_case("sec-ch-ua-arch")), "{hints:?}");
+
+    let (hints, sent) = told(session.get(https("/echo")).disable_high_entropy_client_hints());
+    assert!(hints.is_empty() && echoed_header(&sent, "sec-ch-ua-arch").is_none(), "{hints:?}");
+}
+
 #[test]
 fn fetch_mode_and_per_request_toggles() {
     let e = echo(&session().get(https("/echo")).fetch_mode(FetchMode::Cors).send().unwrap());

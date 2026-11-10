@@ -2144,6 +2144,29 @@ func httpcloak_get_cookies_for_url(handle C.int64_t, url *C.char) (hcRet *C.char
 	return C.CString(cookiesJSON(session.CookiesFor(C.GoString(url))))
 }
 
+// httpcloak_session_asked_client_hints returns, as a JSON array, the
+// names of the high-entropy client hints the session adds to a request to url
+// that sets none of them itself: the ones its host has asked for with
+// Accept-CH.
+//
+//export httpcloak_session_asked_client_hints
+func httpcloak_session_asked_client_hints(handle C.int64_t, url *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_session_asked_client_hints", &hcRet)
+	session := getSession(handle)
+	if session == nil {
+		return makeErrorJSON(ErrInvalidSession)
+	}
+	names := session.AskedClientHints(C.GoString(url))
+	if names == nil {
+		names = []string{}
+	}
+	encoded, err := json.Marshal(names)
+	if err != nil {
+		return makeErrorJSON(err)
+	}
+	return C.CString(string(encoded))
+}
+
 // cookiesJSON is cookies in the clib's Cookie format, with RFC 1123 expiry
 // dates, as a JSON array.
 func cookiesJSON(states []httpcloak.CookieInfo) string {

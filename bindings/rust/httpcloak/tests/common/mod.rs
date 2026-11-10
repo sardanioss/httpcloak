@@ -238,6 +238,11 @@ async fn route(req: Request<Incoming>, disconnects: Arc<AtomicUsize>) -> Result<
             .header("set-cookie", "b=2; Path=/; Secure; SameSite=Lax; Max-Age=3600")
             .body(full("cookies set"))
             .unwrap(),
+        // Asks for high-entropy client hints.
+        "accept-ch" => Response::builder()
+            .header("accept-ch", "Sec-CH-UA-Arch, Sec-CH-UA-Platform-Version, Sec-CH-UA-Full-Version-List")
+            .body(full(""))
+            .unwrap(),
         "multi" => Response::builder()
             .header("x-multi", "one")
             .header("x-multi", "two")
