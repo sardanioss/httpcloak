@@ -4557,6 +4557,19 @@ func httpcloak_describe_preset(name *C.char) (hcRet *C.char) {
 	return C.CString(out)
 }
 
+// httpcloak_preset_exists returns 1 when a preset of this name is registered,
+// built in or loaded, and 0 when not: what httpcloak_describe_preset answers
+// without describing the whole preset.
+//
+//export httpcloak_preset_exists
+func httpcloak_preset_exists(name *C.char) (hcRet C.int) {
+	defer guardInt("httpcloak_preset_exists", &hcRet)
+	if fingerprint.GetStrict(C.GoString(name)) == nil {
+		return 0
+	}
+	return 1
+}
+
 // --- Preset Pool Lifecycle ---
 
 //export httpcloak_pool_load_file

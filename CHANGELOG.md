@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **C library: a failure says what its types say**: every error object a request reports (and every other one built from a Go error) now carries, beside its message, `code` (the kind: `timeout`, `proxy`, `dns`, `tls`, `connect`, `redirect`, `io` or `decode`) where the error's types say it, `not_sent` when the request is known never to have reached the server (`transport.RequestNotSent`), and `proxy_status` when an HTTP proxy refused the tunnel. Bindings had only the text, and worked the kind out from its words; they still do where there is no `code`. The Rust binding reads all three: `Error::kind()` from the code, `Error::is_not_sent()`, which is also true for a request it refused before handing it over, and `Error::proxy_status()`; and `Error` is now `Clone`.
 
+- **C library: `httpcloak_preset_exists`**: whether a preset of a name is registered, built in or loaded, without describing it. The Rust binding checked a session's preset by asking for its whole description, the TLS, HTTP/2, HTTP/3 and header settings serialised to JSON and thrown away, on every session it built; it asks this instead.
+
 ### Fixed
 
 - **A response body cut off before its `Content-Length` was returned as a whole one**: a buffered request whose connection closed early came back as a success with the bytes that had arrived, so a truncated download was indistinguishable from a complete one. The read now fails with `io.ErrUnexpectedEOF` and says how much arrived, which is what Chrome does (`ERR_CONTENT_LENGTH_MISMATCH`). A response that carries no body but states a length (HEAD, 304) is unaffected.

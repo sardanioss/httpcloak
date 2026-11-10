@@ -550,10 +550,9 @@ pub(crate) fn check_max_redirects(max: u32) -> std::result::Result<u32, String> 
 /// Fails with [`ErrorKind::InvalidInput`] unless `preset` is registered.
 pub(crate) fn check_preset(preset: &str) -> Result<()> {
     let name = cstring(preset, "the preset name")?;
-    // SAFETY: a valid NUL-terminated string; the result is ours to free.
-    let described = unsafe { ffi::take_string(sys::httpcloak_describe_preset(name.as_ptr())) };
-    match described.as_deref().map(ffi::error_in) {
-        Some(None) => Ok(()),
+    // SAFETY: a valid NUL-terminated string, only read during the call.
+    match unsafe { sys::httpcloak_preset_exists(name.as_ptr()) } {
+        1 => Ok(()),
         _ => Err(Error::invalid_input(format!(
             "unknown preset {preset:?}; see httpcloak::available_presets() for the built-in ones"
         ))),

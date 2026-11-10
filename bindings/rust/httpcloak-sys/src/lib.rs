@@ -249,6 +249,7 @@ extern "C" {
     pub fn httpcloak_preset_load_json(json_data: *const c_char) -> *mut c_char;
     pub fn httpcloak_preset_unregister(name: *const c_char);
     pub fn httpcloak_describe_preset(name: *const c_char) -> *mut c_char;
+    pub fn httpcloak_preset_exists(name: *const c_char) -> c_int;
 
     // --- Preset pools ---
     pub fn httpcloak_pool_load_file(path: *const c_char) -> *mut c_char;
