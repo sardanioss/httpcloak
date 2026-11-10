@@ -164,8 +164,11 @@ func (s *Session) forkOne() *Session {
 		clientHints:  clientHints,
 		// Inherit the parent's runtime client-hint gates (read under the RLock
 		// Fork holds), so forks behave like the parent rather than defaulting off.
+		// The conditional cache too: its entries were copied above but the
+		// switch was not, so every fork had conditional requests off.
 		clientHintsEnabled:            s.clientHintsEnabled,
 		highEntropyClientHintsEnabled: s.highEntropyClientHintsEnabled,
+		conditionalCacheEnabled:       s.conditionalCacheEnabled,
 		keyLogWriter:                  nil, // no key log on fork to avoid double-close
 		switchProtocol:                switchProto,
 		active:                        true,

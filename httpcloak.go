@@ -780,7 +780,12 @@ func WithRedirects(follow bool, maxRedirects int) SessionOption {
 	}
 }
 
-// WithRetry enables retry with default settings
+// WithRetry enables retry with default settings.
+//
+// Only what transport.CanResend allows is retried: a failure that proves the
+// request was never sent, or a failure or a retryable status for an
+// idempotent request (GET, HEAD, OPTIONS, TRACE, PUT, DELETE). A POST or PATCH
+// that may have reached the server is never sent again.
 func WithRetry(count int) SessionOption {
 	return func(c *sessionConfig) {
 		c.retryCount = count
@@ -1313,6 +1318,12 @@ func (s *Session) GetCookies() []CookieInfo {
 // GetCookiesDetailed returns all cookies with full metadata (domain, path, expiry, etc.)
 func (s *Session) GetCookiesDetailed() []CookieInfo {
 	return s.inner.GetCookies()
+}
+
+// CookiesFor returns the cookies a request to url would carry, in the order its
+// Cookie header would list them.
+func (s *Session) CookiesFor(url string) []CookieInfo {
+	return s.inner.CookiesFor(url)
 }
 
 // SetCookie sets a cookie in the session with full metadata

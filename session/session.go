@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -411,6 +413,11 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 	// bytes.Reader over it on every Do.
 	bodyReplayable := req.BodyReader == nil || req.GetBody != nil
 
+	// Whether an attempt before this one reached the server or may have: then
+	// the request may have been sent whatever becomes of a later one, and a
+	// later failure must not say it was not.
+	earlierSent := false
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		// Build Cookie header fresh each attempt from original + session cookies.
 		// Skip the jar lookup entirely when WithoutCookieJar — caller-provided
@@ -445,6 +452,9 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 		}
 
 		resp, err = s.transport.Do(ctx, req)
+		if err != nil && earlierSent {
+			err = transport.MarkSentBefore(err)
+		}
 
 		// If no error and no retry config, or this is the last attempt, break
 		if maxRetries == 0 {
@@ -462,12 +472,17 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			s.parseAcceptCH(host, resp.Headers)
 		}
 
-		// Check if we should retry
+		// Check if we should retry. A retry sends the request again, so it
+		// follows the rule the transport holds its own resends to
+		// (transport.CanResend): a failure is retried only when it proves the
+		// request was never sent, or the request is idempotent; an answer
+		// whose status is on the retry list only when it is idempotent, since
+		// the server had the request and may have acted on it. A POST is
+		// never sent twice because a retry was asked for.
 		shouldRetry := false
 		if err != nil {
-			// Retry on network errors
-			shouldRetry = true
-		} else if resp != nil {
+			shouldRetry = transport.CanResend(req.Method, bodyReplayable, err)
+		} else if resp != nil && transport.IdempotentMethod(req.Method) {
 			// Check if status code is in retry list
 			for _, status := range retryOnStatus {
 				if resp.StatusCode == status {
@@ -480,6 +495,7 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 		if !shouldRetry || !bodyReplayable || attempt >= maxRetries {
 			break
 		}
+		earlierSent = earlierSent || resp != nil || !transport.RequestNotSent(err)
 
 		// Calculate wait time with exponential backoff and jitter
 		waitTime := retryWaitMin * time.Duration(1<<uint(attempt))
@@ -733,8 +749,10 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			// it stops being a no-op the moment body streaming reaches Do.
 			resp.Close()
 
-			// Follow redirect with accumulated history
-			return s.requestWithRedirects(ctx, newReq, redirectCount+1, history)
+			// Follow redirect with accumulated history. This hop was answered,
+			// so the request was sent whatever becomes of the next.
+			next, err := s.requestWithRedirects(ctx, newReq, redirectCount+1, history)
+			return next, transport.MarkSentBefore(err)
 		}
 	}
 
@@ -787,6 +805,7 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 	}
 
 	requestHost := extractHost(requestURL)
+	requestPath := extractPath(requestURL)
 	requestSecure := isSecureURL(requestURL)
 
 	// Each Set-Cookie header is now a separate element in the slice
@@ -797,12 +816,14 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 		}
 
 		cookie := &CookieData{}
+		// The last valid Max-Age and the last readable Expires, which decide
+		// the expiry together (RFC 6265 5.3 step 3).
+		var maxAge *int64
+		var expires *time.Time
 
-		// Split by semicolon to get name=value and attributes
-		parts := splitBySemicolon(line)
-		if len(parts) == 0 {
-			continue
-		}
+		// Split by semicolon to get name=value and attributes. The split is by
+		// byte, so a value's UTF-8 passes through whole.
+		parts := strings.Split(line, ";")
 
 		// First part is name=value
 		firstPart := trim(parts[0])
@@ -852,10 +873,12 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 			case "expires":
 				// Parse expiration time
 				if t, err := parseHTTPDate(attrValue); err == nil {
-					cookie.Expires = &t
+					expires = &t
 				}
 			case "max-age":
-				cookie.MaxAge = parseIntSimple(attrValue)
+				if seconds, ok := parseMaxAge(attrValue); ok {
+					maxAge = &seconds
+				}
 			case "samesite":
 				// Normalize to capitalized form
 				sameSiteLower := toLowerASCII(attrValue)
@@ -872,55 +895,41 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 			}
 		}
 
+		cookie.Expires = expiry(time.Now(), maxAge, expires)
+
 		// Use CookieJar to store with proper domain scoping
-		s.cookies.Set(requestHost, cookie, requestSecure)
+		s.cookies.Set(requestHost, requestPath, cookie, requestSecure)
 	}
 }
 
-// splitBySemicolon splits a string by semicolon
-func splitBySemicolon(s string) []string {
-	var result []string
-	var current string
-	for i := 0; i < len(s); i++ {
-		if s[i] == ';' {
-			result = append(result, current)
-			current = ""
-		} else {
-			current += string(s[i])
+// parseMaxAge reads a Max-Age attribute's value as RFC 6265 5.2.2 has it: an
+// optional "-" and one or more digits, else it is not a Max-Age at all. A
+// value too large for an int64 saturates, which the jar's cap makes 400 days
+// (or, negative, expired).
+func parseMaxAge(v string) (int64, bool) {
+	digits := strings.TrimPrefix(v, "-")
+	if digits == "" || strings.TrimLeft(digits, "0123456789") != "" {
+		return 0, false
+	}
+	seconds, err := strconv.ParseInt(v, 10, 64)
+	if errors.Is(err, strconv.ErrRange) {
+		if v[0] == '-' {
+			return math.MinInt64, true
 		}
+		return math.MaxInt64, true
 	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
-}
-
-// parseIntSimple parses an integer from a string, returns 0 on error
-func parseIntSimple(s string) int {
-	result := 0
-	negative := false
-	start := 0
-	if len(s) > 0 && s[0] == '-' {
-		negative = true
-		start = 1
-	}
-	for i := start; i < len(s); i++ {
-		if s[i] >= '0' && s[i] <= '9' {
-			result = result*10 + int(s[i]-'0')
-		} else {
-			break
-		}
-	}
-	if negative {
-		result = -result
-	}
-	return result
+	return seconds, true
 }
 
 // parseHTTPDate parses an HTTP date string (RFC1123 format)
 func parseHTTPDate(s string) (time.Time, error) {
 	// Try RFC1123 format first (most common)
 	if t, err := time.Parse(time.RFC1123, s); err == nil {
+		return t, nil
+	}
+	// The Netscape cookie date, with dashes, which PHP and Java servers send
+	// (and net/http reads the same way).
+	if t, err := time.Parse("Mon, 02-Jan-2006 15:04:05 MST", s); err == nil {
 		return t, nil
 	}
 	// Try RFC1123Z (with numeric timezone)
@@ -1183,55 +1192,31 @@ func contains(s, substr string) bool {
 	return indexOf(s, substr) != -1
 }
 
-// extractHost extracts the host from a URL string
+// extractHost is a request URL's host, lowercase, without its port or an IPv6
+// address's brackets: what the cookie jar and the per-host state are keyed
+// on. A URL that does not parse has no host, which no cookie matches.
 func extractHost(urlStr string) string {
-	// Remove protocol prefix
-	host := urlStr
-	if idx := indexOf(host, "://"); idx != -1 {
-		host = host[idx+3:]
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
 	}
-	// Remove path
-	if idx := indexOf(host, "/"); idx != -1 {
-		host = host[:idx]
-	}
-	// Remove port for matching (IPv6-aware)
-	if len(host) > 0 && host[0] == '[' {
-		// IPv6 bracketed: [::1]:443 → ::1
-		if idx := indexOf(host, "]"); idx != -1 {
-			host = host[1:idx]
-		}
-	} else if idx := indexOf(host, ":"); idx != -1 {
-		host = host[:idx]
-	}
-	return host
+	return strings.ToLower(u.Hostname())
 }
 
-// extractPath extracts the path from a URL string
+// extractPath is a request URL's path as it goes on the wire, "/" when it
+// has none (RFC 6265 5.1.4 takes the request-target's path).
 func extractPath(urlStr string) string {
-	// Remove protocol prefix
-	path := urlStr
-	if idx := indexOf(path, "://"); idx != -1 {
-		path = path[idx+3:]
+	u, err := url.Parse(urlStr)
+	if err != nil || u.EscapedPath() == "" {
+		return "/"
 	}
-	// Find path start
-	if idx := indexOf(path, "/"); idx != -1 {
-		path = path[idx:]
-		// Remove query string
-		if qIdx := indexOf(path, "?"); qIdx != -1 {
-			path = path[:qIdx]
-		}
-		// Remove fragment
-		if fIdx := indexOf(path, "#"); fIdx != -1 {
-			path = path[:fIdx]
-		}
-		return path
-	}
-	return "/"
+	return u.EscapedPath()
 }
 
-// isSecureURL returns true if the URL uses HTTPS
+// isSecureURL reports whether the URL is https.
 func isSecureURL(urlStr string) bool {
-	return len(urlStr) >= 8 && urlStr[:8] == "https://"
+	u, err := url.Parse(urlStr)
+	return err == nil && u.Scheme == "https"
 }
 
 // IsActive returns whether the session is active
@@ -1377,6 +1362,13 @@ func (s *Session) GetCookies() []CookieState {
 // GetCookiesDetailed is an alias for GetCookies, returning full cookie metadata.
 func (s *Session) GetCookiesDetailed() []CookieState {
 	return s.cookies.GetAll()
+}
+
+// CookiesFor returns the cookies a request to rawURL would carry, in the order
+// its Cookie header would list them: what a page at rawURL reads as
+// document.cookie, HttpOnly ones aside.
+func (s *Session) CookiesFor(rawURL string) []CookieState {
+	return s.cookies.For(extractHost(rawURL), extractPath(rawURL), isSecureURL(rawURL))
 }
 
 // SetCookie sets a cookie with full metadata.
