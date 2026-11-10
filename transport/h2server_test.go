@@ -166,6 +166,16 @@ type h2Config struct {
 	// a response, at the point it would otherwise have replied, so a request
 	// with a body has finished sending it first.
 	ResetStreams map[int]uint32
+
+	// GoAwayOn, a request's ordinal on its connection, makes the server answer its
+	// HEADERS with GOAWAY(NO_ERROR) naming stream 0 as the last it processed,
+	// and close the connection: the request was not processed, which a client
+	// may act on by resending it.
+	GoAwayOn int
+
+	// MaxConns, when non-zero, closes every connection after that many as
+	// soon as it is accepted.
+	MaxConns int
 }
 
 // ------------------------------------------------------------------- server
@@ -320,6 +330,10 @@ func startH2Server(t *testing.T, cfg h2Config) *h2Server {
 			s.conns++
 			n := s.conns
 			s.mu.Unlock()
+			if cfg.MaxConns > 0 && n > cfg.MaxConns {
+				c.Close()
+				continue
+			}
 			go s.serve(c, n)
 		}
 	}()
@@ -474,6 +488,10 @@ func (s *h2Server) serve(c net.Conn, connID int) {
 			reqCount++
 			if s.cfg.OnRequest != nil {
 				s.cfg.OnRequest(streamID, reqCount)
+			}
+			if reqCount == s.cfg.GoAwayOn {
+				hc.writeFrame(frGoAway, 0, 0, make([]byte, 8)) // last stream 0, NO_ERROR
+				return
 			}
 			if flags&flEndHeaders != 0 {
 				if flags&flEndStream != 0 || !s.cfg.ReadToEndStream {

@@ -23,6 +23,7 @@ import (
 	"github.com/sardanioss/httpcloak/internal/compress"
 	"github.com/sardanioss/httpcloak/internal/gunzip"
 	"github.com/sardanioss/httpcloak/protocol"
+	"golang.org/x/net/publicsuffix"
 )
 
 // Protocol represents the HTTP protocol version
@@ -271,19 +272,19 @@ type Request struct {
 	// request. Session-layer concept; the transport does not consult this field.
 	DisableHighEntropyClientHints bool
 
-	// DisableRedirectReferer, when true, stops the session layer synthesising a
-	// Referer on each redirect hop. Session-layer concept; the transport does
-	// not consult this field.
+	// DisableRedirectReferer, when true, keeps the request's Referer off every
+	// redirect hop. Session-layer concept; the transport does not consult this
+	// field.
 	//
-	// The synthesised value follows Chrome's default
-	// strict-origin-when-cross-origin policy, so leaving this off is what a
-	// browser does and is almost always what you want. It exists for callers
-	// mirroring a client that sends no Referer at all, or reproducing a captured
-	// chain verbatim, where a policy-correct header is still the wrong bytes.
-	//
-	// Setting it does not merely skip the synthesis: no Referer is sent on the
-	// hop at all, including one the caller set on the original request, because
-	// carrying that one forward would leak the pre-redirect URL to the new host.
+	// By default a hop carries the Referer the request had, as a browser's
+	// does: a redirect does not change who made the request, so the referrer
+	// stays the page that made it, never the URL that redirected. It is written
+	// per Chrome's default strict-origin-when-cross-origin policy for where the
+	// hop goes (whole to the referrer's own origin, the origin alone to
+	// another, not at all from https to http), and a request with no Referer is
+	// followed with none. Leaving this off is therefore what a browser does. It
+	// exists for callers mirroring a client that sends no Referer after a
+	// redirect, or reproducing a captured chain verbatim.
 	DisableRedirectReferer bool
 
 	// HeaderOrder, when non-empty, is the header order for THIS request only and
@@ -307,6 +308,19 @@ type Request struct {
 	// follow-up request it builds for each hop, matching how it replays the
 	// caller's headers.
 	HeaderOrder []string
+
+	// RedirectHeaderOrder, when non-empty, takes HeaderOrder's place on every
+	// request that follows a redirect of this one. A browser can order a
+	// redirected request's headers differently from the request it started with.
+	// Safari does: it rebuilds the next request from what the last one put on
+	// the wire, so Accept-Language and Priority, which close its first request,
+	// are ordered among the others on every later hop.
+	//
+	// Same semantics as HeaderOrder (a prefix, case-insensitive). Empty or nil
+	// means the hops keep HeaderOrder. Like HeaderOrder, the transport applies
+	// it to nothing itself; the session layer swaps it in on the follow-up
+	// request it builds for each hop.
+	RedirectHeaderOrder []string
 
 	// OnRedirect, when non-nil, is called once per redirect hop before the
 	// follow-up request is built. Returning nil follows the hop; returning
@@ -847,43 +861,52 @@ func NewTransportWithConfig(presetName string, proxy *ProxyConfig, config *Trans
 	t.h2Transport = NewHTTP2TransportWithConfig(preset, dnsCache, routing.tcpProxy, config)
 
 	// Create HTTP/3 transport - with UDP proxy support if applicable
-	if udpProxy := routing.udpProxyConfig(); udpProxy != nil {
-		udpProxyURL := routing.udpProxyURL
-		if isSOCKS5Proxy(udpProxyURL) {
-			// SOCKS5 supports UDP relay for HTTP/3
-			h3Transport, err := NewHTTP3TransportWithConfig(preset, dnsCache, udpProxy, config)
-			if err != nil {
-				// Store the error - don't silently fallback to direct connection!
-				// H3 requests will fail with explicit error instead of bypassing proxy
-				t.h3ProxyError = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
-				// Still create a basic H3 transport for non-proxied use cases
-				// but h3ProxyError will prevent it from being used when proxy is expected
-				t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
-			} else {
-				t.h3Transport = h3Transport
-			}
-		} else if isMASQUEProxy(udpProxyURL) {
-			// MASQUE supports HTTP/3 through HTTP/3 proxy
-			h3Transport, err := NewHTTP3TransportWithMASQUE(preset, dnsCache, udpProxy, config)
-			if err != nil {
-				// Store the error - don't silently fallback to direct connection!
-				t.h3ProxyError = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
-				t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
-			} else {
-				t.h3Transport = h3Transport
-			}
-		} else {
-			// HTTP proxy - HTTP/3 doesn't work through HTTP proxies
-			// Store error so H3 requests fail explicitly
-			t.h3ProxyError = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
-			t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
-		}
-	} else {
-		// No proxy - HTTP/3 works directly
-		t.h3Transport, _ = NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
-	}
+	t.h3Transport, t.h3ProxyError = newHTTP3ForRouting(preset, dnsCache, routing, config)
 
 	return t
+}
+
+// newHTTP3ForRouting builds the HTTP/3 transport for a proxy routing, with
+// the session's transport config, and the error HTTP/3 requests must fail with
+// when the configured proxy cannot carry them (they fail rather than fall back
+// to a direct dial that would leak the real address).
+//
+// The constructor, SetProxy and SetPreset each used to build it themselves,
+// and only the constructor passed the config: after SetProxy or SetPreset,
+// HTTP/3 quietly lost the custom JA3, the ECH config domain, DisableECH, the
+// local address, the QUIC idle timeout and the session cache backend, while
+// HTTP/1.1 and HTTP/2 kept them.
+func newHTTP3ForRouting(preset *fingerprint.Preset, dnsCache *dns.Cache, routing proxyRouting, config *TransportConfig) (*HTTP3Transport, error) {
+	udpProxy := routing.udpProxyConfig()
+	if udpProxy == nil {
+		// No proxy - HTTP/3 works directly
+		h3, _ := NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+		return h3, nil
+	}
+	var proxyErr error
+	switch {
+	case isSOCKS5Proxy(routing.udpProxyURL):
+		// SOCKS5 supports UDP relay for HTTP/3
+		h3, err := NewHTTP3TransportWithConfig(preset, dnsCache, udpProxy, config)
+		if err == nil {
+			return h3, nil
+		}
+		proxyErr = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
+	case isMASQUEProxy(routing.udpProxyURL):
+		// MASQUE supports HTTP/3 through HTTP/3 proxy
+		h3, err := NewHTTP3TransportWithMASQUE(preset, dnsCache, udpProxy, config)
+		if err == nil {
+			return h3, nil
+		}
+		proxyErr = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
+	default:
+		// HTTP proxy - HTTP/3 doesn't work through HTTP proxies
+		proxyErr = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
+	}
+	// Still create a basic H3 transport for non-proxied use cases; the stored
+	// error stops it being used when the proxy is expected.
+	h3, _ := NewHTTP3TransportWithTransportConfig(preset, dnsCache, config)
+	return h3, proxyErr
 }
 
 // SetProtocol sets the preferred protocol
@@ -966,34 +989,7 @@ func (t *Transport) SetProxy(proxy *ProxyConfig) {
 
 	// Recreate HTTP/3 - with proxy support if applicable. Keyed off the UDP proxy
 	// (UDPProxy, else the unified URL), so a split TCP/UDP config still gets H3.
-	var newH3 *HTTP3Transport
-	var newH3Err error
-	if h3Proxy := routing.udpProxyConfig(); h3Proxy != nil {
-		udpProxyURL := routing.udpProxyURL
-		if isSOCKS5Proxy(udpProxyURL) {
-			h3Transport, err := NewHTTP3TransportWithProxy(preset, t.dnsCache, h3Proxy)
-			if err != nil {
-				newH3Err = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
-				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-			} else {
-				newH3 = h3Transport
-			}
-		} else if isMASQUEProxy(udpProxyURL) {
-			h3Transport, err := NewHTTP3TransportWithMASQUE(preset, t.dnsCache, h3Proxy, nil)
-			if err != nil {
-				newH3Err = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
-				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-			} else {
-				newH3 = h3Transport
-			}
-		} else {
-			// HTTP proxy does not support HTTP/3 (QUIC requires UDP)
-			newH3Err = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
-			newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-		}
-	} else {
-		newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-	}
+	newH3, newH3Err := newHTTP3ForRouting(preset, t.dnsCache, routing, t.config)
 
 	// Re-apply insecureSkipVerify to the fresh transports before publishing them.
 	if t.insecureSkipVerify {
@@ -1062,33 +1058,7 @@ func (t *Transport) SetPreset(presetName string) {
 	newH2 := NewHTTP2TransportWithConfig(preset, t.dnsCache, routing.tcpProxy, t.config)
 
 	// Recreate HTTP/3 - with proxy support if applicable.
-	var newH3 *HTTP3Transport
-	var newH3Err error
-	if h3Proxy := routing.udpProxyConfig(); h3Proxy != nil {
-		udpProxyURL := routing.udpProxyURL
-		if isSOCKS5Proxy(udpProxyURL) {
-			h3Transport, err := NewHTTP3TransportWithProxy(preset, t.dnsCache, h3Proxy)
-			if err != nil {
-				newH3Err = fmt.Errorf("SOCKS5 UDP proxy initialization failed: %w", err)
-				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-			} else {
-				newH3 = h3Transport
-			}
-		} else if isMASQUEProxy(udpProxyURL) {
-			h3Transport, err := NewHTTP3TransportWithMASQUE(preset, t.dnsCache, h3Proxy, nil)
-			if err != nil {
-				newH3Err = fmt.Errorf("MASQUE proxy initialization failed: %w", err)
-				newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-			} else {
-				newH3 = h3Transport
-			}
-		} else {
-			newH3Err = fmt.Errorf("HTTP proxy does not support HTTP/3 (QUIC requires UDP)")
-			newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-		}
-	} else {
-		newH3, _ = NewHTTP3Transport(preset, t.dnsCache)
-	}
+	newH3, newH3Err := newHTTP3ForRouting(preset, t.dnsCache, routing, t.config)
 
 	// Re-apply insecureSkipVerify to the fresh transports before publishing them.
 	if t.insecureSkipVerify {
@@ -1421,12 +1391,37 @@ func (t *Transport) getPreset() *fingerprint.Preset {
 	return p
 }
 
-// Do executes an HTTP request
+// checkScheme refuses a URL that is not http or https. Anything else used to go
+// out as plain HTTP, since the dispatch only asks whether the scheme is
+// "https": ftps://host/ was fetched unencrypted, and a redirect to ftp:// was
+// followed the same way. url.Parse has already lowercased the scheme.
+func checkScheme(u *url.URL) error {
+	switch u.Scheme {
+	case "http", "https":
+		return nil
+	case "":
+		return NewRequestError("parse_url", u.Host, "", "",
+			fmt.Errorf("unsupported protocol scheme in %q: the URL needs http:// or https://", u.String()))
+	default:
+		return NewRequestError("parse_url", u.Host, "", "",
+			fmt.Errorf("unsupported protocol scheme %q", u.Scheme))
+	}
+}
+
+// Do executes an HTTP request.
+//
+// A request may go out more than once, on a new connection or another
+// protocol, only when that cannot have the server act on it twice: see
+// CanResend. Otherwise a failure is returned as it happened, and
+// RequestNotSent says whether the request may have reached the server.
 func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 	// Parse URL to determine scheme
 	parsedURL, err := url.Parse(req.URL)
 	if err != nil {
 		return nil, NewRequestError("parse_url", "", "", "", err)
+	}
+	if err := checkScheme(parsedURL); err != nil {
+		return nil, err
 	}
 
 	// Snapshot the mutable fields once so a concurrent SetProxy/SetPreset/
@@ -1508,16 +1503,7 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 				if tcpBlocked != nil {
 					return nil, snap.h3ProxyError
 				}
-				resp, err := t.doHTTP2(ctx, req)
-				if err == nil {
-					return resp, nil
-				}
-				// Reuse TLS conn if proxy negotiated h1.1 instead of h2 (e.g. Charles, mitmproxy)
-				var alpnErr *ALPNMismatchError
-				if errors.As(err, &alpnErr) {
-					return t.doHTTP1WithTLSConn(ctx, req, alpnErr)
-				}
-				return t.doHTTP1(ctx, req)
+				return t.doHTTP2OrHTTP1(ctx, req)
 			}
 
 			if SupportsQUIC(udpEffectiveProxyURL) {
@@ -1538,16 +1524,7 @@ func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 			if tcpBlocked != nil {
 				return nil, tcpBlocked
 			}
-			resp, err := t.doHTTP2(ctx, req)
-			if err == nil {
-				return resp, nil
-			}
-			// Reuse TLS conn if proxy negotiated h1.1 instead of h2 (e.g. Charles, mitmproxy)
-			var alpnErr *ALPNMismatchError
-			if errors.As(err, &alpnErr) {
-				return t.doHTTP1WithTLSConn(ctx, req, alpnErr)
-			}
-			return t.doHTTP1(ctx, req)
+			return t.doHTTP2OrHTTP1(ctx, req)
 
 		default:
 			if tcpBlocked != nil {
@@ -1590,21 +1567,7 @@ func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error)
 		case ProtocolHTTP3:
 			return t.doHTTP3(ctx, req)
 		case ProtocolHTTP2:
-			resp, err := t.doHTTP2(ctx, req)
-			if err == nil {
-				return resp, nil
-			}
-			// Check if ALPN mismatch - reuse connection for H1
-			var alpnErr *ALPNMismatchError
-			if errors.As(err, &alpnErr) {
-				return t.doHTTP1WithTLSConn(ctx, req, alpnErr)
-			}
-			// H2 failed for another reason: try H1 on a new connection, if
-			// that cannot send the request a second time.
-			if !canResendOnAnotherProtocol(req, err) {
-				return nil, err
-			}
-			return t.doHTTP1(ctx, req)
+			return t.doHTTP2OrHTTP1(ctx, req)
 		case ProtocolHTTP1:
 			return t.doHTTP1(ctx, req)
 		}
@@ -1693,34 +1656,45 @@ func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error)
 	// its body can be sent again. Otherwise the first attempt's error is the
 	// answer, as it is in Chrome, which does not resend a POST over another
 	// protocol after a stream error.
+	//
+	// When the first attempt may have been sent, the fallback's failure is
+	// marked so, whatever its own attempt did: the request may have reached
+	// the server.
 	if failed != nil && !canResendOnAnotherProtocol(req, failed) {
 		return nil, failed
 	}
 	resp, err := t.doHTTP1(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, laterAttempt(failed, err)
 	}
 	return resp, nil
 }
 
-// canResendOnAnotherProtocol reports whether a request whose attempt on one
-// protocol failed with err may be sent again on another, on a fresh
-// connection. That is safe when nothing of the first attempt was sent, or when
-// the request is idempotent (RFC 9110 section 9.2.2) and its body is held in
-// memory: a body read from a stream was consumed by the first attempt, and
-// resending it would send it empty.
-func canResendOnAnotherProtocol(req *Request, err error) bool {
-	if requestNotSent(err) {
-		return true
+// doHTTP2OrHTTP1 sends req over HTTP/2, and then over HTTP/1.1: on the same
+// connection when the server negotiated HTTP/1.1, or on a new one when the
+// HTTP/2 attempt failed in a way that cannot have the request sent twice (see
+// canResendOnAnotherProtocol).
+//
+// It is the one path from HTTP/2 to HTTP/1.1 for a host known to be HTTP/2
+// and for HTTP proxies, which carry no HTTP/3. Through a proxy it used to
+// resend whatever HTTP/2 had done with the request, a POST whose stream was
+// reset after the server read it included.
+func (t *Transport) doHTTP2OrHTTP1(ctx context.Context, req *Request) (*Response, error) {
+	resp, err := t.doHTTP2(ctx, req)
+	if err == nil {
+		return resp, nil
 	}
-	if req.BodyReader != nil {
-		return false
+	// Reuse the TLS connection when the server (or a proxy such as Charles or
+	// mitmproxy) negotiated HTTP/1.1 instead of HTTP/2.
+	var alpnErr *ALPNMismatchError
+	if errors.As(err, &alpnErr) {
+		return t.doHTTP1WithTLSConn(ctx, req, alpnErr)
 	}
-	switch strings.ToUpper(req.Method) {
-	case "", "GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE":
-		return true
+	if !canResendOnAnotherProtocol(req, err) {
+		return nil, err
 	}
-	return false
+	resp, retryErr := t.doHTTP1(ctx, req)
+	return resp, laterAttempt(err, retryErr)
 }
 
 // connectResult holds the result of a connection race
@@ -2016,8 +1990,6 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -2121,8 +2093,6 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -2234,8 +2204,6 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -2367,13 +2335,17 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 		method = "GET"
 	}
 
+	// An empty body has to stay nil here: quic-go's request writer sends
+	// "content-length: 0" for a bodiless request only when the body is nil,
+	// and takes the http.NoBody an empty reader becomes as a body of unknown
+	// length, leaving the header out (servers then answer 411). Which methods
+	// send it is the preset's rule, as on HTTP/1.1 and HTTP/2
+	// (fingerprint.Preset.ResolveZeroContentLengthMethods).
 	var bodyReader io.Reader
 	if req.BodyReader != nil {
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -2395,13 +2367,14 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	// Record timing before request
 	reqStart := time.Now()
 
-	// Make request. In forced-H3 (H3-only) mode there is no protocol fallback, so a
-	// QUIC path that completes its handshake but then stalls the roundtrip — an
-	// IPv6 PMTU black hole keeps the connection alive via keepalives while the
-	// response never arrives — would otherwise hang until the full deadline.
-	// roundTripHTTP3 bounds the first attempt and, on a stall, redials once biased
-	// to the other address family.
-	resp, cleanup, err := t.roundTripHTTP3(ctx, snap.h3, httpReq, req)
+	// Make request. Once HTTP/3 is chosen there is no protocol fallback for a
+	// request that went out, so a QUIC path that completes its handshake but then
+	// stalls the roundtrip — an IPv6 PMTU black hole keeps the connection alive
+	// via keepalives while the response never arrives — would otherwise hang until
+	// the full deadline. roundTripHTTP3 bounds the first attempt and, on a stall,
+	// redials once biased to the other address family, when that cannot send the
+	// request twice.
+	resp, cleanup, err := t.roundTripHTTP3(ctx, snap.h3, httpReq, req, gotConn)
 	if err != nil {
 		cleanup()
 		return nil, WrapError("roundtrip", host, port, "h3", h3NotSent(err, gotConn))
@@ -2476,12 +2449,21 @@ const h3StallWindow = 5 * time.Second
 
 // roundTripHTTP3 runs the HTTP/3 roundtrip with a bounded first attempt and, on a
 // stall over a still-alive-but-useless QUIC connection, drops that connection and
-// retries once biased to the other address family. This is the only fallback
-// available in H3-only mode — auto mode races H2 and never gets stuck here. When a
-// retry cannot help (a non-replayable streaming body, or a budget too small to
-// carve out a stall window) it runs a single unbounded attempt, preserving the
-// original behavior exactly.
-func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, httpReq *http.Request, req *Request) (*http.Response, func(), error) {
+// retries once biased to the other address family. It runs for every HTTP/3
+// request: forced HTTP/3, a host auto mode has cached as HTTP/3, and auto mode's
+// race when HTTP/3 connects first, after which there is no fallback to HTTP/2
+// for a request that may have been sent. When a retry cannot help (a body read
+// from a stream, which the first attempt consumes, or a budget too small to
+// carve out a stall window) it runs a single unbounded attempt.
+//
+// A stall is a slow answer as far as anyone can tell, and a slow answer may be
+// a server at work on the request, so the retry follows CanResend: it goes out
+// when the first attempt never had a connection to write the request on
+// (gotConn, which doHTTP3's trace sets, is still false), or when the request is
+// idempotent. A request that is not, and went out, waits for its answer within
+// its own deadline, as it would with no stall window: a POST is never sent
+// twice for being slow.
+func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, httpReq *http.Request, req *Request, gotConn *atomic.Bool) (*http.Response, func(), error) {
 	noop := func() {}
 	deadline, hasDeadline := ctx.Deadline()
 	// A streaming body cannot be re-read on retry; only in-memory []byte bodies
@@ -2492,6 +2474,8 @@ func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, http
 		resp, err := h3.RoundTrip(httpReq)
 		return resp, noop, err
 	}
+	// Whether the first attempt may go again even if it was written.
+	idempotent := IdempotentMethod(httpReq.Method)
 
 	// First attempt on a stall-abortable child context. The stall window only
 	// bounds time-to-response-headers: RoundTrip returns once headers arrive and
@@ -2516,18 +2500,45 @@ func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, http
 			return res.resp, cancelAttempt, nil
 		}
 		cancelAttempt()
-		// Retry only a stall, and only while the overall request budget survives.
-		// A definitive transport error (not a stall) or an exhausted parent
-		// deadline returns as-is.
-		if ctx.Err() != nil || !isH3Stall(res.err) {
+		// Retry only a stall, only while the overall request budget survives,
+		// and only when that cannot send the request twice. A definitive
+		// transport error (not a stall), an exhausted parent deadline, or a
+		// request that went out and is not idempotent returns as-is.
+		if ctx.Err() != nil || !isH3Stall(res.err) || (gotConn.Load() && !idempotent) {
 			return res.resp, noop, res.err
 		}
 	case <-time.After(h3StallWindow):
-		// Headers never arrived within the window: abort this attempt. The
-		// goroutine observes the cancel and drains into the buffered channel.
+		if gotConn.Load() && !idempotent {
+			// The request went out and is not idempotent: wait for its answer
+			// within the request's own deadline rather than send it again.
+			res := <-done
+			if res.err != nil {
+				cancelAttempt()
+				return nil, noop, res.err
+			}
+			return res.resp, cancelAttempt, nil
+		}
+		// Headers never arrived within the window: abort this attempt, and wait
+		// for it to end, so that whether it had a connection is final. Should
+		// its answer have come in that moment, the cancel has cut its body off:
+		// release it.
 		cancelAttempt()
+		res := <-done
+		if res.resp != nil {
+			res.resp.Body.Close()
+		}
 		if ctx.Err() != nil {
 			return nil, noop, ctx.Err()
+		}
+		if gotConn.Load() && !idempotent {
+			// It got its connection in the moment before it was aborted, and
+			// may have written the request: that answer is lost, and the
+			// request is not sent again.
+			cause := res.err
+			if cause == nil {
+				cause = errors.New("its answer came as the attempt was abandoned")
+			}
+			return nil, noop, fmt.Errorf("no answer within %v, and the request may have been sent: %w", h3StallWindow, cause)
 		}
 	}
 
@@ -2866,7 +2877,10 @@ func applyExactHeaders(httpReq *http.Request, exact []fingerprint.HeaderPair, pr
 
 // mergeCallerHeaders folds Request.Headers over whatever the preset pipeline
 // produced. The first value replaces, the rest append, so a caller can both
-// override a preset header and send one name twice.
+// override a preset header and send one name twice. A name whose only value is
+// "" is removed instead: that is how a caller drops a header the preset would
+// send (the Priority Chrome leaves off an async script, say), as the headers
+// documentation promises. An empty field is nothing a browser puts on the wire.
 //
 // It is a no-op under ExactHeaders. That mode promises the wire carries the
 // listed pairs and nothing else, and req.Headers is not only what the caller
@@ -2896,6 +2910,10 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request) {
 	backing := make([]string, 0, len(req.Headers))
 	for key, values := range req.Headers {
 		if len(values) == 0 {
+			continue
+		}
+		if len(values) == 1 && values[0] == "" {
+			delete(httpReq.Header, canonicalHeaderName(key))
 			continue
 		}
 		start := len(backing)
@@ -3020,16 +3038,28 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 			userMode := headerVal(userHeaders, "Sec-Fetch-Mode")
 			userDest := headerVal(userHeaders, "Sec-Fetch-Dest")
 			userSite := headerVal(userHeaders, "Sec-Fetch-Site")
-			httpReq.Header["Sec-Fetch-Mode"] = []string{cmp.Or(userMode, "cors")}
-			httpReq.Header["Sec-Fetch-Dest"] = []string{cmp.Or(userDest, "empty")}
-			httpReq.Header["Sec-Fetch-Site"] = []string{cmp.Or(userSite, "cross-site")}
+			mode := cmp.Or(userMode, "cors")
+			dest := cmp.Or(userDest, "empty")
+			// The Referer names the page that made the call, which decides
+			// Sec-Fetch-Site and the Origin. Without one the page is unknown,
+			// and cross-site, the old default, is the reading that claims
+			// least.
+			referer := headerVal(userHeaders, "Referer")
+			site := subresourceFetchSite(referer, httpReq.URL)
+			httpReq.Header["Sec-Fetch-Mode"] = []string{mode}
+			httpReq.Header["Sec-Fetch-Dest"] = []string{dest}
+			httpReq.Header["Sec-Fetch-Site"] = []string{cmp.Or(userSite, site)}
 			delete(httpReq.Header, "Sec-Fetch-User")
 			delete(httpReq.Header, "Upgrade-Insecure-Requests")
-			// Real browsers send Accept: */* on fetch()/XHR unless the user
-			// explicitly asked for something else — no user Accept means swap
-			// the navigation Accept (text/html,...) for the CORS default.
+			if origin := requestOrigin(referer, mode, cmp.Or(userSite, site), httpReq.Method); origin != "" && headerVal(userHeaders, "Origin") == "" {
+				httpReq.Header["Origin"] = []string{origin}
+			}
+			// Real browsers send Accept: */* on fetch()/XHR, and a per-type
+			// Accept on no-cors subresource loads, unless the user explicitly
+			// asked for something else — no user Accept means swap the
+			// navigation Accept (text/html,...) for the one this load sends.
 			if headerVal(userHeaders, "Accept") == "" {
-				httpReq.Header["Accept"] = []string{"*/*"}
+				httpReq.Header["Accept"] = []string{subresourceAccept(preset, mode, dest)}
 			}
 			// CORS uses u=1,i priority (lower urgency than navigation's u=0,i)
 			// — used as the static fallback when the preset has no per-dest
@@ -3037,6 +3067,17 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 			// override this below.
 			if p := httpReq.Header["Priority"]; len(p) > 0 && p[0] != "" {
 				httpReq.Header["Priority"] = []string{"u=1, i"}
+			}
+		} else if referer := headerVal(userHeaders, "Referer"); wire.sendsSecFetch && referer != "" {
+			// A navigation that names a page in its Referer was started on that
+			// page: a link followed or a form submitted there. Its Sec-Fetch-Site
+			// is the page's relation to the target, as on a fetch(), and a form
+			// that is not a GET also carries the page's Origin. Without a Referer
+			// the navigation was typed or opened from outside, and stays "none".
+			site := cmp.Or(headerVal(userHeaders, "Sec-Fetch-Site"), subresourceFetchSite(referer, httpReq.URL))
+			httpReq.Header["Sec-Fetch-Site"] = []string{site}
+			if origin := requestOrigin(referer, "navigate", site, httpReq.Method); origin != "" && headerVal(userHeaders, "Origin") == "" {
+				httpReq.Header["Origin"] = []string{origin}
 			}
 		}
 
@@ -3102,7 +3143,7 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 	// run, and the priority table a few lines up reads the same field.
 	httpReq.Header[http.HeaderOrderKey] = CompleteHeaderOrder(
 		customHeaderOrder,
-		preset.H2HeaderOrderFor(httpReq.Header.Get("Sec-Fetch-Dest")),
+		preset.H2HeaderOrderFor(httpReq.Header.Get("Sec-Fetch-Dest"), httpReq.Header.Get("Sec-Purpose")),
 		httpReq.Header, userHeaders)
 
 	// Set pseudo-header order: custom (Akamai) > preset H2Config > heuristic
@@ -3176,6 +3217,66 @@ func sniffXHRMode(method string, userHeaders map[string][]string) bool {
 	// POSTs from scrapers are overwhelmingly API calls; form submissions
 	// always carry one of the form Content-Types handled above.
 	return true
+}
+
+// subresourceFetchSite is the Sec-Fetch-Site of a fetch() or subresource load
+// made by the page at referer: same-origin, same-site (the same registrable
+// domain, by the public suffix list, and scheme) or cross-site. Without a
+// readable referer the page is unknown, and it is cross-site.
+func subresourceFetchSite(referer string, target *url.URL) string {
+	page, err := url.Parse(referer)
+	if referer == "" || err != nil || page.Host == "" || target == nil {
+		return "cross-site"
+	}
+	if page.Scheme == target.Scheme && strings.EqualFold(page.Host, target.Host) {
+		return "same-origin"
+	}
+	if page.Scheme == target.Scheme && strings.EqualFold(registrableDomain(page.Hostname()), registrableDomain(target.Hostname())) {
+		return "same-site"
+	}
+	return "cross-site"
+}
+
+// registrableDomain is host's eTLD+1 (www.example.co.uk is example.co.uk), or
+// the host itself where it has none, as an IP address does.
+func registrableDomain(host string) string {
+	if domain, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil {
+		return domain
+	}
+	return host
+}
+
+// requestOrigin is the Origin a browser sends with a request from the page at
+// referer, by the Fetch standard: with every CORS request that leaves the
+// page's origin, and with every request whose method is not GET or HEAD.
+// Without a referer the page's origin is unknown, and no Origin is invented.
+func requestOrigin(referer, mode, site, method string) string {
+	page, err := url.Parse(referer)
+	if referer == "" || err != nil || page.Scheme == "" || page.Host == "" {
+		return ""
+	}
+	readOnly := method == "" || method == http.MethodGet || method == http.MethodHead
+	if readOnly && (mode != "cors" || site == "same-origin") {
+		return ""
+	}
+	return page.Scheme + "://" + page.Host
+}
+
+// subresourceAccept is the Accept Chrome sends with a request of this mode and
+// destination: */* on fetch(), and on a no-cors load the destination's own,
+// such as the preset's image Accept on an <img>.
+func subresourceAccept(preset *fingerprint.Preset, mode, dest string) string {
+	if mode != "no-cors" {
+		return "*/*"
+	}
+	switch dest {
+	case "image":
+		return preset.ResolveImageAccept()
+	case "style":
+		return "text/css,*/*;q=0.1"
+	default:
+		return "*/*"
+	}
 }
 
 func headerVal(h map[string][]string, name string) string {
@@ -3454,7 +3555,17 @@ func readBodyOptimized(body io.Reader, contentLength int64) ([]byte, error) {
 	if contentLength > 0 {
 		buf := make([]byte, contentLength)
 		n, err := io.ReadFull(body, buf)
-		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		// A body that stops short of its Content-Length was cut off: the
+		// connection closed early. It used to be returned as if whole, so a
+		// truncated download looked like a successful one; Chrome fails the
+		// same response with ERR_CONTENT_LENGTH_MISMATCH. A plain EOF with
+		// nothing read is a response with no body at all (HEAD, 204, 304),
+		// which still declares the length the full response would have.
+		if err == io.ErrUnexpectedEOF {
+			return nil, fmt.Errorf("%w: the body ended after %d of the %d bytes its Content-Length announced",
+				err, n, contentLength)
+		}
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
 		return buf[:n], nil

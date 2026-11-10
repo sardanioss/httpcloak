@@ -60,6 +60,11 @@ type ClientConfig struct {
 
 	// RetryEnabled enables automatic retry on transient failures.
 	// When enabled, uses exponential backoff with jitter.
+	// A retry sends the request again, so only what transport.CanResend allows
+	// is retried: a failure that proves the request was never sent, or a
+	// failure, a status on RetryOnStatus or a bot challenge for an idempotent
+	// request (GET, HEAD, OPTIONS, TRACE, PUT, DELETE). A POST or PATCH that may
+	// have reached the server is never retried.
 	// Default: false.
 	RetryEnabled bool
 

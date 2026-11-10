@@ -1,0 +1,15 @@
+[package]
+name = "httpcloak-sys"
+description = "Raw FFI declarations for the httpcloak C library (the Go c-archive in bindings/clib)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+links = "httpcloak"
+build = "build.rs"
+keywords = ["http", "tls", "fingerprint", "ffi"]
+categories = ["external-ffi-bindings", "network-programming"]
+
+[dependencies]

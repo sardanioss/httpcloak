@@ -250,16 +250,15 @@ type Request struct {
 	// platform-version, bitness, model, wow64) for this single request.
 	DisableHighEntropyClientHints bool
 
-	// DisableRedirectReferer, when true, stops a Referer being added on redirect
-	// hops. By default httpcloak synthesises one per Chrome's default
-	// strict-origin-when-cross-origin policy: the full previous URL same-origin,
-	// the origin alone cross-origin, and nothing at all on an https to http
-	// downgrade. That is what a browser does, so leave this off unless you are
-	// mirroring a client that sends no Referer.
-	//
-	// When set, no Referer reaches the next hop at all, including one you set on
-	// the original request, since forwarding that would leak the pre-redirect URL
-	// to the new host.
+	// DisableRedirectReferer, when true, keeps the request's Referer off every
+	// redirect hop. By default a hop carries the Referer the request had, as a
+	// browser's does: a redirect does not change who made the request, so the
+	// referrer stays the page that made it (never the URL that redirected),
+	// written per Chrome's default strict-origin-when-cross-origin policy for
+	// where the hop goes: whole to the referrer's own origin, the origin alone
+	// to another, and not at all from https to http. A request with no Referer
+	// is followed with none. Leave this off unless you are mirroring a client
+	// that sends no Referer after a redirect.
 	DisableRedirectReferer bool
 
 	// HeaderOrder, when non-empty, sets the header order for this single request
@@ -291,6 +290,15 @@ type Request struct {
 	//	    },
 	//	})
 	HeaderOrder []string
+
+	// RedirectHeaderOrder, when non-empty, takes HeaderOrder's place on every
+	// request that follows a redirect of this one, for a browser that orders a
+	// redirected request's headers differently from the request it started with.
+	// Safari does: it rebuilds the next request from what the last one put on
+	// the wire, so Accept-Language and Priority, which close its first request,
+	// are ordered among the others on every later hop. Same semantics as
+	// HeaderOrder. Empty or nil means the hops keep HeaderOrder.
+	RedirectHeaderOrder []string
 
 	// OnRedirect, when non-nil, is called once per redirect hop before the
 	// follow-up request is built. Return nil to follow the hop,
@@ -780,7 +788,12 @@ func WithRedirects(follow bool, maxRedirects int) SessionOption {
 	}
 }
 
-// WithRetry enables retry with default settings
+// WithRetry enables retry with default settings.
+//
+// Only what transport.CanResend allows is retried: a failure that proves the
+// request was never sent, or a failure or a retryable status for an
+// idempotent request (GET, HEAD, OPTIONS, TRACE, PUT, DELETE). A POST or PATCH
+// that may have reached the server is never sent again.
 func WithRetry(count int) SessionOption {
 	return func(c *sessionConfig) {
 		c.retryCount = count
@@ -1246,6 +1259,7 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
+		RedirectHeaderOrder:           req.RedirectHeaderOrder,
 		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
 	}
@@ -1280,6 +1294,7 @@ func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Re
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
+		RedirectHeaderOrder:           req.RedirectHeaderOrder,
 		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
 	}
@@ -1313,6 +1328,19 @@ func (s *Session) GetCookies() []CookieInfo {
 // GetCookiesDetailed returns all cookies with full metadata (domain, path, expiry, etc.)
 func (s *Session) GetCookiesDetailed() []CookieInfo {
 	return s.inner.GetCookies()
+}
+
+// CookiesFor returns the cookies a request to url would carry, in the order its
+// Cookie header would list them.
+func (s *Session) CookiesFor(url string) []CookieInfo {
+	return s.inner.CookiesFor(url)
+}
+
+// AskedClientHints returns the names of the high-entropy client hints the
+// session adds to a request to url that sets none of them itself: the ones its
+// host has asked for with Accept-CH.
+func (s *Session) AskedClientHints(url string) []string {
+	return s.inner.AskedClientHints(url)
 }
 
 // SetCookie sets a cookie in the session with full metadata
@@ -1677,6 +1705,7 @@ func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, 
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
+		RedirectHeaderOrder:           req.RedirectHeaderOrder,
 		Timeout:                       req.Timeout,
 	}
 

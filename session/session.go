@@ -11,13 +11,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/internal/origin"
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/transport"
 )
@@ -411,6 +414,11 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 	// bytes.Reader over it on every Do.
 	bodyReplayable := req.BodyReader == nil || req.GetBody != nil
 
+	// Whether an attempt before this one reached the server or may have: then
+	// the request may have been sent whatever becomes of a later one, and a
+	// later failure must not say it was not.
+	earlierSent := false
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		// Build Cookie header fresh each attempt from original + session cookies.
 		// Skip the jar lookup entirely when WithoutCookieJar — caller-provided
@@ -445,6 +453,9 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 		}
 
 		resp, err = s.transport.Do(ctx, req)
+		if err != nil && earlierSent {
+			err = transport.MarkSentBefore(err)
+		}
 
 		// If no error and no retry config, or this is the last attempt, break
 		if maxRetries == 0 {
@@ -462,12 +473,17 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			s.parseAcceptCH(host, resp.Headers)
 		}
 
-		// Check if we should retry
+		// Check if we should retry. A retry sends the request again, so it
+		// follows the rule the transport holds its own resends to
+		// (transport.CanResend): a failure is retried only when it proves the
+		// request was never sent, or the request is idempotent; an answer
+		// whose status is on the retry list only when it is idempotent, since
+		// the server had the request and may have acted on it. A POST is
+		// never sent twice because a retry was asked for.
 		shouldRetry := false
 		if err != nil {
-			// Retry on network errors
-			shouldRetry = true
-		} else if resp != nil {
+			shouldRetry = transport.CanResend(req.Method, bodyReplayable, err)
+		} else if resp != nil && transport.IdempotentMethod(req.Method) {
 			// Check if status code is in retry list
 			for _, status := range retryOnStatus {
 				if resp.StatusCode == status {
@@ -480,6 +496,7 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 		if !shouldRetry || !bodyReplayable || attempt >= maxRetries {
 			break
 		}
+		earlierSent = earlierSent || resp != nil || !transport.RequestNotSent(err)
 
 		// Calculate wait time with exponential backoff and jitter
 		waitTime := retryWaitMin * time.Duration(1<<uint(attempt))
@@ -572,16 +589,15 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			}
 
 			// Browser-parity scheme/origin policy for the new hop:
-			//   - https → http downgrade: strip Referer (Chrome's default
-			//     strict-origin-when-cross-origin), Authorization, and
+			//   - https → http downgrade: strip Authorization and
 			//     Proxy-Authorization (WHATWG Fetch "HTTP-redirect fetch").
 			//   - cross-origin (any scheme change or host/port change):
 			//     strip Authorization and Proxy-Authorization — Chrome, Firefox,
 			//     curl (≥7.58) and Fetch all do this to prevent credential leaks.
 			// Computed here rather than beside the header loop because the
 			// callback below is handed both.
-			schemeDowngrade := isSchemeDowngrade(req.URL, redirectURL)
-			crossOrigin := !sameOrigin(req.URL, redirectURL)
+			schemeDowngrade := origin.Downgrade(req.URL, redirectURL)
+			crossOrigin := !origin.Same(req.URL, redirectURL)
 
 			// Ask the caller before taking the hop. This runs after the cap
 			// check on purpose: the cap is a resource bound, not a policy
@@ -625,11 +641,20 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			// re-placed by the preset table or the sorted tail on the next one,
 			// so the ordering has to follow the headers it orders or the two
 			// disagree mid-chain.
+			//
+			// RedirectHeaderOrder, when the caller set one, is that ordering for
+			// every hop after the first, so it takes HeaderOrder's place here and
+			// is carried on for the hops after this one.
+			hopOrder := req.HeaderOrder
+			if len(req.RedirectHeaderOrder) > 0 {
+				hopOrder = req.RedirectHeaderOrder
+			}
 			newReq := &transport.Request{
 				Method:                        newMethod,
 				URL:                           redirectURL,
 				Headers:                       make(map[string][]string),
-				HeaderOrder:                   req.HeaderOrder,
+				HeaderOrder:                   hopOrder,
+				RedirectHeaderOrder:           req.RedirectHeaderOrder,
 				Timeout:                       req.Timeout,
 				TLSOnly:                       req.TLSOnly,
 				FollowRedirects:               req.FollowRedirects,
@@ -643,8 +668,7 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 				// nothing else is added, and dropping it here meant a caller
 				// mirroring a captured request got their exact bytes on the first
 				// request and the full preset pipeline on every hop after it,
-				// silently. Referer is the one thing the redirect path may still
-				// add on top, and DisableRedirectReferer turns that off.
+				// silently.
 				ExactHeaders: req.ExactHeaders,
 			}
 
@@ -659,33 +683,24 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 					continue
 				}
 				lk := strings.ToLower(k)
-				if schemeDowngrade && lk == "referer" {
-					continue
-				}
 				if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
 					continue
 				}
-				newReq.Headers[k] = v
-			}
-
-			// Synthesize the next-hop Referer to match Chrome's default
-			// strict-origin-when-cross-origin policy. A browser sends a Referer
-			// on every redirect hop except an https->http downgrade; httpcloak
-			// previously carried a stale copied value (or none at all), which a
-			// server inspecting the redirect chain can use to fingerprint it.
-			// Drop any copied Referer (either casing) first so we don't emit a
-			// duplicate, then set the policy-correct value.
-			//
-			// DisableRedirectReferer suppresses the synthesis but NOT the two
-			// deletes: a Referer the caller put on the original request names the
-			// pre-redirect URL, and carrying it to the new host would leak exactly
-			// what the caller asked us not to send.
-			delete(newReq.Headers, "Referer")
-			delete(newReq.Headers, "referer")
-			if !req.DisableRedirectReferer {
-				if ref := redirectReferer(req.URL, schemeDowngrade, crossOrigin); ref != "" {
-					newReq.Headers["Referer"] = []string{ref}
+				// A redirect does not change who made the request: a browser
+				// follows it with the referrer the request already had (the page
+				// that made it, never the URL that answered with the redirect),
+				// written again for where the hop goes. A request that had none
+				// is followed with none.
+				if lk == "referer" {
+					if req.DisableRedirectReferer || len(v) == 0 {
+						continue
+					}
+					if ref := origin.RedirectReferer(v[0], redirectURL); ref != "" {
+						newReq.Headers[k] = []string{ref}
+					}
+					continue
 				}
+				newReq.Headers[k] = v
 			}
 
 			// 307/308 preserve the method and the body. Precedence matches the
@@ -733,8 +748,10 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			// it stops being a no-op the moment body streaming reaches Do.
 			resp.Close()
 
-			// Follow redirect with accumulated history
-			return s.requestWithRedirects(ctx, newReq, redirectCount+1, history)
+			// Follow redirect with accumulated history. This hop was answered,
+			// so the request was sent whatever becomes of the next.
+			next, err := s.requestWithRedirects(ctx, newReq, redirectCount+1, history)
+			return next, transport.MarkSentBefore(err)
 		}
 	}
 
@@ -787,6 +804,7 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 	}
 
 	requestHost := extractHost(requestURL)
+	requestPath := extractPath(requestURL)
 	requestSecure := isSecureURL(requestURL)
 
 	// Each Set-Cookie header is now a separate element in the slice
@@ -797,12 +815,14 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 		}
 
 		cookie := &CookieData{}
+		// The last valid Max-Age and the last readable Expires, which decide
+		// the expiry together (RFC 6265 5.3 step 3).
+		var maxAge *int64
+		var expires *time.Time
 
-		// Split by semicolon to get name=value and attributes
-		parts := splitBySemicolon(line)
-		if len(parts) == 0 {
-			continue
-		}
+		// Split by semicolon to get name=value and attributes. The split is by
+		// byte, so a value's UTF-8 passes through whole.
+		parts := strings.Split(line, ";")
 
 		// First part is name=value
 		firstPart := trim(parts[0])
@@ -852,10 +872,12 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 			case "expires":
 				// Parse expiration time
 				if t, err := parseHTTPDate(attrValue); err == nil {
-					cookie.Expires = &t
+					expires = &t
 				}
 			case "max-age":
-				cookie.MaxAge = parseIntSimple(attrValue)
+				if seconds, ok := parseMaxAge(attrValue); ok {
+					maxAge = &seconds
+				}
 			case "samesite":
 				// Normalize to capitalized form
 				sameSiteLower := toLowerASCII(attrValue)
@@ -872,55 +894,41 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 			}
 		}
 
+		cookie.Expires = expiry(time.Now(), maxAge, expires)
+
 		// Use CookieJar to store with proper domain scoping
-		s.cookies.Set(requestHost, cookie, requestSecure)
+		s.cookies.Set(requestHost, requestPath, cookie, requestSecure)
 	}
 }
 
-// splitBySemicolon splits a string by semicolon
-func splitBySemicolon(s string) []string {
-	var result []string
-	var current string
-	for i := 0; i < len(s); i++ {
-		if s[i] == ';' {
-			result = append(result, current)
-			current = ""
-		} else {
-			current += string(s[i])
+// parseMaxAge reads a Max-Age attribute's value as RFC 6265 5.2.2 has it: an
+// optional "-" and one or more digits, else it is not a Max-Age at all. A
+// value too large for an int64 saturates, which the jar's cap makes 400 days
+// (or, negative, expired).
+func parseMaxAge(v string) (int64, bool) {
+	digits := strings.TrimPrefix(v, "-")
+	if digits == "" || strings.TrimLeft(digits, "0123456789") != "" {
+		return 0, false
+	}
+	seconds, err := strconv.ParseInt(v, 10, 64)
+	if errors.Is(err, strconv.ErrRange) {
+		if v[0] == '-' {
+			return math.MinInt64, true
 		}
+		return math.MaxInt64, true
 	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
-}
-
-// parseIntSimple parses an integer from a string, returns 0 on error
-func parseIntSimple(s string) int {
-	result := 0
-	negative := false
-	start := 0
-	if len(s) > 0 && s[0] == '-' {
-		negative = true
-		start = 1
-	}
-	for i := start; i < len(s); i++ {
-		if s[i] >= '0' && s[i] <= '9' {
-			result = result*10 + int(s[i]-'0')
-		} else {
-			break
-		}
-	}
-	if negative {
-		result = -result
-	}
-	return result
+	return seconds, true
 }
 
 // parseHTTPDate parses an HTTP date string (RFC1123 format)
 func parseHTTPDate(s string) (time.Time, error) {
 	// Try RFC1123 format first (most common)
 	if t, err := time.Parse(time.RFC1123, s); err == nil {
+		return t, nil
+	}
+	// The Netscape cookie date, with dashes, which PHP and Java servers send
+	// (and net/http reads the same way).
+	if t, err := time.Parse("Mon, 02-Jan-2006 15:04:05 MST", s); err == nil {
 		return t, nil
 	}
 	// Try RFC1123Z (with numeric timezone)
@@ -1053,39 +1061,70 @@ func (s *Session) applyClientHintPolicy(host string, req *transport.Request) {
 // overwritten (matched case-insensitively), which makes per-request overrides
 // deterministic.
 func (s *Session) applyClientHints(host string, headers map[string][]string) {
+	for _, hint := range s.askedClientHints(host) {
+		// Don't clobber a value the caller supplied (any header case).
+		if headerKeyPresent(headers, hint.header) {
+			continue
+		}
+		headers[hint.header] = []string{hint.value}
+	}
+}
+
+// clientHint is a high-entropy client hint as a request carries it.
+type clientHint struct {
+	header string
+	value  string
+}
+
+// askedClientHints returns the high-entropy client hints host has asked for
+// with Accept-CH and the preset has a value for, by header name.
+func (s *Session) askedClientHints(host string) []clientHint {
 	s.mu.RLock()
 	hints, exists := s.clientHints[host]
 	s.mu.RUnlock()
 
 	if !exists || len(hints) == 0 {
-		return
+		return nil
 	}
 
 	ch := s.resolveClientHints()
-
-	// Map of Accept-CH hint names to their header name and resolved value.
-	hintValues := map[string]struct {
-		header string
-		value  string
+	asked := make([]clientHint, 0, 6)
+	for _, hint := range []struct {
+		name string
+		clientHint
 	}{
-		"sec-ch-ua-arch":              {"Sec-Ch-Ua-Arch", ch.UAArch},
-		"sec-ch-ua-bitness":           {"Sec-Ch-Ua-Bitness", ch.UABitness},
-		"sec-ch-ua-full-version-list": {"Sec-Ch-Ua-Full-Version-List", ch.UAFullVersionList},
-		"sec-ch-ua-model":             {"Sec-Ch-Ua-Model", ch.UAModel},
-		"sec-ch-ua-platform-version":  {"Sec-Ch-Ua-Platform-Version", ch.UAPlatformVersion},
-		"sec-ch-ua-wow64":             {"Sec-Ch-Ua-Wow64", ch.UAWow64},
+		{"sec-ch-ua-arch", clientHint{"Sec-Ch-Ua-Arch", ch.UAArch}},
+		{"sec-ch-ua-bitness", clientHint{"Sec-Ch-Ua-Bitness", ch.UABitness}},
+		{"sec-ch-ua-full-version-list", clientHint{"Sec-Ch-Ua-Full-Version-List", ch.UAFullVersionList}},
+		{"sec-ch-ua-model", clientHint{"Sec-Ch-Ua-Model", ch.UAModel}},
+		{"sec-ch-ua-platform-version", clientHint{"Sec-Ch-Ua-Platform-Version", ch.UAPlatformVersion}},
+		{"sec-ch-ua-wow64", clientHint{"Sec-Ch-Ua-Wow64", ch.UAWow64}},
+	} {
+		if hints[hint.name] && hint.value != "" {
+			asked = append(asked, hint.clientHint)
+		}
 	}
+	return asked
+}
 
-	for hintName, hintInfo := range hintValues {
-		if !hints[hintName] || hintInfo.value == "" {
-			continue
-		}
-		// Don't clobber a value the caller supplied (any header case).
-		if headerKeyPresent(headers, hintInfo.header) {
-			continue
-		}
-		headers[hintInfo.header] = []string{hintInfo.value}
+// AskedClientHints returns the names of the high-entropy client hints
+// the session adds to a request to rawURL that sets none of them itself: the
+// ones its host has asked for with Accept-CH, unless the session sends no
+// client hints or no high-entropy ones. A caller that works out a request's
+// header order from the headers it holds needs these, which it does not set.
+func (s *Session) AskedClientHints(rawURL string) []string {
+	s.mu.RLock()
+	enabled := s.clientHintsEnabled && s.highEntropyClientHintsEnabled
+	s.mu.RUnlock()
+	if !enabled {
+		return nil
 	}
+	asked := s.askedClientHints(extractHost(rawURL))
+	names := make([]string, 0, len(asked))
+	for _, hint := range asked {
+		names = append(names, hint.header)
+	}
+	return names
 }
 
 // resolveClientHints returns the coherent UA client hints for this session's
@@ -1183,55 +1222,31 @@ func contains(s, substr string) bool {
 	return indexOf(s, substr) != -1
 }
 
-// extractHost extracts the host from a URL string
+// extractHost is a request URL's host, lowercase, without its port or an IPv6
+// address's brackets: what the cookie jar and the per-host state are keyed
+// on. A URL that does not parse has no host, which no cookie matches.
 func extractHost(urlStr string) string {
-	// Remove protocol prefix
-	host := urlStr
-	if idx := indexOf(host, "://"); idx != -1 {
-		host = host[idx+3:]
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
 	}
-	// Remove path
-	if idx := indexOf(host, "/"); idx != -1 {
-		host = host[:idx]
-	}
-	// Remove port for matching (IPv6-aware)
-	if len(host) > 0 && host[0] == '[' {
-		// IPv6 bracketed: [::1]:443 → ::1
-		if idx := indexOf(host, "]"); idx != -1 {
-			host = host[1:idx]
-		}
-	} else if idx := indexOf(host, ":"); idx != -1 {
-		host = host[:idx]
-	}
-	return host
+	return strings.ToLower(u.Hostname())
 }
 
-// extractPath extracts the path from a URL string
+// extractPath is a request URL's path as it goes on the wire, "/" when it
+// has none (RFC 6265 5.1.4 takes the request-target's path).
 func extractPath(urlStr string) string {
-	// Remove protocol prefix
-	path := urlStr
-	if idx := indexOf(path, "://"); idx != -1 {
-		path = path[idx+3:]
+	u, err := url.Parse(urlStr)
+	if err != nil || u.EscapedPath() == "" {
+		return "/"
 	}
-	// Find path start
-	if idx := indexOf(path, "/"); idx != -1 {
-		path = path[idx:]
-		// Remove query string
-		if qIdx := indexOf(path, "?"); qIdx != -1 {
-			path = path[:qIdx]
-		}
-		// Remove fragment
-		if fIdx := indexOf(path, "#"); fIdx != -1 {
-			path = path[:fIdx]
-		}
-		return path
-	}
-	return "/"
+	return u.EscapedPath()
 }
 
-// isSecureURL returns true if the URL uses HTTPS
+// isSecureURL reports whether the URL is https.
 func isSecureURL(urlStr string) bool {
-	return len(urlStr) >= 8 && urlStr[:8] == "https://"
+	u, err := url.Parse(urlStr)
+	return err == nil && u.Scheme == "https"
 }
 
 // IsActive returns whether the session is active
@@ -1377,6 +1392,13 @@ func (s *Session) GetCookies() []CookieState {
 // GetCookiesDetailed is an alias for GetCookies, returning full cookie metadata.
 func (s *Session) GetCookiesDetailed() []CookieState {
 	return s.cookies.GetAll()
+}
+
+// CookiesFor returns the cookies a request to rawURL would carry, in the order
+// its Cookie header would list them: what a page at rawURL reads as
+// document.cookie, HttpOnly ones aside.
+func (s *Session) CookiesFor(rawURL string) []CookieState {
+	return s.cookies.For(extractHost(rawURL), extractPath(rawURL), isSecureURL(rawURL))
 }
 
 // SetCookie sets a cookie with full metadata.
@@ -1840,97 +1862,6 @@ func (s *Session) PostStream(ctx context.Context, url string, body []byte, heade
 		Body:    body,
 		Headers: headers,
 	})
-}
-
-// parseOrigin returns (scheme, host, port) for origin comparison. Missing
-// ports are filled in with the scheme default so http://x:80 and http://x
-// compare equal. Returned values are lowercased.
-// sameOriginReferer returns the previous URL as Chrome puts it in the Referer
-// header on a same-origin hop: the full URL minus the fragment and any userinfo
-// (credentials), with a redundant default port dropped. Chrome never leaks the
-// fragment or credentials in Referer, and serializes the document URL with the
-// default port omitted (https://h:443/a -> https://h/a).
-func sameOriginReferer(prevURL string) string {
-	u, err := url.Parse(prevURL)
-	if err != nil {
-		return ""
-	}
-	u.Fragment = ""
-	u.RawFragment = ""
-	u.User = nil
-	scheme := strings.ToLower(u.Scheme)
-	if p := u.Port(); (scheme == "https" && p == "443") || (scheme == "http" && p == "80") {
-		host := u.Hostname()
-		if strings.Contains(host, ":") { // IPv6 literal needs brackets
-			host = "[" + host + "]"
-		}
-		u.Host = host
-	}
-	return u.String()
-}
-
-func parseOrigin(urlStr string) (scheme, host, port string) {
-	u, err := url.Parse(urlStr)
-	if err != nil || u.Scheme == "" {
-		return "", "", ""
-	}
-	scheme = strings.ToLower(u.Scheme)
-	host = strings.ToLower(u.Hostname())
-	port = u.Port()
-	if port == "" {
-		switch scheme {
-		case "https":
-			port = "443"
-		case "http":
-			port = "80"
-		}
-	}
-	return scheme, host, port
-}
-
-// redirectReferer returns the Referer value to send on the next redirect hop,
-// following Chrome's default strict-origin-when-cross-origin policy. prevURL is
-// the URL that issued the 3xx. Returns "" when no Referer should be sent.
-//   - https -> http downgrade: omit (no Referer)
-//   - same-origin: the full previous URL
-//   - cross-origin (same secure scheme): the previous URL's ORIGIN only,
-//     serialized with a trailing slash (e.g. "https://example.com/")
-func redirectReferer(prevURL string, schemeDowngrade, crossOrigin bool) string {
-	if schemeDowngrade {
-		return ""
-	}
-	if !crossOrigin {
-		return sameOriginReferer(prevURL)
-	}
-	scheme, host, port := parseOrigin(prevURL)
-	if scheme == "" || host == "" {
-		return ""
-	}
-	origin := scheme + "://" + host
-	if !((scheme == "https" && port == "443") || (scheme == "http" && port == "80")) {
-		origin += ":" + port
-	}
-	return origin + "/"
-}
-
-// sameOrigin reports whether two URLs share scheme+host+port.
-func sameOrigin(a, b string) bool {
-	as, ah, ap := parseOrigin(a)
-	bs, bh, bp := parseOrigin(b)
-	if as == "" || bs == "" {
-		return false
-	}
-	return as == bs && ah == bh && ap == bp
-}
-
-// isSchemeDowngrade reports whether the redirect is https → http.
-// Chrome's default strict-origin-when-cross-origin referrer policy strips
-// Referer entirely on such downgrades, and Fetch semantics strip any
-// Authorization that was set on the original request.
-func isSchemeDowngrade(from, to string) bool {
-	fs, _, _ := parseOrigin(from)
-	ts, _, _ := parseOrigin(to)
-	return fs == "https" && ts == "http"
 }
 
 // resolveURL resolves a possibly relative URL against a base URL (RFC 3986)

@@ -721,6 +721,10 @@ func queryECHFromDNS(ctx context.Context, hostname string) ([]byte, uint32, erro
 	msg := new(dns.Msg)
 	msg.SetQuestion(dns.Fqdn(hostname), dns.TypeHTTPS)
 	msg.RecursionDesired = true
+	// Advertise a large buffer. Without EDNS0 the client reads at most 512
+	// bytes, and HTTPS answers with an ECH config often exceed that (Cloudflare's
+	// run to about 600, authority records included), failing to unpack.
+	msg.SetEdns0(dns.DefaultMsgSize, false)
 
 	// Use configured DNS servers (defaults to well-known public DNS)
 	dnsServers := GetECHDNSServers()
