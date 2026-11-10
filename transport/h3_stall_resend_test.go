@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -199,5 +200,112 @@ func TestAPostWhoseHTTP3HandshakeStalledGoesAgain(t *testing.T) {
 	}
 	if n := seen("POST"); n != 1 {
 		t.Fatalf("server read the POST %d times, want once", n)
+	}
+}
+
+// blackholeOnce relays datagrams between clients and target until hole is
+// set, then drops everything of the clients it has seen so far, both ways:
+// the QUIC path dies under a connection. Clients that come later pass.
+func blackholeOnce(t *testing.T, target string, hole *atomic.Bool) string {
+	t.Helper()
+	ln, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	up, err := net.ResolveUDPAddr("udp", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	relays := map[string]*net.UDPConn{}
+	dead := map[string]bool{}
+	holed := false
+	isDead := func(key string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return dead[key]
+	}
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			n, client, err := ln.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+			key := client.String()
+			mu.Lock()
+			if hole.Load() && !holed {
+				holed = true
+				for k := range relays {
+					dead[k] = true
+				}
+			}
+			relay, ok := relays[key]
+			if !ok && !dead[key] {
+				if relay, err = net.DialUDP("udp", nil, up); err != nil {
+					mu.Unlock()
+					return
+				}
+				relays[key] = relay
+				t.Cleanup(func() { relay.Close() })
+				go func(relay *net.UDPConn, client *net.UDPAddr, key string) {
+					b := make([]byte, 65535)
+					for {
+						n, err := relay.Read(b)
+						if err != nil {
+							return
+						}
+						if !isDead(key) {
+							ln.WriteToUDP(b[:n], client)
+						}
+					}
+				}(relay, client, key)
+			}
+			mu.Unlock()
+			if !isDead(key) {
+				relay.Write(buf[:n])
+			}
+		}
+	}()
+	return ln.LocalAddr().String()
+}
+
+// The QUIC path dies under the request once the server has read it, and the
+// connection's idle timeout (2 s here) ends the attempt inside the stall
+// window with an error that looks like a stall. A POST is not sent again, and
+// its failure does not say it was not sent; a GET goes again and is answered.
+func TestARequestWhoseHTTP3PathDiedAfterItWasRead(t *testing.T) {
+	for _, method := range []string{"POST", "GET"} {
+		t.Run(method, func(t *testing.T) {
+			var hole atomic.Bool
+			var read atomic.Int32
+			url := startH3Origin(t, shttp.HandlerFunc(func(w shttp.ResponseWriter, r *shttp.Request) {
+				io.Copy(io.Discard, r.Body)
+				if read.Add(1) == 1 {
+					hole.Store(true) // the path dies; this answer never leaves
+					<-r.Context().Done()
+					return
+				}
+				w.Write([]byte("ok"))
+			}))
+			addr := blackholeOnce(t, url[len("https://"):len(url)-1], &hole)
+			tr := NewTransportWithConfig("chrome-146", nil, &TransportConfig{QuicIdleTimeout: 2 * time.Second})
+			tr.SetInsecureSkipVerify(true)
+			tr.SetProtocol(ProtocolHTTP3)
+			t.Cleanup(tr.Close)
+
+			resp, err := tr.Do(context.Background(), &Request{Method: method, URL: "https://" + addr + "/pay", Body: []byte("charge=100"), Timeout: 20 * time.Second})
+			if method == "POST" {
+				sentOnce(t, err, read.Load(), 1)
+				return
+			}
+			if err != nil || resp.StatusCode != 200 {
+				t.Fatalf("the GET should have gone again on a new path: %v", err)
+			}
+			if n := read.Load(); n != 2 {
+				t.Fatalf("server read the GET %d times, want twice", n)
+			}
+		})
 	}
 }

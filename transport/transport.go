@@ -2510,9 +2510,14 @@ func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, http
 			return res.resp, cancelAttempt, nil
 		}
 		// Headers never arrived within the window: abort this attempt, and wait
-		// for it to end, so that whether it had a connection is final.
+		// for it to end, so that whether it had a connection is final. Should
+		// its answer have come in that moment, the cancel has cut its body off:
+		// release it.
 		cancelAttempt()
 		res := <-done
+		if res.resp != nil {
+			res.resp.Body.Close()
+		}
 		if ctx.Err() != nil {
 			return nil, noop, ctx.Err()
 		}
@@ -2520,7 +2525,11 @@ func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, http
 			// It got its connection in the moment before it was aborted, and
 			// may have written the request: that answer is lost, and the
 			// request is not sent again.
-			return nil, noop, fmt.Errorf("no answer within %v, and the request may have been sent: %w", h3StallWindow, res.err)
+			cause := res.err
+			if cause == nil {
+				cause = errors.New("its answer came as the attempt was abandoned")
+			}
+			return nil, noop, fmt.Errorf("no answer within %v, and the request may have been sent: %w", h3StallWindow, cause)
 		}
 	}
 

@@ -9,6 +9,8 @@ import (
 	"net"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -389,5 +391,132 @@ func TestAPostAfterAConnectionCloseAnswerGoesOnANewOne(t *testing.T) {
 	}
 	if stats := tr.GetHTTP1Transport().Stats(); len(stats) != 0 {
 		t.Fatalf("connections the server closed were pooled: %+v", stats)
+	}
+}
+
+// h1OnlyServer is a net/http server that speaks only HTTP/1.1, over TLS or
+// not, closes keep-alive connections idle longer than idle, and counts the
+// requests it read by method.
+func h1OnlyServer(t *testing.T, useTLS bool, idle time.Duration) (url string, log *requestLog) {
+	t.Helper()
+	log = &requestLog{}
+	srv := httptest.NewUnstartedServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		body, _ := io.ReadAll(r.Body)
+		log.add(r, body)
+		io.WriteString(w, "ok")
+	}))
+	srv.Config.IdleTimeout = idle
+	srv.Config.TLSNextProto = map[string]func(*stdhttp.Server, *tls.Conn, stdhttp.Handler){} // no HTTP/2
+	if useTLS {
+		srv.StartTLS()
+	} else {
+		srv.Start()
+	}
+	t.Cleanup(srv.Close)
+	return srv.URL, log
+}
+
+// The same through a real server's keep-alive timeout, over TLS (where the
+// close arrives as a close_notify alert before the FIN) and through a CONNECT
+// proxy (where the proxy, not the server, closes the client's connection).
+func TestAPostAfterTheServersKeepAliveTimeoutGoesOnANewOne(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		tls, proxy bool
+	}{
+		{"plain", false, false},
+		{"TLS", true, false},
+		{"plain through a CONNECT proxy", false, true},
+		{"TLS through a CONNECT proxy", true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			url, log := h1OnlyServer(t, c.tls, 150*time.Millisecond)
+			proxy := ""
+			if c.proxy {
+				proxy = connectProxy(t, "")
+			}
+			tr := h1Transport(t, proxy)
+			warm(t, tr, url)
+			time.Sleep(500 * time.Millisecond) // past the server's keep-alive timeout
+
+			resp, err := tr.Do(context.Background(), &Request{Method: "POST", URL: url + "/pay", Body: []byte("charge=100"), Timeout: 10 * time.Second})
+			if err != nil {
+				t.Fatalf("the POST should have gone on a new connection: %v", err)
+			}
+			if resp.StatusCode != 200 {
+				t.Fatalf("status %d", resp.StatusCode)
+			}
+			if n := log.count("POST"); n != 1 {
+				t.Fatalf("server read the POST %d times, want once", n)
+			}
+		})
+	}
+}
+
+// Bytes a server sent past its answer (a body longer than its Content-Length,
+// say) would be read as the next request's answer: the connection is not used
+// again, and the POST goes once on a new one.
+func TestBytesPastAnAnswerKeepTheConnectionFromBeingUsedAgain(t *testing.T) {
+	var log requestLog
+	addr, _ := rawServer(t, func(c net.Conn) {
+		defer c.Close()
+		br := bufio.NewReader(c)
+		for {
+			req, err := stdhttp.ReadRequest(br)
+			if err != nil {
+				return
+			}
+			body, _ := io.ReadAll(req.Body)
+			log.add(req, body)
+			if req.Method == "POST" {
+				io.WriteString(c, "HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\nok")
+				continue
+			}
+			io.WriteString(c, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nokHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+		}
+	})
+	tr := h1Transport(t, "")
+	warm(t, tr, "http://"+addr)
+
+	resp, err := tr.Do(context.Background(), &Request{Method: "POST", URL: "http://" + addr + "/pay", Body: []byte("charge=100"), Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	if resp.StatusCode != 201 {
+		t.Fatalf("status %d: the leftover bytes were read as the POST's answer", resp.StatusCode)
+	}
+	if n := log.count("POST"); n != 1 {
+		t.Fatalf("server read the POST %d times, want once", n)
+	}
+}
+
+// Every idle connection's watch ends when the transport closes.
+func TestIdleWatchesEndWithTheTransport(t *testing.T) {
+	url, _ := h1OnlyServer(t, true, time.Minute)
+	tr := NewTransport("chrome-146")
+	tr.SetInsecureSkipVerify(true)
+	tr.SetProtocol(ProtocolHTTP1)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ { // eight connections at once, each pooled after
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tr.Do(context.Background(), &Request{Method: "GET", URL: url + "/"})
+		}()
+	}
+	wg.Wait()
+	watching := func() int {
+		buf := make([]byte, 1<<20)
+		return strings.Count(string(buf[:runtime.Stack(buf, true)]), "(*http1Conn).watchIdle")
+	}
+	if n := watching(); n == 0 {
+		t.Fatal("no idle connection is watched")
+	}
+	tr.Close()
+	for deadline := time.Now().Add(3 * time.Second); watching() > 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := watching(); n > 0 {
+		t.Fatalf("%d idle watches outlived the transport", n)
 	}
 }
