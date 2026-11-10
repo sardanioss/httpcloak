@@ -323,8 +323,6 @@ HEADERS
   literal name-ref static=true 31 never=false huffman=true "gzip, deflate, br, zstd"
   literal name-ref static=true 72 never=false huffman=true "en-US,en;q=0.9"
   literal name="priority" name-huffman=true never=false huffman=true "u=1, i"
-  literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
-  indexed static=true 94
   literal name-ref static=true 4 never=false huffman=true "7"
 DATA len=7
 

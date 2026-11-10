@@ -1592,21 +1592,20 @@ func (t *HTTP3Transport) dialQUIC(ctx context.Context, addr string, tlsCfg *tls.
 	return t.raceQUICDialWithECH(ctx, host, ipv6Addrs, ipv4Addrs, tlsCfgCopy, cfgCopy, echConfigList)
 }
 
-// RoundTrip implements http.RoundTripper
+// RoundTrip implements http.RoundTripper, for a caller that uses the HTTP/3
+// transport on its own: the request is given the preset's headers and
+// User-Agent wherever it has none of its own.
+//
+// Transport does not send through here. It has built the request's headers by
+// then (applyPresetHeaders), and what that left out, it left out on purpose:
+// Sec-Fetch-User and Upgrade-Insecure-Requests on a fetch(), the client hints
+// of a request that opted out of them, everything but the caller's own pairs
+// under ExactHeaders. Filling those back in sent them over HTTP/3 alone.
 func (t *HTTP3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Track request count BEFORE making request
-	t.mu.Lock()
-	t.requestCount++
-	reqNum := t.requestCount
-	dialsBefore := t.dialCount
-	t.mu.Unlock()
-
-	// Use ordered headers if available (HTTP/3 header order matters for fingerprinting)
-	// Skip if in TLS-only mode (headers handled by applyPresetHeaders which respects tlsOnly)
+	// Skip in TLS-only mode, where the caller's headers are the whole request.
 	tlsOnly := t.config != nil && t.config.TLSOnly
 	if !tlsOnly {
 		if len(t.preset.HeaderOrder) > 0 {
-			// Apply headers in the specified order
 			for _, hp := range t.preset.HeaderOrder {
 				if req.Header.Get(hp.Key) == "" {
 					req.Header.Set(hp.Key, hp.Value)
@@ -1626,6 +1625,17 @@ func (t *HTTP3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			req.Header.Set("User-Agent", t.preset.UserAgent)
 		}
 	}
+	return t.roundTrip(req)
+}
+
+// roundTrip sends req with the headers it holds, adding none.
+func (t *HTTP3Transport) roundTrip(req *http.Request) (*http.Response, error) {
+	// Track request count BEFORE making request
+	t.mu.Lock()
+	t.requestCount++
+	reqNum := t.requestCount
+	dialsBefore := t.dialCount
+	t.mu.Unlock()
 
 	// Cookie crumbling (H3/QPACK). Chrome and Firefox split the Cookie header
 	// into one QPACK field per cookie-pair (Chromium ValueSplittingHeaderList,
