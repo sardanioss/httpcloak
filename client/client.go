@@ -530,6 +530,10 @@ type Request struct {
 	// Per-request retry override (nil = use client config)
 	DisableRetry bool
 
+	// challenged is set on the attempt that answers an auth challenge, so that
+	// it answers no other.
+	challenged bool
+
 	// IncludeTLSInfo populates Response.TLS with the leaf certificate's
 	// details. Off by default: parsing cert fields on every request isn't
 	// free, so opt in per-request rather than paying for it unconditionally.
@@ -1375,30 +1379,38 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					}
 				}
 
-				// Follow redirect
-				return c.doOnce(ctx, newReq, redirectHistory)
+				// Follow redirect. This hop was answered, so the request was
+				// sent whatever becomes of the next: its failure must not say
+				// otherwise, or a retry would send it again (as the session
+				// marks its hops).
+				next, err := c.doOnce(ctx, newReq, redirectHistory)
+				return next, transport.MarkSentBefore(err)
 			}
 		}
 	}
 
-	// Handle 401 with Digest auth (challenge-response)
-	if resp.StatusCode == http.StatusUnauthorized && auth != nil {
+	// Handle 401 with Digest auth (challenge-response): the request goes again
+	// once, answering the challenge, as a browser sends it once with the
+	// credentials. A second 401 is the answer: the server refused them, and
+	// answering every challenge resent the request until the deadline.
+	if resp.StatusCode == http.StatusUnauthorized && auth != nil && !req.challenged {
 		shouldRetry, err := auth.HandleChallenge(resp, httpReq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to handle auth challenge: %w", err)
 		}
 		if shouldRetry {
-			// Reset request body for retry
-			resetRequestBody(httpReq, bodyBytes)
+			// The answered request again, with its body, which this attempt
+			// read; doOnce applies the auth, which now holds the challenge.
+			answered := *req
+			answered.Body = nil
 			if len(bodyBytes) > 0 {
-				req.Body = bytes.NewReader(bodyBytes)
+				answered.Body = bytes.NewReader(bodyBytes)
 			}
-			// Apply auth again with challenge info
-			if err := auth.Apply(httpReq); err != nil {
-				return nil, fmt.Errorf("failed to apply authentication after challenge: %w", err)
-			}
-			// Retry request
-			return c.doOnce(ctx, req, redirectHistory)
+			answered.challenged = true
+			// The 401 was an answer, so the request reached the server
+			// whatever becomes of this attempt.
+			next, err := c.doOnce(ctx, &answered, redirectHistory)
+			return next, transport.MarkSentBefore(err)
 		}
 	}
 
