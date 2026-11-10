@@ -142,11 +142,17 @@ impl Cookie {
 
     /// Sets `Max-Age`. A jar takes the cookie as expiring that long after it
     /// takes it, whatever [`expires`](Cookie::with_expires) says, and at most
-    /// 400 days on, as Chrome does; zero has it expired at once, which removes
-    /// the cookie of the same name, domain and path instead. The jar keeps
-    /// the expiry, so a cookie read back from it has none.
+    /// 400 days on, as Chrome does; [`Duration::ZERO`] has it expired at once,
+    /// which removes the cookie of the same name, domain and path instead. The
+    /// jar keeps the expiry, so a cookie read back from it has none.
+    ///
+    /// `Max-Age` is whole seconds (RFC 6265's delta-seconds), so a fraction of
+    /// a second is rounded up: the cookie lives at least as long as asked, and
+    /// a duration under a second is one second, not zero, which would delete
+    /// the cookie.
     pub fn with_max_age(mut self, max_age: Duration) -> Cookie {
-        self.max_age = Some(i64::try_from(max_age.as_secs()).unwrap_or(i64::MAX));
+        let seconds = max_age.as_secs().saturating_add(u64::from(max_age.subsec_nanos() > 0));
+        self.max_age = Some(i64::try_from(seconds).unwrap_or(i64::MAX));
         self
     }
 
@@ -326,6 +332,17 @@ mod tests {
         let back = Cookie::from_wire(serde_json::from_str(&json).unwrap());
         assert_eq!(back, c);
         assert_eq!(back.expires(), Some(expires));
+    }
+
+    #[test]
+    fn max_age_rounds_a_fraction_of_a_second_up() {
+        let age = |d: Duration| Cookie::new("a", "b").with_max_age(d).max_age();
+        assert_eq!(age(Duration::ZERO), Some(0), "zero, and only zero, deletes");
+        assert_eq!(age(Duration::from_nanos(1)), Some(1));
+        assert_eq!(age(Duration::from_millis(500)), Some(1));
+        assert_eq!(age(Duration::from_secs(1)), Some(1));
+        assert_eq!(age(Duration::from_millis(1500)), Some(2));
+        assert_eq!(age(Duration::MAX), Some(i64::MAX));
     }
 
     #[test]

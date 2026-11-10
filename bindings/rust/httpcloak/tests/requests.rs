@@ -266,8 +266,8 @@ fn cookies_for_a_url_are_what_its_request_carries() {
     let sent = echoed_cookies(&echo(&s.get(https("/echo")).send().unwrap()));
     assert_eq!(sent, "root=1; secure=1", "the header lists what cookies_for does");
 
-    s.set_cookie(&set("brief", "/").with_max_age(Duration::from_secs(1))).unwrap();
-    assert!(names("https://localhost/").contains(&"brief".to_string()));
+    s.set_cookie(&set("brief", "/").with_max_age(Duration::from_millis(400))).unwrap();
+    assert!(names("https://localhost/").contains(&"brief".to_string()), "a Max-Age under a second is one second");
     std::thread::sleep(Duration::from_millis(1100));
     assert!(!names("https://localhost/").contains(&"brief".to_string()), "gone after its Max-Age");
     assert!(!s.cookies().unwrap().iter().any(|c| c.name() == "brief"));
