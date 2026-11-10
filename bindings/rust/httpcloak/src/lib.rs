@@ -105,7 +105,7 @@ pub use local_proxy::{LocalProxy, LocalProxyBuilder, LocalProxyStats};
 pub use preset::{
     available_presets, describe_preset, load_preset, load_preset_file, unregister_preset, PresetInfo, PresetPool,
 };
-pub use request::{multipart, FetchMode, RequestBuilder};
+pub use request::{multipart, FetchMode, HeaderOrder, RequestBuilder, RequestHead};
 pub use response::{Redirect, Response};
 pub use session::{ExtraFingerprint, HttpVersion, Session, SessionBuilder, SessionStats, TcpFingerprint};
 pub use stream::{BodyStream, StreamResponse};

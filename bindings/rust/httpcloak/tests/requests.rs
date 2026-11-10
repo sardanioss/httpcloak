@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use common::*;
 use httpcloak::multipart::{Form, Part};
-use httpcloak::{ErrorKind, FetchMode, Method, StatusCode, Version};
+use httpcloak::{ErrorKind, FetchMode, HeaderOrder, Method, RequestHead, StatusCode, Version};
 
 #[test]
 fn plain_http_is_http1() {
@@ -166,6 +166,43 @@ fn header_order_puts_named_headers_first() {
         // Host and Connection are HTTP/1.1 framing, written first.
         lines.iter().map(|l| l.split(':').next().unwrap().to_ascii_lowercase()).filter(|n| n != "host" && n != "connection").collect();
     assert_eq!(&names[..2], ["x-late", "accept"], "{lines:?}");
+}
+
+/// The order a request's redirects take, and an order worked out when the
+/// request is sent, both reach the wire: the first request in one order, the
+/// request after its redirect in the other.
+#[test]
+fn a_redirected_request_takes_the_redirect_order() {
+    let server = RawServer::start(|s, head| {
+        let answer: &[u8] = if head.starts_with(b"GET /first ") {
+            b"HTTP/1.1 302 Found\r\nLocation: /second\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        } else {
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        };
+        write(s, answer)
+    });
+    let names = |head: String| -> Vec<String> {
+        // Host and Connection are HTTP/1.1 framing, written first.
+        let names = header_lines(&head).into_iter().map(|l| l.split(':').next().unwrap().to_ascii_lowercase());
+        names.filter(|n| n != "host" && n != "connection").take(3).collect()
+    };
+    let request = || session().get(server.url("/first")).header("X-Late", "1");
+
+    request()
+        .header_order(["x-late", "accept", "user-agent"])
+        .redirect_header_order(["accept", "user-agent", "x-late"])
+        .send()
+        .unwrap();
+    assert_eq!(names(server.next_head()), ["x-late", "accept", "user-agent"]);
+    assert_eq!(names(server.next_head()), ["accept", "user-agent", "x-late"]);
+
+    let order = |head: &RequestHead<'_>| {
+        let late = head.headers[0].0.clone();
+        HeaderOrder { request: vec!["user-agent".into(), late.clone()], redirects: vec![late, "user-agent".into()] }
+    };
+    session().get(server.url("/first")).header_order_with(order).header("X-Late", "1").send().unwrap();
+    assert_eq!(names(server.next_head())[..2], ["user-agent", "x-late"]);
+    assert_eq!(names(server.next_head())[..2], ["x-late", "user-agent"]);
 }
 
 #[test]

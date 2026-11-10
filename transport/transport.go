@@ -309,6 +309,19 @@ type Request struct {
 	// caller's headers.
 	HeaderOrder []string
 
+	// RedirectHeaderOrder, when non-empty, takes HeaderOrder's place on every
+	// request that follows a redirect of this one. A browser can order a
+	// redirected request's headers differently from the request it started with.
+	// Safari does: it rebuilds the next request from what the last one put on
+	// the wire, so Accept-Language and Priority, which close its first request,
+	// are ordered among the others on every later hop.
+	//
+	// Same semantics as HeaderOrder (a prefix, case-insensitive). Empty or nil
+	// means the hops keep HeaderOrder. Like HeaderOrder, the transport applies
+	// it to nothing itself; the session layer swaps it in on the follow-up
+	// request it builds for each hop.
+	RedirectHeaderOrder []string
+
 	// OnRedirect, when non-nil, is called once per redirect hop before the
 	// follow-up request is built. Returning nil follows the hop; returning
 	// ErrUseLastResponse stops the chain and returns the 3xx itself with a nil

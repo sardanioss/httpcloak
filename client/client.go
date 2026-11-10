@@ -554,6 +554,13 @@ type Request struct {
 	// orders and the other per-request options the redirect path already carries.
 	HeaderOrder []string
 
+	// RedirectHeaderOrder, when non-empty, takes HeaderOrder's place on every
+	// request that follows a redirect of this one, for a browser that orders a
+	// redirected request's headers differently from the request it started with
+	// (Safari; see transport.Request.RedirectHeaderOrder). Empty or nil means
+	// the hops keep HeaderOrder.
+	RedirectHeaderOrder []string
+
 	// OnRedirect, when non-nil, is called once per redirect hop before the
 	// follow-up request is built. Returning nil follows the hop; returning
 	// ErrUseLastResponse stops the chain and returns the 3xx itself with a nil
@@ -1348,6 +1355,11 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					carriedAuth = nil
 				}
 
+				hopOrder := req.HeaderOrder
+				if len(req.RedirectHeaderOrder) > 0 {
+					hopOrder = req.RedirectHeaderOrder
+				}
+
 				// Create new request for redirect
 				newReq := &Request{
 					Method:          newMethod,
@@ -1365,8 +1377,10 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					DisableRetry:    true, // Don't retry redirects
 					// Follows carriedHeaders above: a header the caller slotted
 					// explicitly would otherwise be re-placed by the preset table on
-					// the next hop, so the ordering rides along with the headers.
-					HeaderOrder: req.HeaderOrder,
+					// the next hop, so the ordering rides along with the headers:
+					// the one the caller gave for redirected requests, if any.
+					HeaderOrder:         hopOrder,
+					RedirectHeaderOrder: req.RedirectHeaderOrder,
 					// Without this the callback fires on hop one and vanishes,
 					// which is the failure HeaderOrder was fixed for.
 					OnRedirect: req.OnRedirect,

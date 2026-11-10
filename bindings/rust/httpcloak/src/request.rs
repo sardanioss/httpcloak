@@ -4,6 +4,7 @@ use std::fmt;
 use std::future::Future;
 use std::hash::{BuildHasher, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use base64::Engine as _;
@@ -45,6 +46,39 @@ impl FetchMode {
     }
 }
 
+/// A request as it is about to be sent, which
+/// [`header_order_with`](RequestBuilder::header_order_with) orders.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct RequestHead<'a> {
+    /// The request's method.
+    pub method: &'a Method,
+    /// The request's own headers in the order they were set, the last
+    /// spelling and value of each: those set with
+    /// [`header`](RequestBuilder::header), a `Cookie` holding the cookies
+    /// added with [`cookie`](RequestBuilder::cookie), then the `Content-Type`
+    /// a body helper implies when none was set. The preset's headers and the
+    /// jar's cookies are not among them: the library adds those.
+    pub headers: &'a [(String, String)],
+    /// Whether the request has a body. An empty one counts as none.
+    pub has_body: bool,
+}
+
+/// The header orders of a request, which
+/// [`header_order_with`](RequestBuilder::header_order_with) answers with.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HeaderOrder {
+    /// The order of the request itself, as
+    /// [`header_order`](RequestBuilder::header_order) takes it.
+    pub request: Vec<String>,
+    /// The order of the requests that follow its redirects, as
+    /// [`redirect_header_order`](RequestBuilder::redirect_header_order) takes
+    /// it. Empty, they keep `request`.
+    pub redirects: Vec<String>,
+}
+
+type OrderWith = Arc<dyn Fn(&RequestHead<'_>) -> HeaderOrder + Send + Sync>;
+
 /// A request being put together, sent with [`send`](RequestBuilder::send) or
 /// one of its variants.
 ///
@@ -61,6 +95,8 @@ pub struct RequestBuilder {
     headers: Vec<(String, String)>,
     exact_headers: Option<Vec<(String, String)>>,
     header_order: Vec<String>,
+    redirect_header_order: Vec<String>,
+    order_with: Option<OrderWith>,
     cookies: Vec<(String, String)>,
     body: Option<Vec<u8>>,
     /// The Content-Type a body helper implies, used unless one is set.
@@ -96,6 +132,8 @@ impl RequestBuilder {
             headers: Vec::new(),
             exact_headers: None,
             header_order: Vec::new(),
+            redirect_header_order: Vec::new(),
+            order_with: None,
             cookies: Vec::new(),
             body: None,
             implied_content_type: None,
@@ -195,6 +233,45 @@ impl RequestBuilder {
             }
             self.header_order.push(name);
         }
+        self
+    }
+
+    /// Orders the headers of the requests that follow this one's redirects,
+    /// as [`header_order`](RequestBuilder::header_order) orders its own;
+    /// without it they keep that order. For a browser that orders a
+    /// redirected request's headers differently from the request it started
+    /// with: Safari builds the next request from what the last one put on the
+    /// wire, so `Accept-Language` and `Priority`, which close its first
+    /// request, are ordered among the others from then on.
+    pub fn redirect_header_order<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for name in names {
+            let name = name.into();
+            if !valid_name(&name) {
+                self.fail(ErrorKind::InvalidInput, format!("{name:?} is not a valid header name"));
+            }
+            self.redirect_header_order.push(name);
+        }
+        self
+    }
+
+    /// Has `order` decide the header order when the request is sent, from
+    /// what the request then holds, for an order that depends on the headers
+    /// set after this call. Safari's does: it sends a request's headers in
+    /// the order of a hash table, so every header a request gains moves the
+    /// others. Its answer is read as [`header_order`](RequestBuilder::header_order)
+    /// and [`redirect_header_order`](RequestBuilder::redirect_header_order)
+    /// read theirs, and cannot be combined with either, nor with
+    /// [`exact_headers`](RequestBuilder::exact_headers), which sends its
+    /// headers in the order given.
+    pub fn header_order_with<F>(mut self, order: F) -> Self
+    where
+        F: Fn(&RequestHead<'_>) -> HeaderOrder + Send + Sync + 'static,
+    {
+        self.order_with = Some(Arc::new(order));
         self
     }
 
@@ -428,6 +505,29 @@ impl RequestBuilder {
         let deadline = self.timeout.and_then(Deadline::after);
 
         let body = self.body.filter(|b| !b.is_empty()).map(|b| base64::engine::general_purpose::STANDARD.encode(b));
+        let order = match self.order_with {
+            Some(_) if self.exact_headers.is_some() => {
+                return Err(Error::invalid_input(
+                    "exact_headers sends its headers in the order given; header_order_with has nothing to order",
+                )
+                .with_url(url));
+            }
+            Some(_) if !self.header_order.is_empty() || !self.redirect_header_order.is_empty() => {
+                return Err(Error::invalid_input(
+                    "header_order_with decides both orders; drop header_order and redirect_header_order",
+                )
+                .with_url(url));
+            }
+            Some(order_with) => {
+                let order =
+                    order_with(&RequestHead { method: &self.method, headers: &headers, has_body: body.is_some() });
+                if let Some(name) = order.request.iter().chain(&order.redirects).find(|name| !valid_name(name)) {
+                    return Err(Error::invalid_input(format!("{name:?} is not a valid header name")).with_url(url));
+                }
+                order
+            }
+            None => HeaderOrder { request: self.header_order, redirects: self.redirect_header_order },
+        };
         let wire = WireRequest {
             method: self.method.as_str(),
             url: &url,
@@ -436,7 +536,8 @@ impl RequestBuilder {
                 .exact_headers
                 .as_ref()
                 .map(|h| h.iter().map(|(k, v)| [k.as_str(), v.as_str()]).collect()),
-            header_order: &self.header_order,
+            header_order: &order.request,
+            redirect_header_order: &order.redirects,
             body_encoding: body.as_ref().map(|_| "base64"),
             body,
             timeout: library_timeout,
@@ -492,6 +593,8 @@ struct WireRequest<'a> {
     exact_headers: Option<Vec<[&'a str; 2]>>,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     header_order: &'a [String],
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    redirect_header_order: &'a [String],
     #[serde(skip_serializing_if = "Option::is_none")]
     body: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -737,6 +840,7 @@ mod tests {
                 .bearer_auth("tok")
                 .json(&serde_json::json!({"k": "v"}))
                 .header_order(["x-one", "content-type"])
+                .redirect_header_order(["content-type", "x-one"])
                 .timeout(Duration::from_millis(1500))
                 .fetch_mode(FetchMode::Cors)
                 .follow_redirects(false)
@@ -754,12 +858,54 @@ mod tests {
                 "headers": {"x-one": "2", "Authorization": "Bearer tok", "Cookie": "c=v",
                             "Content-Type": "application/json"},
                 "header_order": ["x-one", "content-type"],
+                "redirect_header_order": ["content-type", "x-one"],
                 "body": "eyJrIjoidiJ9", "body_encoding": "base64",
                 "timeout": 2, "fetch_mode": "cors", "follow_redirects": false,
                 "disable_conditional_cache": true, "disable_client_hints": true,
                 "disable_high_entropy_client_hints": true, "disable_redirect_referer": true
             })
         );
+    }
+
+    #[test]
+    fn header_order_with_orders_what_the_request_holds_when_it_is_sent() {
+        let s = session();
+        // The order is asked for once everything is set: the headers set
+        // after the call, the cookies as one header, the implied type last.
+        let reversed = |head: &RequestHead<'_>| {
+            let names: Vec<String> = head.headers.iter().map(|(name, _)| name.clone()).collect();
+            HeaderOrder {
+                request: names.iter().rev().cloned().collect(),
+                redirects: vec![format!("{}-{}", head.method, head.has_body)],
+            }
+        };
+        let v = wire(
+            s.post("http://x/")
+                .header_order_with(reversed)
+                .header("X-One", "1")
+                .cookie("c", "v")
+                .json(&1)
+                .header("x-one", "2"),
+            false,
+        );
+        assert_eq!(v["header_order"], serde_json::json!(["Content-Type", "Cookie", "x-one"]));
+        assert_eq!(v["redirect_header_order"], serde_json::json!(["POST-true"]));
+        // An empty body is no body, and an empty answer leaves the preset's order.
+        let v = wire(
+            s.post("http://x/").body("").header_order_with(|head| {
+                assert!(!head.has_body);
+                HeaderOrder::default()
+            }),
+            false,
+        );
+        assert_eq!(v, serde_json::json!({"method": "POST", "url": "http://x/"}));
+
+        let order = |_: &RequestHead<'_>| HeaderOrder { request: vec!["bad name".into()], redirects: Vec::new() };
+        assert!(err(s.get("http://x/").header_order_with(order)).is_invalid_input());
+        let order = |_: &RequestHead<'_>| HeaderOrder::default();
+        assert!(err(s.get("http://x/").header_order_with(order).header_order(["accept"])).is_invalid_input());
+        assert!(err(s.get("http://x/").header_order_with(order).redirect_header_order(["accept"])).is_invalid_input());
+        assert!(err(s.get("http://x/").header_order_with(order).exact_headers([("Accept", "*/*")])).is_invalid_input());
     }
 
     #[test]

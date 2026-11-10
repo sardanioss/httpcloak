@@ -292,6 +292,15 @@ type Request struct {
 	//	})
 	HeaderOrder []string
 
+	// RedirectHeaderOrder, when non-empty, takes HeaderOrder's place on every
+	// request that follows a redirect of this one, for a browser that orders a
+	// redirected request's headers differently from the request it started with.
+	// Safari does: it rebuilds the next request from what the last one put on
+	// the wire, so Accept-Language and Priority, which close its first request,
+	// are ordered among the others on every later hop. Same semantics as
+	// HeaderOrder. Empty or nil means the hops keep HeaderOrder.
+	RedirectHeaderOrder []string
+
 	// OnRedirect, when non-nil, is called once per redirect hop before the
 	// follow-up request is built. Return nil to follow the hop,
 	// ErrUseLastResponse to stop the chain and get the 3xx back as the response
@@ -1251,6 +1260,7 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
+		RedirectHeaderOrder:           req.RedirectHeaderOrder,
 		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
 	}
@@ -1285,6 +1295,7 @@ func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Re
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
+		RedirectHeaderOrder:           req.RedirectHeaderOrder,
 		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
 	}
@@ -1688,6 +1699,7 @@ func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, 
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
+		RedirectHeaderOrder:           req.RedirectHeaderOrder,
 		Timeout:                       req.Timeout,
 	}
 

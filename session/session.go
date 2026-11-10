@@ -641,11 +641,20 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			// re-placed by the preset table or the sorted tail on the next one,
 			// so the ordering has to follow the headers it orders or the two
 			// disagree mid-chain.
+			//
+			// RedirectHeaderOrder, when the caller set one, is that ordering for
+			// every hop after the first, so it takes HeaderOrder's place here and
+			// is carried on for the hops after this one.
+			hopOrder := req.HeaderOrder
+			if len(req.RedirectHeaderOrder) > 0 {
+				hopOrder = req.RedirectHeaderOrder
+			}
 			newReq := &transport.Request{
 				Method:                        newMethod,
 				URL:                           redirectURL,
 				Headers:                       make(map[string][]string),
-				HeaderOrder:                   req.HeaderOrder,
+				HeaderOrder:                   hopOrder,
+				RedirectHeaderOrder:           req.RedirectHeaderOrder,
 				Timeout:                       req.Timeout,
 				TLSOnly:                       req.TLSOnly,
 				FollowRedirects:               req.FollowRedirects,

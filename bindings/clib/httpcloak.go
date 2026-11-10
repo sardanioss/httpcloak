@@ -176,9 +176,16 @@ type RequestConfig struct {
 	// this order, and anything left out keeps the preset's own position. Use it
 	// instead of setting a session-wide order around a request, which races
 	// with every other request in flight.
-	HeaderOrder  []string `json:"header_order,omitempty"`
-	Body         string   `json:"body,omitempty"`
-	BodyEncoding string   `json:"body_encoding,omitempty"` // "text" (default) or "base64"
+	HeaderOrder []string `json:"header_order,omitempty"`
+
+	// RedirectHeaderOrder takes HeaderOrder's place on every request that
+	// follows a redirect of this one, for a browser that orders a redirected
+	// request's headers differently from the first (Safari). Left out, the
+	// hops keep HeaderOrder.
+	RedirectHeaderOrder []string `json:"redirect_header_order,omitempty"`
+
+	Body         string `json:"body,omitempty"`
+	BodyEncoding string `json:"body_encoding,omitempty"` // "text" (default) or "base64"
 	// Timeout's UNIT DEPENDS ON THE ENTRY POINT: httpcloak_request_raw reads it
 	// as MILLISECONDS; httpcloak_request and httpcloak_request_async (and
 	// httpcloak_stream_request) read it as SECONDS. Bindings must convert to
@@ -1154,6 +1161,7 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
 		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 		HeaderOrder:                   config.HeaderOrder,
+		RedirectHeaderOrder:           config.RedirectHeaderOrder,
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -1795,6 +1803,7 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) (hcRet *C.char) {
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
 		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 		HeaderOrder:                   config.HeaderOrder,
+		RedirectHeaderOrder:           config.RedirectHeaderOrder,
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -2085,6 +2094,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 			Headers:                       buildHeaders(config.Headers, config.FetchMode),
 			ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 			HeaderOrder:                   config.HeaderOrder,
+			RedirectHeaderOrder:           config.RedirectHeaderOrder,
 			Body:                          bodyReader,
 			FollowRedirects:               config.FollowRedirects,
 			DisableConditionalCache:       config.DisableConditionalCache,
@@ -3772,6 +3782,7 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
 		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 		HeaderOrder:                   config.HeaderOrder,
+		RedirectHeaderOrder:           config.RedirectHeaderOrder,
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -3884,6 +3895,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 			Headers:                       buildHeaders(config.Headers, config.FetchMode),
 			ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 			HeaderOrder:                   config.HeaderOrder,
+			RedirectHeaderOrder:           config.RedirectHeaderOrder,
 			Body:                          bodyReader,
 			FollowRedirects:               config.FollowRedirects,
 			DisableConditionalCache:       config.DisableConditionalCache,

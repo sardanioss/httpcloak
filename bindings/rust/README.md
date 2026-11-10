@@ -99,7 +99,9 @@ let data: serde_json::Value = response.json()?;
 `Content-Type` unless you set one. Headers you add replace the preset's under the
 same name and go out in the browser's order. `exact_headers` replaces the whole
 pipeline for replaying a captured request, and `header_order` reorders one
-request without touching the session.
+request without touching the session; `redirect_header_order` does the same for
+the requests that follow its redirects, and `header_order_with` works both out
+when the request is sent, from the headers it then holds.
 
 ### Async
 
