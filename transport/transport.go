@@ -1395,7 +1395,12 @@ func checkScheme(u *url.URL) error {
 	}
 }
 
-// Do executes an HTTP request
+// Do executes an HTTP request.
+//
+// A request may go out more than once, on a new connection or another
+// protocol, only when that cannot have the server act on it twice: see
+// CanResend. Otherwise a failure is returned as it happened, and
+// RequestNotSent says whether the request may have reached the server.
 func (t *Transport) Do(ctx context.Context, req *Request) (*Response, error) {
 	// Parse URL to determine scheme
 	parsedURL, err := url.Parse(req.URL)
@@ -1677,26 +1682,6 @@ func (t *Transport) doHTTP2OrHTTP1(ctx context.Context, req *Request) (*Response
 	}
 	resp, retryErr := t.doHTTP1(ctx, req)
 	return resp, laterAttempt(err, retryErr)
-}
-
-// canResendOnAnotherProtocol reports whether a request whose attempt on one
-// protocol failed with err may be sent again on another, on a fresh
-// connection. That is safe when nothing of the first attempt was sent, or when
-// the request is idempotent (RFC 9110 section 9.2.2) and its body is held in
-// memory: a body read from a stream was consumed by the first attempt, and
-// resending it would send it empty.
-func canResendOnAnotherProtocol(req *Request, err error) bool {
-	if RequestNotSent(err) {
-		return true
-	}
-	if req.BodyReader != nil {
-		return false
-	}
-	switch strings.ToUpper(req.Method) {
-	case "", "GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE":
-		return true
-	}
-	return false
 }
 
 // connectResult holds the result of a connection race

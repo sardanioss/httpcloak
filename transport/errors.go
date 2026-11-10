@@ -258,7 +258,8 @@ func laterAttempt(earlier, err error) error {
 //
 // It is false whenever that is not known, which includes every failure once
 // a request was written or may have been: a request it is false for may have
-// reached the server, and may have been acted on.
+// reached the server, and may have been acted on. CanResend says when the
+// library itself sends a request again.
 func RequestNotSent(err error) bool {
 	var notSent *requestNotSentError
 	var sentBefore *sentBeforeError

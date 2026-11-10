@@ -173,7 +173,8 @@ func TestAFailureOnceTheRequestMayHaveBeenWrittenIsNotMarked(t *testing.T) {
 
 	// The request went out on an idle connection the server then dropped, and
 	// the new connection for the second attempt could not be had: the first
-	// attempt may have reached the server.
+	// attempt may have reached the server. A GET, since only an idempotent
+	// request written to the idle connection goes again on a new one.
 	t.Run("h1 idle connection, then no new one", func(t *testing.T) {
 		var ln net.Listener
 		requests := 0
@@ -204,7 +205,7 @@ func TestAFailureOnceTheRequestMayHaveBeenWrittenIsNotMarked(t *testing.T) {
 		if _, err := tr.Do(context.Background(), &Request{Method: "GET", URL: "http://" + addr + "/"}); err != nil {
 			t.Fatalf("first request: %v", err)
 		}
-		_, err := tr.Do(context.Background(), &Request{Method: "POST", URL: "http://" + addr + "/pay", Body: []byte("x"), Timeout: 5 * time.Second})
+		_, err := tr.Do(context.Background(), &Request{Method: "GET", URL: "http://" + addr + "/page", Timeout: 5 * time.Second})
 		if err == nil || RequestNotSent(err) {
 			t.Fatalf("want a failure not marked as not sent, got %v", err)
 		}

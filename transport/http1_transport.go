@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	http "github.com/sardanioss/http"
 	tls "github.com/sardanioss/utls"
@@ -61,6 +62,7 @@ type http1Conn struct {
 	tlsConn    *utls.UConn
 	br         *bufio.Reader
 	bw         *bufio.Writer
+	out        *countingWriter // beneath bw: whether a failed request wrote anything
 	createdAt  time.Time
 	lastUsedAt time.Time
 	useCount   int64
@@ -77,6 +79,110 @@ type http1Conn struct {
 	// request context. Atomic rather than guarded by mu: it is set from the
 	// context watchdog while doRequest holds mu for the whole exchange.
 	poisoned atomic.Bool
+	// idleWatch closes when the read watchIdle started on the connection,
+	// while it waited in the pool, has ended; idleErr is how it ended. Both
+	// are handed over through the pool's lock.
+	idleWatch chan struct{}
+	idleErr   error
+}
+
+// setBuffers sets up the read and write buffers over the established
+// connection, plain or TLS.
+func (c *http1Conn) setBuffers() {
+	c.out = &countingWriter{w: c.conn}
+	c.br = bufio.NewReaderSize(c.conn, 64*1024) // 64KB read buffer
+	c.bw = bufio.NewWriterSize(c.out, 256*1024) // 256KB write buffer for fast uploads
+}
+
+// countingWriter counts the bytes its writer took: for a TLS connection,
+// those of whole records, which are all the server can have read.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	n, err := w.w.Write(p)
+	w.n += int64(n)
+	return n, err
+}
+
+// aLongTimeAgo is a deadline in the past, which ends a read in progress.
+var aLongTimeAgo = time.Unix(1, 0)
+
+// watchIdle starts watching a connection that has gone back to the pool, as
+// net/http's read loop and Chrome's socket pool watch theirs: a server that
+// closes a keep-alive connection while it is idle, or says anything on it, has
+// made it unusable, and the next request must not be written to it. Once
+// written to a connection the server then turns out to have closed, a request
+// that is not idempotent cannot be sent again (see resendOnNewConn), so
+// without the watch every POST after a server's keep-alive timeout would fail.
+//
+// The read ends when the server closes the connection or sends something, or
+// when claimIdle interrupts it; closing the connection ends it too.
+func (c *http1Conn) watchIdle() {
+	done := make(chan struct{})
+	c.idleWatch = done
+	go func() {
+		defer close(done)
+		_, c.idleErr = c.br.Peek(1)
+	}()
+}
+
+// claimIdle ends the watch on a connection taken from the pool, and reports
+// whether the connection is still usable: the server neither closed it nor
+// sent anything while it was idle, so the watch ended only when interrupted.
+//
+// Interrupting the read with a deadline leaves the connection as it was: a
+// timeout is not a permanent error to the TLS layer, and bufio hands the error
+// back once and forgets it.
+func (c *http1Conn) claimIdle() bool {
+	c.conn.SetReadDeadline(aLongTimeAgo)
+	<-c.idleWatch
+	c.conn.SetReadDeadline(time.Time{})
+	c.idleWatch = nil
+	return isTimeout(c.idleErr) && c.br.Buffered() == 0
+}
+
+// isTimeout reports whether err is a deadline running out.
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// h1Failure is how far a failed HTTP/1.1 exchange got, which decides whether
+// its request may go out again on another connection (resendOnNewConn).
+type h1Failure int
+
+const (
+	// failedUnwritten: not a byte of the request reached the connection.
+	failedUnwritten h1Failure = iota
+	// failedUnanswered: the request was written, in whole or in part, and the
+	// connection then failed, other than by a timeout, before any of the
+	// answer arrived. A server that closed a keep-alive connection just as the
+	// request went out fails it so.
+	failedUnanswered
+	// failedLater: the wait for the answer timed out, or the answer failed
+	// once it had begun.
+	failedLater
+)
+
+// resendOnNewConn reports whether a request whose exchange on a pooled
+// connection failed as failure may be sent on a new connection, by the rule
+// in resend.go: when nothing of it was written, or when the connection failed
+// before any answer and the request is idempotent with a body that can be
+// sent again. Never after a timeout, nor once an answer had begun, as neither
+// net/http nor Chrome resends then. A body that was written is rewound with
+// GetBody before it goes out again; one without GetBody cannot be.
+func resendOnNewConn(req *http.Request, failure h1Failure) bool {
+	switch failure {
+	case failedUnwritten:
+		return true
+	case failedUnanswered:
+		bodyReplayable := req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
+		return IdempotentMethod(req.Method) && bodyReplayable
+	}
+	return false
 }
 
 // poison unblocks whatever this connection is currently blocked on and retires
@@ -321,12 +427,14 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	connectHost := t.getConnectHost(host)
 	key := fmt.Sprintf("%s://%s:%s", scheme, connectHost, port)
 
-	// Try to get an idle connection
-	conn, err := t.getIdleConn(key)
-	triedIdle := err == nil && conn != nil
-	if triedIdle {
+	// A pooled connection first, if there is one. The server may have closed
+	// it since, at the very moment the request went out, and then the request
+	// goes out again on a new connection, but only when that cannot have the
+	// server act on it twice (resendOnNewConn and resend.go).
+	sentOnIdle := false
+	if conn := t.getIdleConn(key); conn != nil {
 		stopWatch := watchContext(req.Context(), conn)
-		resp, err := t.doRequest(conn, req)
+		resp, failure, err := t.doRequest(conn, req)
 		if err == nil && req.Context().Err() == nil {
 			// Wrap the body to handle connection lifecycle
 			// Connection will be returned to pool or closed when body is fully read
@@ -341,7 +449,6 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			}
 			return resp, nil
 		}
-		// Connection failed, close it and try new one
 		stopWatch()
 		conn.close()
 		// A cancelled context is the caller giving up, not a bad connection:
@@ -349,6 +456,10 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if ctxErr := contextError(req.Context()); ctxErr != nil {
 			return nil, ctxErr
 		}
+		if !resendOnNewConn(req, failure) {
+			return nil, WrapError("request", host, port, "h1", err)
+		}
+		sentOnIdle = failure != failedUnwritten
 		// doRequest streams the body out as it writes, so an attempt that died
 		// on a stale pooled connection may have consumed it. Re-open it before
 		// retrying below. Without this the retry goes out carrying the
@@ -370,18 +481,19 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	// Create new connection (pass request host for SNI, connectHost used internally for DNS)
-	conn, err = t.createConnRetry(req.Context(), host, port, scheme)
+	conn, err := t.createConnRetry(req.Context(), host, port, scheme)
 	if err != nil {
 		// No connection, so nothing of this attempt was written. An attempt on
-		// an idle connection before it may have been.
-		if !triedIdle {
+		// an idle connection before it may have been, unless it failed before
+		// writing anything.
+		if !sentOnIdle {
 			err = markNotSent(err)
 		}
 		return nil, err
 	}
 
 	stopWatch := watchContext(req.Context(), conn)
-	resp, err := t.doRequest(conn, req)
+	resp, _, err := t.doRequest(conn, req)
 	if err != nil || req.Context().Err() != nil {
 		stopWatch()
 		conn.close()
@@ -436,12 +548,11 @@ func (t *HTTP1Transport) RoundTripWithTLSConn(req *http.Request, tlsConn *utls.U
 		sessionResumed: handoffState.DidResume,
 		tlsVersion:     handoffState.Version,
 		cipherSuite:    handoffState.CipherSuite,
-		br:             bufio.NewReaderSize(tlsConn, 64*1024),  // 64KB read buffer
-		bw:             bufio.NewWriterSize(tlsConn, 256*1024), // 256KB write buffer
 	}
+	conn.setBuffers()
 
 	stopWatch := watchContext(req.Context(), conn)
-	resp, err := t.doRequest(conn, req)
+	resp, _, err := t.doRequest(conn, req)
 	if err != nil || req.Context().Err() != nil {
 		stopWatch()
 		conn.close()
@@ -592,7 +703,7 @@ func (t *HTTP1Transport) StreamRoundTrip(req *http.Request) (*http.Response, err
 	}
 
 	stopWatch := watchContext(req.Context(), conn)
-	resp, err := t.doRequest(conn, req)
+	resp, _, err := t.doRequest(conn, req)
 	if err != nil || req.Context().Err() != nil {
 		stopWatch()
 		conn.close()
@@ -860,8 +971,7 @@ func (t *HTTP1Transport) createConn(ctx context.Context, host, port, scheme stri
 		}
 	}
 
-	conn.br = bufio.NewReaderSize(conn.conn, 64*1024)  // 64KB read buffer
-	conn.bw = bufio.NewWriterSize(conn.conn, 256*1024) // 256KB write buffer for fast uploads
+	conn.setBuffers()
 
 	_ = targetAddr // suppress unused warning
 
@@ -1096,13 +1206,14 @@ func (t *HTTP1Transport) getProxyAuth(proxyURL *url.URL) string {
 	return base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
-// doRequest performs the HTTP request on the connection
-func (t *HTTP1Transport) doRequest(conn *http1Conn, req *http.Request) (*http.Response, error) {
+// doRequest performs the HTTP request on the connection. On a failure it also
+// says how far the exchange got, for resendOnNewConn.
+func (t *HTTP1Transport) doRequest(conn *http1Conn, req *http.Request) (*http.Response, h1Failure, error) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
 	if conn.closed {
-		return nil, fmt.Errorf("connection closed")
+		return nil, failedUnwritten, fmt.Errorf("connection closed")
 	}
 
 	conn.lastUsedAt = time.Now()
@@ -1121,8 +1232,12 @@ func (t *HTTP1Transport) doRequest(conn *http1Conn, req *http.Request) (*http.Re
 	conn.conn.SetDeadline(ctxDeadline)
 
 	// Write request
+	written := conn.out.n
 	if err := t.writeRequest(conn, req); err != nil {
-		return nil, err
+		if conn.out.n == written {
+			return nil, failedUnwritten, err
+		}
+		return nil, failedUnanswered, err
 	}
 
 	deadline := time.Now().Add(t.responseTimeout)
@@ -1131,13 +1246,22 @@ func (t *HTTP1Transport) doRequest(conn *http1Conn, req *http.Request) (*http.Re
 	}
 	conn.conn.SetReadDeadline(deadline)
 
+	// Wait for the first byte of the answer on its own, so that a connection
+	// that failed before any answer can be told from an answer that failed.
+	if _, err := conn.br.Peek(1); err != nil {
+		if isTimeout(err) {
+			return nil, failedLater, err
+		}
+		return nil, failedUnanswered, err
+	}
+
 	// Read response. The casing peek has to happen first: it reads nothing, but
 	// once ReadResponse has consumed the header block the original spelling is
 	// gone, since the parse underneath canonicalises the names.
 	casing := peekHeaderCasing(conn.br)
 	resp, err := http.ReadResponse(conn.br, req)
 	if err != nil {
-		return nil, err
+		return nil, failedLater, err
 	}
 	stashHeaderCasing(resp.Header, casing)
 
@@ -1145,7 +1269,7 @@ func (t *HTTP1Transport) doRequest(conn *http1Conn, req *http.Request) (*http.Re
 	// handleClose clears this before the connection goes back to the pool.
 	conn.conn.SetReadDeadline(ctxDeadline)
 
-	return resp, nil
+	return resp, failedLater, nil
 }
 
 // writeRequest writes an HTTP/1.1 request with browser-like header ordering
@@ -1534,52 +1658,58 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 	// it as the second header), so it is intentionally not written here.
 }
 
-// shouldKeepAlive determines if connection should be reused
+// shouldKeepAlive reports whether the connection may serve another request
+// once this response's body is done.
+//
+// resp.Close is the response's own say, as the HTTP library parsed it: a
+// "Connection: close" (which the parse removes from resp.Header, so looking
+// for the header never found it), an HTTP/1.0 answer without keep-alive, and
+// a body that runs to the end of the connection. Every connection the server
+// was about to close went back to the pool, and the next request was written
+// to it: that failed, and was sent again on a new connection, whatever its
+// method.
 func (t *HTTP1Transport) shouldKeepAlive(req *http.Request, resp *http.Response) bool {
-	// Check response Connection header
-	if strings.EqualFold(resp.Header.Get("Connection"), "close") {
-		return false
-	}
-
-	// Check request Connection header
-	if strings.EqualFold(req.Header.Get("Connection"), "close") {
-		return false
-	}
-
-	// HTTP/1.1 defaults to keep-alive
-	if resp.ProtoMajor == 1 && resp.ProtoMinor >= 1 {
-		return true
-	}
-
-	// HTTP/1.0 with explicit keep-alive
-	if strings.ToLower(resp.Header.Get("Connection")) == "keep-alive" {
-		return true
-	}
-
-	return false
+	return !resp.Close && !strings.EqualFold(req.Header.Get("Connection"), "close")
 }
 
-// getIdleConn retrieves an idle connection from the pool
-func (t *HTTP1Transport) getIdleConn(key string) (*http1Conn, error) {
+// getIdleConn takes a usable idle connection from the pool, the most recently
+// used first, or returns nil when there is none. A connection the server
+// closed while it was idle is dropped rather than written to (see watchIdle).
+func (t *HTTP1Transport) getIdleConn(key string) *http1Conn {
+	for {
+		conn, ok := t.popIdleConn(key)
+		if !ok {
+			return nil
+		}
+		if conn == nil {
+			continue // expired
+		}
+		if conn.claimIdle() {
+			return conn
+		}
+		conn.close()
+	}
+}
+
+// popIdleConn takes the most recently used connection from the pool: nil when
+// it was idle too long, and false when the pool has none.
+func (t *HTTP1Transport) popIdleConn(key string) (*http1Conn, bool) {
 	t.idleConnsMu.Lock()
 	defer t.idleConnsMu.Unlock()
 
 	conns := t.idleConns[key]
 	if len(conns) == 0 {
-		return nil, nil
+		return nil, false
 	}
 
-	// Get the most recently used connection
 	conn := conns[len(conns)-1]
 	t.idleConns[key] = conns[:len(conns)-1]
 
-	// Check if connection is still valid
 	if time.Since(conn.lastUsedAt) > t.maxIdleTime {
 		conn.close()
-		return nil, nil
+		return nil, true
 	}
-
-	return conn, nil
+	return conn, true
 }
 
 // putIdleConn returns a connection to the pool
@@ -1604,6 +1734,7 @@ func (t *HTTP1Transport) putIdleConn(key string, conn *http1Conn) {
 	}
 
 	conn.lastUsedAt = time.Now()
+	conn.watchIdle()
 	t.idleConns[key] = append(conns, conn)
 }
 
