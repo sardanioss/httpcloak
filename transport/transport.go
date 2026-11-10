@@ -2358,13 +2358,14 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	// Record timing before request
 	reqStart := time.Now()
 
-	// Make request. In forced-H3 (H3-only) mode there is no protocol fallback, so a
-	// QUIC path that completes its handshake but then stalls the roundtrip — an
-	// IPv6 PMTU black hole keeps the connection alive via keepalives while the
-	// response never arrives — would otherwise hang until the full deadline.
-	// roundTripHTTP3 bounds the first attempt and, on a stall, redials once biased
-	// to the other address family.
-	resp, cleanup, err := t.roundTripHTTP3(ctx, snap.h3, httpReq, req)
+	// Make request. Once HTTP/3 is chosen there is no protocol fallback for a
+	// request that went out, so a QUIC path that completes its handshake but then
+	// stalls the roundtrip — an IPv6 PMTU black hole keeps the connection alive
+	// via keepalives while the response never arrives — would otherwise hang until
+	// the full deadline. roundTripHTTP3 bounds the first attempt and, on a stall,
+	// redials once biased to the other address family, when that cannot send the
+	// request twice.
+	resp, cleanup, err := t.roundTripHTTP3(ctx, snap.h3, httpReq, req, gotConn)
 	if err != nil {
 		cleanup()
 		return nil, WrapError("roundtrip", host, port, "h3", h3NotSent(err, gotConn))
@@ -2439,12 +2440,21 @@ const h3StallWindow = 5 * time.Second
 
 // roundTripHTTP3 runs the HTTP/3 roundtrip with a bounded first attempt and, on a
 // stall over a still-alive-but-useless QUIC connection, drops that connection and
-// retries once biased to the other address family. This is the only fallback
-// available in H3-only mode — auto mode races H2 and never gets stuck here. When a
-// retry cannot help (a non-replayable streaming body, or a budget too small to
-// carve out a stall window) it runs a single unbounded attempt, preserving the
-// original behavior exactly.
-func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, httpReq *http.Request, req *Request) (*http.Response, func(), error) {
+// retries once biased to the other address family. It runs for every HTTP/3
+// request: forced HTTP/3, a host auto mode has cached as HTTP/3, and auto mode's
+// race when HTTP/3 connects first, after which there is no fallback to HTTP/2
+// for a request that may have been sent. When a retry cannot help (a body read
+// from a stream, which the first attempt consumes, or a budget too small to
+// carve out a stall window) it runs a single unbounded attempt.
+//
+// A stall is a slow answer as far as anyone can tell, and a slow answer may be
+// a server at work on the request, so the retry follows CanResend: it goes out
+// when the first attempt never had a connection to write the request on
+// (gotConn, which doHTTP3's trace sets, is still false), or when the request is
+// idempotent. A request that is not, and went out, waits for its answer within
+// its own deadline, as it would with no stall window: a POST is never sent
+// twice for being slow.
+func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, httpReq *http.Request, req *Request, gotConn *atomic.Bool) (*http.Response, func(), error) {
 	noop := func() {}
 	deadline, hasDeadline := ctx.Deadline()
 	// A streaming body cannot be re-read on retry; only in-memory []byte bodies
@@ -2455,6 +2465,8 @@ func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, http
 		resp, err := h3.RoundTrip(httpReq)
 		return resp, noop, err
 	}
+	// Whether the first attempt may go again even if it was written.
+	idempotent := IdempotentMethod(httpReq.Method)
 
 	// First attempt on a stall-abortable child context. The stall window only
 	// bounds time-to-response-headers: RoundTrip returns once headers arrive and
@@ -2479,18 +2491,36 @@ func (t *Transport) roundTripHTTP3(ctx context.Context, h3 *HTTP3Transport, http
 			return res.resp, cancelAttempt, nil
 		}
 		cancelAttempt()
-		// Retry only a stall, and only while the overall request budget survives.
-		// A definitive transport error (not a stall) or an exhausted parent
-		// deadline returns as-is.
-		if ctx.Err() != nil || !isH3Stall(res.err) {
+		// Retry only a stall, only while the overall request budget survives,
+		// and only when that cannot send the request twice. A definitive
+		// transport error (not a stall), an exhausted parent deadline, or a
+		// request that went out and is not idempotent returns as-is.
+		if ctx.Err() != nil || !isH3Stall(res.err) || (gotConn.Load() && !idempotent) {
 			return res.resp, noop, res.err
 		}
 	case <-time.After(h3StallWindow):
-		// Headers never arrived within the window: abort this attempt. The
-		// goroutine observes the cancel and drains into the buffered channel.
+		if gotConn.Load() && !idempotent {
+			// The request went out and is not idempotent: wait for its answer
+			// within the request's own deadline rather than send it again.
+			res := <-done
+			if res.err != nil {
+				cancelAttempt()
+				return nil, noop, res.err
+			}
+			return res.resp, cancelAttempt, nil
+		}
+		// Headers never arrived within the window: abort this attempt, and wait
+		// for it to end, so that whether it had a connection is final.
 		cancelAttempt()
+		res := <-done
 		if ctx.Err() != nil {
 			return nil, noop, ctx.Err()
+		}
+		if gotConn.Load() && !idempotent {
+			// It got its connection in the moment before it was aborted, and
+			// may have written the request: that answer is lost, and the
+			// request is not sent again.
+			return nil, noop, fmt.Errorf("no answer within %v, and the request may have been sent: %w", h3StallWindow, res.err)
 		}
 	}
 
