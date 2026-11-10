@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -319,17 +320,80 @@ type SessionConfig struct {
 	TCPDFBit                      *bool                  `json:"tcp_df,omitempty"`                            // Override IP Don't Fragment flag
 }
 
-// Error response
+// ErrorResponse is a failure as it crosses to a binding.
 type ErrorResponse struct {
-	Error   string `json:"error"`
+	Error string `json:"error"`
+	// Code is the kind of failure, when the error's types say it: one of
+	// "timeout", "proxy", "dns", "tls", "connect", "redirect", "io" and
+	// "decode". Empty when only the message could tell, which a binding then
+	// reads itself, as it did before codes were sent.
 	Code    string `json:"code,omitempty"`
 	Details string `json:"details,omitempty"`
+	// NotSent says that no part of the request reached the server, so it was
+	// not acted on (transport.RequestNotSent). Absent, the request may have
+	// been sent.
+	NotSent bool `json:"not_sent,omitempty"`
+	// ProxyStatus is the status an HTTP proxy refused the request's tunnel
+	// with: 407 when it wants credentials or refused the ones it was given.
+	ProxyStatus int `json:"proxy_status,omitempty"`
+}
+
+// errorResponse is err as it crosses to a binding, with what its types say
+// about it beside its message.
+func errorResponse(err error) ErrorResponse {
+	resp := ErrorResponse{Error: err.Error(), Code: errorCode(err), NotSent: transport.RequestNotSent(err)}
+	var refused *transport.ProxyStatusError
+	if errors.As(err, &refused) {
+		resp.ProxyStatus = refused.StatusCode
+	}
+	return resp
+}
+
+// errorCode is the kind of failure err is, in ErrorResponse.Code's names,
+// read from its types: a timeout anywhere in it, a redirect that could not be
+// followed, a proxy's refusal, or the operation the transport names its
+// failure by where it is one that says the kind. Anything else is "", and a
+// binding reads the kind from the message.
+func errorCode(err error) string {
+	var netErr net.Error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, os.ErrDeadlineExceeded),
+		errors.Is(err, transport.ErrTimeout), errors.As(err, &netErr) && netErr.Timeout():
+		return "timeout"
+	case errors.Is(err, transport.ErrTooManyRedirects), errors.Is(err, transport.ErrBodyNotReplayable):
+		return "redirect"
+	}
+	var refused *transport.ProxyStatusError
+	if errors.As(err, &refused) {
+		return "proxy"
+	}
+	var failed *transport.TransportError
+	if errors.As(err, &failed) {
+		switch failed.Op {
+		case "dial_proxy":
+			return "proxy"
+		case "dns_resolve":
+			return "dns"
+		case "dial":
+			return "connect"
+		case "tls_handshake", "alpn":
+			return "tls"
+		case "read_body":
+			return "io"
+		case "decompress":
+			return "decode"
+		}
+	}
+	return ""
+}
+
+func errorJSON(err error) string {
+	data, _ := json.Marshal(errorResponse(err))
+	return string(data)
 }
 
 func makeErrorJSON(err error) *C.char {
-	resp := ErrorResponse{Error: err.Error()}
-	data, _ := json.Marshal(resp)
-	return C.CString(string(data))
+	return C.CString(errorJSON(err))
 }
 
 // --- cgo panic guards (P0) ---
@@ -1872,9 +1936,7 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 
 		resp, err := session.Do(ctx, req)
 		if err != nil {
-			errResp := ErrorResponse{Error: err.Error()}
-			errJSON, _ := json.Marshal(errResp)
-			invokeCallback(int64(callbackID), "", string(errJSON))
+			invokeCallback(int64(callbackID), "", errorJSON(err))
 			return
 		}
 
@@ -1969,9 +2031,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		if bodyStr != "" {
 			rawBody, decodeErr := decodeRequestBody(bodyStr, options.BodyEncoding)
 			if decodeErr != nil {
-				errResp := ErrorResponse{Error: "invalid base64 body: " + decodeErr.Error()}
-				errJSON, _ := json.Marshal(errResp)
-				invokeCallback(int64(callbackID), "", string(errJSON))
+				invokeCallback(int64(callbackID), "", errorJSON(fmt.Errorf("invalid base64 body: %w", decodeErr)))
 				return
 			}
 			if len(rawBody) > 0 {
@@ -1994,9 +2054,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 
 		resp, err := session.Do(ctx, req)
 		if err != nil {
-			errResp := ErrorResponse{Error: err.Error()}
-			errJSON, _ := json.Marshal(errResp)
-			invokeCallback(int64(callbackID), "", string(errJSON))
+			invokeCallback(int64(callbackID), "", errorJSON(err))
 			return
 		}
 
@@ -2082,9 +2140,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 		if config.Body != "" {
 			bodyBytes, err := decodeRequestBody(config.Body, config.BodyEncoding)
 			if err != nil {
-				errResp := ErrorResponse{Error: err.Error()}
-				errJSON, _ := json.Marshal(errResp)
-				invokeCallback(int64(callbackID), "", string(errJSON))
+				invokeCallback(int64(callbackID), "", errorJSON(err))
 				return
 			}
 			bodyReader = bytes.NewReader(bodyBytes)
@@ -2107,9 +2163,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 
 		resp, err := session.Do(ctx, req)
 		if err != nil {
-			errResp := ErrorResponse{Error: err.Error()}
-			errJSON, _ := json.Marshal(errResp)
-			invokeCallback(int64(callbackID), "", string(errJSON))
+			invokeCallback(int64(callbackID), "", errorJSON(err))
 			return
 		}
 
@@ -3859,8 +3913,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 	if requestJSON != nil {
 		if err := json.Unmarshal([]byte(C.GoString(requestJSON)), &config); err != nil {
 			go func() {
-				errJSON, _ := json.Marshal(ErrorResponse{Error: "invalid request JSON: " + err.Error()})
-				invokeCallback(int64(callbackID), "", string(errJSON))
+				invokeCallback(int64(callbackID), "", errorJSON(fmt.Errorf("invalid request JSON: %w", err)))
 			}()
 			return
 		}
@@ -3887,13 +3940,12 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 		}()
 		defer guardAsync("stream_request_async goroutine", int64(callbackID))
 
-		fail := func(msg string) {
-			errJSON, _ := json.Marshal(ErrorResponse{Error: msg})
-			invokeCallback(int64(callbackID), "", string(errJSON))
+		fail := func(err error) {
+			invokeCallback(int64(callbackID), "", errorJSON(err))
 		}
 
 		if session == nil {
-			fail(ErrInvalidSession.Error())
+			fail(ErrInvalidSession)
 			return
 		}
 		if config.Method == "" {
@@ -3909,7 +3961,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 			bodyBytes, err := decodeRequestBody(config.Body, config.BodyEncoding)
 			if err != nil {
 				timeoutCancel()
-				fail(err.Error())
+				fail(err)
 				return
 			}
 			bodyReader = bytes.NewReader(bodyBytes)
@@ -3933,7 +3985,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 		resp, err := session.DoStream(streamCtx, req)
 		if err != nil {
 			timeoutCancel()
-			fail(err.Error())
+			fail(err)
 			return
 		}
 
@@ -3954,7 +4006,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 		metaJSON, err := json.Marshal(meta)
 		if err != nil {
 			httpcloak_stream_close(C.int64_t(handle))
-			fail("encode stream metadata: " + err.Error())
+			fail(fmt.Errorf("encode stream metadata: %w", err))
 			return
 		}
 		// A caller that cancelled by unregistering the callback never learns

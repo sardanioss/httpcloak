@@ -1,29 +1,42 @@
 use std::error::Error as StdError;
 use std::fmt;
 use std::io;
+use std::sync::Arc;
 
 use http::StatusCode;
+
+use crate::ffi::ErrorObject;
 
 /// A `Result` whose error is [`Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Everything that can go wrong in this crate.
 ///
-/// The library reports its failures as text, so [`kind`](Error::kind) is
-/// worked out from the message. The message itself is always kept, unchanged,
-/// as the error's `Display`.
+/// The library reports what a failure's types say about it beside its
+/// message: the [`kind`](Error::kind) where they tell it, whether the request
+/// [was never sent](Error::is_not_sent), and the status a proxy refused it
+/// with. Where they don't tell the kind, and from a library built before it
+/// said any of this, the kind is worked out from the message. The message
+/// itself is always kept, unchanged, as the error's `Display`.
+///
+/// Cloning is cheap: clones share one error.
+#[derive(Clone)]
 pub struct Error {
-    inner: Box<Inner>,
+    inner: Arc<Inner>,
 }
 
+#[derive(Clone)]
 struct Inner {
     kind: ErrorKind,
-    /// The library worded this one, so `kind` was read from the message.
-    from_library: bool,
+    /// The kind was read from a message the library worded, so it is read
+    /// again knowing the request's host names.
+    kind_from_message: bool,
     message: String,
     url: Option<String>,
     status: Option<StatusCode>,
-    source: Option<Box<dyn StdError + Send + Sync>>,
+    proxy_status: Option<StatusCode>,
+    not_sent: bool,
+    source: Option<Arc<dyn StdError + Send + Sync>>,
 }
 
 /// What kind of failure an [`Error`] is.
@@ -59,34 +72,82 @@ pub enum ErrorKind {
     Other,
 }
 
+impl ErrorKind {
+    /// The kind the library's code for it names (`ErrorResponse.Code` in
+    /// clib/httpcloak.go); `None` for one this crate doesn't know, from a
+    /// newer library.
+    fn of_code(code: &str) -> Option<ErrorKind> {
+        Some(match code {
+            "timeout" => ErrorKind::Timeout,
+            "proxy" => ErrorKind::Proxy,
+            "dns" => ErrorKind::Dns,
+            "tls" => ErrorKind::Tls,
+            "connect" => ErrorKind::Connect,
+            "redirect" => ErrorKind::Redirect,
+            "io" => ErrorKind::Io,
+            "decode" => ErrorKind::Decode,
+            _ => return None,
+        })
+    }
+}
+
 impl Error {
     pub(crate) fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
         Error {
-            inner: Box::new(Inner {
+            inner: Arc::new(Inner {
                 kind,
-                from_library: false,
+                kind_from_message: false,
                 message: message.into(),
                 url: None,
                 status: None,
+                proxy_status: None,
+                not_sent: false,
                 source: None,
             }),
         }
     }
 
-    /// An error the library reported for a request, classified by its text.
+    fn inner_mut(&mut self) -> &mut Inner {
+        Arc::make_mut(&mut self.inner)
+    }
+
+    /// An error the library reported as a bare message, classified by its
+    /// text.
     pub(crate) fn from_library(message: impl Into<String>) -> Self {
         let message = message.into();
         let mut e = Error::new(classify(&message, &[]), message);
-        e.inner.from_library = true;
+        e.inner_mut().kind_from_message = true;
         e
     }
 
-    /// Reclassifies a library error knowing the host names the request
-    /// involved, so that none of them is mistaken for the cause.
+    /// An error the library reported as an error object: its kind from the
+    /// object's code, or from its message when it has none this crate knows.
+    pub(crate) fn from_library_object(object: ErrorObject) -> Self {
+        let mut e = match object.code.as_deref().and_then(ErrorKind::of_code) {
+            Some(kind) => Error::new(kind, object.error),
+            None => Error::from_library(object.error),
+        };
+        let inner = e.inner_mut();
+        inner.not_sent = object.not_sent;
+        inner.proxy_status = object.proxy_status.and_then(|s| StatusCode::from_u16(s).ok());
+        e
+    }
+
+    /// Reclassifies a library error whose kind was read from its message,
+    /// knowing the host names the request involved, so that none of them is
+    /// mistaken for the cause.
     pub(crate) fn with_hosts(mut self, hosts: &[String]) -> Self {
-        if self.inner.from_library {
-            self.inner.kind = classify(&self.inner.message, hosts);
+        if self.inner.kind_from_message {
+            let kind = classify(&self.inner.message, hosts);
+            self.inner_mut().kind = kind;
         }
+        self
+    }
+
+    /// Marks an error raised before the request was handed to the library:
+    /// nothing of it was sent.
+    pub(crate) fn unsent(mut self) -> Self {
+        self.inner_mut().not_sent = true;
         self
     }
 
@@ -105,17 +166,17 @@ impl Error {
     pub(crate) fn from_status(status: StatusCode, url: &str) -> Self {
         let reason = status.canonical_reason().map(|r| format!(" {r}")).unwrap_or_default();
         let mut e = Error::new(ErrorKind::Status, format!("HTTP {}{reason} for {url}", status.as_u16()));
-        e.inner.status = Some(status);
+        e.inner_mut().status = Some(status);
         e.with_url(url)
     }
 
     pub(crate) fn with_url(mut self, url: impl Into<String>) -> Self {
-        self.inner.url = Some(url.into());
+        self.inner_mut().url = Some(url.into());
         self
     }
 
     pub(crate) fn with_source(mut self, source: impl StdError + Send + Sync + 'static) -> Self {
-        self.inner.source = Some(Box::new(source));
+        self.inner_mut().source = Some(Arc::new(source));
         self
     }
 
@@ -133,6 +194,29 @@ impl Error {
     /// [`Response::error_for_status`](crate::Response::error_for_status).
     pub fn status(&self) -> Option<StatusCode> {
         self.inner.status
+    }
+
+    /// The status an HTTP proxy refused to open the request's tunnel with:
+    /// `407 Proxy Authentication Required` when it wants credentials or
+    /// refused the ones it was given. The kind is then
+    /// [`Proxy`](ErrorKind::Proxy).
+    pub fn proxy_status(&self) -> Option<StatusCode> {
+        self.inner.proxy_status
+    }
+
+    /// Whether the request is known never to have reached the server, so the
+    /// server cannot have acted on it: no attempt at it (on any protocol,
+    /// retry or redirect hop) had a connection to send it on, a proxy refused
+    /// to open the tunnel for it, or it was refused before it was handed to
+    /// the library. Such a request may be sent again whatever it does.
+    ///
+    /// It is `false` whenever that is not known, which includes every failure
+    /// once the request was written or may have been, and a timeout this crate
+    /// enforced: a request it is `false` for may have reached the server and
+    /// been acted on. A library built before it said so reports `false` for
+    /// all its failures.
+    pub fn is_not_sent(&self) -> bool {
+        self.inner.not_sent
     }
 
     /// The message, as the library or this crate worded it.
@@ -183,6 +267,12 @@ impl fmt::Debug for Error {
         if let Some(status) = &self.inner.status {
             d.field("status", status);
         }
+        if let Some(status) = &self.inner.proxy_status {
+            d.field("proxy_status", status);
+        }
+        if self.inner.not_sent {
+            d.field("not_sent", &true);
+        }
         if let Some(source) = &self.inner.source {
             d.field("source", source);
         }
@@ -225,10 +315,10 @@ pub(crate) fn io_kind(e: &Error) -> io::ErrorKind {
     }
 }
 
-/// Classifies an error message from the library.
+/// Classifies an error message from the library, for a failure it gave no
+/// code for, or a library that sends none.
 ///
-/// The library has no error codes at the C boundary, only text. Its messages
-/// are Go errors, usually wrapped by the transport as `op host [proto]: cause`,
+/// Its messages are Go errors, usually wrapped by the transport as `op host [proto]: cause`,
 /// where op is `dns_resolve`, `dial`, `dial_proxy`, `tls_handshake`,
 /// `roundtrip` and so on, and the cause is whatever Go or the TLS stack said.
 ///
@@ -465,9 +555,57 @@ mod tests {
     }
 
     #[test]
-    fn error_is_send_sync_and_small() {
-        fn assert_send_sync<T: Send + Sync + 'static>() {}
-        assert_send_sync::<Error>();
+    fn error_is_send_sync_clone_and_small() {
+        fn assert_send_sync_clone<T: Send + Sync + Clone + 'static>() {}
+        assert_send_sync_clone::<Error>();
         assert_eq!(std::mem::size_of::<Error>(), std::mem::size_of::<usize>());
+    }
+
+    fn object(json: &str) -> Error {
+        Error::from_library_object(serde_json::from_str(json).unwrap())
+    }
+
+    /// The library's code decides the kind, whatever the message says, and
+    /// the message is not read again knowing the hosts; without a code, or
+    /// with one this crate doesn't know, the message decides.
+    #[test]
+    fn the_librarys_code_decides_the_kind() {
+        let e = object(r#"{"error":"roundtrip proxy.example [h2]: something new","code":"timeout"}"#);
+        assert_eq!(e.kind(), ErrorKind::Timeout);
+        assert_eq!(e.with_hosts(&["proxy.example".into()]).kind(), ErrorKind::Timeout);
+        let read = object(r#"{"error":"dial 127.0.0.1:1 [h1]: dial tcp4 127.0.0.1:1: connect: connection refused"}"#);
+        assert_eq!(read.kind(), ErrorKind::Connect);
+        let unknown = object(r#"{"error":"tls_handshake x [h2]: remote error","code":"from-a-newer-library"}"#);
+        assert_eq!(unknown.kind(), ErrorKind::Tls);
+        for (code, kind) in [
+            ("timeout", ErrorKind::Timeout),
+            ("proxy", ErrorKind::Proxy),
+            ("dns", ErrorKind::Dns),
+            ("tls", ErrorKind::Tls),
+            ("connect", ErrorKind::Connect),
+            ("redirect", ErrorKind::Redirect),
+            ("io", ErrorKind::Io),
+            ("decode", ErrorKind::Decode),
+        ] {
+            assert_eq!(object(&format!(r#"{{"error":"x","code":"{code}"}}"#)).kind(), kind, "{code}");
+        }
+    }
+
+    /// Only the library's word makes a failure not sent, and a clone says
+    /// what the original does.
+    #[test]
+    fn not_sent_and_the_proxy_status_are_the_librarys_word() {
+        let e = object(
+            r#"{"error":"proxy CONNECT failed with status 407: 407 Proxy Authentication Required","code":"proxy","not_sent":true,"proxy_status":407}"#,
+        );
+        assert!(e.is_not_sent() && e.is_proxy());
+        assert_eq!(e.proxy_status(), Some(StatusCode::PROXY_AUTHENTICATION_REQUIRED));
+        let clone = e.clone().with_url("https://x.test/");
+        assert!(clone.is_not_sent() && clone.proxy_status().is_some() && e.url().is_none());
+        assert!(format!("{e:?}").contains("not_sent"));
+        let sent = object(r#"{"error":"roundtrip x [h2]: stream error","code":"connect"}"#);
+        assert!(!sent.is_not_sent() && sent.proxy_status().is_none());
+        assert!(!Error::from_library("dial x [h1]: connection refused").is_not_sent());
+        assert!(!Error::timeout("the request timed out after 1s").is_not_sent());
     }
 }

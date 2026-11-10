@@ -379,8 +379,13 @@ impl RequestBuilder {
         }
     }
 
-    /// Checks the request and encodes it as the library's request JSON.
+    /// Checks the request and encodes it as the library's request JSON. A
+    /// request refused here was never sent.
     pub(crate) fn prepare(self, stream: bool) -> Result<Prepared> {
+        self.encode(stream).map_err(Error::unsent)
+    }
+
+    fn encode(self, stream: bool) -> Result<Prepared> {
         if let Some((kind, message)) = self.error {
             return Err(Error::new(kind, message).with_url(self.url));
         }
@@ -853,7 +858,7 @@ mod tests {
         ];
         for b in cases {
             let e = err(b);
-            assert!(e.is_invalid_input(), "{e:?}");
+            assert!(e.is_invalid_input() && e.is_not_sent(), "{e:?}");
         }
     }
 

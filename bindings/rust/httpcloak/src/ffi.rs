@@ -77,37 +77,54 @@ pub(crate) unsafe fn borrow_string(ptr: *const c_char) -> Option<String> {
     (!ptr.is_null()).then(|| String::from_utf8_lossy(unsafe { CStr::from_ptr(ptr) }.to_bytes()).into_owned())
 }
 
+/// A failure as the library reports it (`ErrorResponse` in
+/// clib/httpcloak.go): its message, and what the error's types said about it.
+/// A library built before it sent more than the message leaves the rest out.
 #[derive(Deserialize)]
-struct ErrorObject {
-    error: String,
+pub(crate) struct ErrorObject {
+    pub(crate) error: String,
+    /// The kind of failure, when the error's types told it.
+    #[serde(default)]
+    pub(crate) code: Option<String>,
+    /// No part of the request reached the server.
+    #[serde(default)]
+    pub(crate) not_sent: bool,
+    /// The status an HTTP proxy refused the request's tunnel with.
+    #[serde(default)]
+    pub(crate) proxy_status: Option<u16>,
 }
 
-/// The message of an `{"error": "..."}` object, or `None` when `text` is not
-/// one. Many exports return either their result or such an object.
-pub(crate) fn error_in(text: &str) -> Option<String> {
+/// `text` as an `{"error": "...", ...}` object, or `None` when it is not one.
+/// Many exports return either their result or such an object.
+fn error_object(text: &str) -> Option<ErrorObject> {
     let trimmed = text.trim_start();
     if !trimmed.starts_with('{') || !trimmed.contains("\"error\"") {
         return None;
     }
-    serde_json::from_str::<ErrorObject>(trimmed).ok().map(|e| e.error)
+    serde_json::from_str(trimmed).ok()
 }
 
-/// The message of an async error, which is an error object or, from a few
+/// The message of an error object, or `None` when `text` is not one.
+pub(crate) fn error_in(text: &str) -> Option<String> {
+    error_object(text).map(|e| e.error)
+}
+
+/// The failure an export reported as `text`, an error object or, from a few
 /// paths, the bare message.
-pub(crate) fn async_error_message(text: &str) -> String {
-    match error_in(text) {
-        Some(message) => message,
-        None if text.is_empty() => "the request failed and the library gave no reason".to_string(),
-        None => text.to_string(),
+pub(crate) fn library_error(text: &str) -> Error {
+    match error_object(text) {
+        Some(object) => Error::from_library_object(object),
+        None if text.is_empty() => Error::from_library("the request failed and the library gave no reason"),
+        None => Error::from_library(text),
     }
 }
 
 /// The result of an export that returns text or an error object: the text,
-/// or the error as an [`Error`] classified by its message.
+/// or the error as an [`Error`].
 pub(crate) fn checked(result: Option<String>, what: &str) -> Result<String> {
     let text = result.ok_or_else(|| Error::new_other(format!("{what}: the library returned nothing")))?;
-    match error_in(&text) {
-        Some(message) => Err(Error::from_library(message)),
+    match error_object(&text) {
+        Some(object) => Err(Error::from_library_object(object)),
         None => Ok(text),
     }
 }
@@ -149,8 +166,8 @@ mod tests {
 
     #[test]
     fn async_errors_may_be_bare_text() {
-        assert_eq!(async_error_message(r#"{"error":"x"}"#), "x");
-        assert_eq!(async_error_message("invalid session handle"), "invalid session handle");
-        assert!(!async_error_message("").is_empty());
+        assert_eq!(library_error(r#"{"error":"x"}"#).message(), "x");
+        assert_eq!(library_error("invalid session handle").message(), "invalid session handle");
+        assert!(!library_error("").message().is_empty());
     }
 }

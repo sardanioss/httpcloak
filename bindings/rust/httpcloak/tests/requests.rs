@@ -281,6 +281,59 @@ fn connection_failures_are_classified() {
     assert_eq!(session().get(http("/echo").replace("http://", "HTTP://")).send().unwrap().status(), 200);
 }
 
+/// A request is not sent only when the library knows no part of it reached the
+/// server, or it was refused before it went to the library; every failure once
+/// it was written, or may have been, leaves the question open.
+#[test]
+fn failures_say_whether_the_request_was_sent() {
+    let pay = |s: &Session, url: &str| s.post(url).body("charge=100").send().unwrap_err();
+
+    let e = pay(&session(), &refused_url());
+    assert!(e.is_not_sent() && e.is_connect(), "{e:?}");
+    let refused_proxy = refused_url();
+    let via =
+        Session::builder().proxy(refused_proxy.trim_end_matches('/')).timeout(Duration::from_secs(5)).build().unwrap();
+    let e = pay(&via, "https://pay.test/");
+    assert!(e.is_not_sent() && e.is_proxy() && e.proxy_status().is_none(), "{e:?}");
+    let e = session().post(http("/echo")).header("X", "a\nb").send().unwrap_err();
+    assert!(e.is_not_sent() && e.is_invalid_input(), "{e:?}");
+
+    let hangs_up = RawServer::start(|_, _| {});
+    let e = pay(&session(), &hangs_up.url("/pay"));
+    assert!(!e.is_not_sent(), "{e:?}");
+    let silent = RawServer::start(|_, _| std::thread::sleep(Duration::from_secs(3)));
+    let e = session().post(silent.url("/pay")).body("x").timeout(Duration::from_millis(300)).send().unwrap_err();
+    assert!(!e.is_not_sent() && e.is_timeout(), "{e:?}");
+    let away = refused_url();
+    let redirects = RawServer::start(move |s, _| {
+        write(
+            s,
+            format!("HTTP/1.1 303 See Other\r\nLocation: {away}done\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        )
+    });
+    let e = pay(&session(), &redirects.url("/pay"));
+    assert!(!e.is_not_sent(), "the first hop was answered: {e:?}");
+}
+
+/// A proxy that refuses the tunnel says with what status, and nothing was sent.
+#[test]
+fn a_proxys_refusal_carries_its_status() {
+    let proxy = RawServer::start(|s, _| {
+        write(s, b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"p\"\r\nContent-Length: 0\r\n\r\n")
+    });
+    for version in [httpcloak::HttpVersion::Auto, httpcloak::HttpVersion::Http1] {
+        let s = Session::builder()
+            .proxy(format!("http://user:wrong@{}", proxy.addr))
+            .http_version(version)
+            .build()
+            .unwrap();
+        let e = s.post("https://pay.test/").body("x").send().unwrap_err();
+        assert_eq!(e.proxy_status(), Some(StatusCode::PROXY_AUTHENTICATION_REQUIRED), "{e:?}");
+        assert!(e.is_proxy() && e.is_not_sent(), "{e:?}");
+    }
+}
+
 #[test]
 fn elapsed_is_measured() {
     let r = session().get(https("/sleep/200")).send().unwrap();

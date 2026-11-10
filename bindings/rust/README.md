@@ -151,8 +151,18 @@ are bounded, by the session's timeout.
 Every fallible call returns `httpcloak::Result`. `Error::kind()` says what went
 wrong (`Timeout`, `Connect`, `Dns`, `Tls`, `Proxy`, `Redirect`, `Status`,
 `InvalidInput`, ...), and the library's own message is kept as the error's
-`Display`. The library reports failures as text, so the kind is worked out from
-it; the tests hold the classification to the messages the library produces.
+`Display`. The library sends the kind where the error's Go types tell it; where
+they don't, or from a library built before it sent kinds, it is worked out from
+the message, and the tests hold that classification to the messages the library
+produces. Errors are cheap to clone.
+
+`Error::is_not_sent()` says the request is known never to have reached the
+server: no attempt at it, on any protocol, retry or redirect hop, had a
+connection to send it on, or it was refused before it went to the library. Such
+a request may be sent again whatever it does. It is `false` whenever that is not
+known, so a request it is `false` for may have been sent and acted on: check
+before sending a payment again. `Error::proxy_status()` is the status an HTTP
+proxy refused the tunnel with, `407` when it refused the credentials.
 
 Arguments the library cannot carry, a string with a NUL in it, a header with a
 line break, a URL that is not `http` or `https`, are refused before anything is

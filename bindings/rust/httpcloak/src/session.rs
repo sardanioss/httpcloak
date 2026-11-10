@@ -714,8 +714,8 @@ impl Session {
         // SAFETY: a valid NUL-terminated string; the result is ours to free.
         let result =
             unsafe { ffi::take_string(sys::httpcloak_session_refresh_protocol(self.handle(), protocol.as_ptr())) };
-        match result.as_deref().and_then(ffi::error_in) {
-            Some(message) => Err(Error::from_library(message)),
+        match result.as_deref().filter(|r| ffi::error_in(r).is_some()) {
+            Some(error) => Err(ffi::library_error(error)),
             None => Ok(()),
         }
     }
@@ -732,9 +732,9 @@ impl Session {
         };
         // SAFETY: a valid NUL-terminated string; the result is ours to free.
         let result = unsafe { ffi::take_string(sys::httpcloak_session_warmup(self.handle(), c_url.as_ptr(), ms)) };
-        match result.as_deref().and_then(ffi::error_in) {
-            Some(message) => {
-                Err(Error::from_library(message).with_hosts(&crate::request::hosts_involved(self, url)).with_url(url))
+        match result.as_deref().filter(|r| ffi::error_in(r).is_some()) {
+            Some(error) => {
+                Err(ffi::library_error(error).with_hosts(&crate::request::hosts_involved(self, url)).with_url(url))
             }
             None => Ok(()),
         }

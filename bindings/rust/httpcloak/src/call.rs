@@ -89,7 +89,7 @@ impl Call {
         // unwinds, and lives for the whole program.
         let id = unsafe { sys::httpcloak_register_callback(Some(on_complete)) };
         if id <= 0 {
-            return Err(Error::new_other("the library could not register a completion callback"));
+            return Err(Error::new_other("the library could not register a completion callback").unsent());
         }
         let shared = Arc::new(Shared {
             id,
@@ -253,7 +253,7 @@ unsafe extern "C" fn on_complete(id: i64, response: *const c_char, error: *const
         let elapsed = shared.started.elapsed();
         let outcome = match (response, error) {
             (Some(json), _) if !json.is_empty() => Ok(Completed { json, elapsed }),
-            (_, Some(error)) => Err(Error::from_library(ffi::async_error_message(&error))),
+            (_, Some(error)) => Err(ffi::library_error(&error)),
             _ => Err(Error::new_other("the library reported neither a response nor an error")),
         };
         shared.complete(outcome);

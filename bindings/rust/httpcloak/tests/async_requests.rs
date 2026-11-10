@@ -99,9 +99,9 @@ async fn a_future_dropped_before_its_first_poll_sends_nothing() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn async_errors_carry_their_kind() {
     let e = session().get(refused_url()).send_async().await.unwrap_err();
-    assert!(e.is_connect(), "{e}");
+    assert!(e.is_connect() && e.is_not_sent(), "{e:?}");
     let e = session().get("http://x/\0").send_async().await.unwrap_err();
-    assert!(e.is_invalid_input());
+    assert!(e.is_invalid_input() && e.is_not_sent());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
