@@ -3533,6 +3533,13 @@ public static class Presets
     public const string Chrome155IOS = "chrome-155-ios";
     public const string Chrome155Android = "chrome-155-android";
 
+    // Chrome 156 (desktop and Android; headers only, as 154 was; no iOS until a capture)
+    public const string Chrome156 = "chrome-156";
+    public const string Chrome156Windows = "chrome-156-windows";
+    public const string Chrome156Linux = "chrome-156-linux";
+    public const string Chrome156MacOS = "chrome-156-macos";
+    public const string Chrome156Android = "chrome-156-android";
+
     // Chrome 152 (trust anchors, plus a greased signature algorithm on TCP)
     public const string Chrome152 = "chrome-152";
     public const string Chrome152Windows = "chrome-152-windows";

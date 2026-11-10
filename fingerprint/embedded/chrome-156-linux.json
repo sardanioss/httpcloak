@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "preset": {
+    "name": "chrome-156-linux",
+    "based_on": "chrome-155-linux",
+    "headers": {
+      "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+      "values": {
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+      },
+      "order": [
+        {
+          "key": "sec-ch-ua",
+          "value": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\""
+        },
+        {
+          "key": "sec-ch-ua-mobile",
+          "value": "?0"
+        },
+        {
+          "key": "sec-ch-ua-platform",
+          "value": "\"Linux\""
+        },
+        {
+          "key": "upgrade-insecure-requests",
+          "value": "1"
+        },
+        {
+          "key": "user-agent",
+          "value": ""
+        },
+        {
+          "key": "accept",
+          "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+        },
+        {
+          "key": "sec-fetch-site",
+          "value": "none"
+        },
+        {
+          "key": "sec-fetch-mode",
+          "value": "navigate"
+        },
+        {
+          "key": "sec-fetch-user",
+          "value": "?1"
+        },
+        {
+          "key": "sec-fetch-dest",
+          "value": "document"
+        },
+        {
+          "key": "accept-encoding",
+          "value": "gzip, deflate, br, zstd"
+        },
+        {
+          "key": "accept-language",
+          "value": "en-US,en;q=0.9"
+        },
+        {
+          "key": "priority",
+          "value": "u=0, i"
+        }
+      ],
+      "image_accept": "image/jxl,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+    }
+  }
+}

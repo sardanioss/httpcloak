@@ -168,6 +168,9 @@ func (t *Transport) DoStream(ctx context.Context, req *Request) (*StreamResponse
 	if err != nil {
 		return nil, NewRequestError("parse_url", "", "", "", err)
 	}
+	if err := checkScheme(parsedURL); err != nil {
+		return nil, err
+	}
 
 	// Snapshot the mutable fields once so a concurrent SetProxy/SetPreset/
 	// SetProtocol can't race the dispatch below (see transportSnapshot).
@@ -614,13 +617,15 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 		method = "GET"
 	}
 
+	// An empty body stays nil here, unlike on HTTP/1.1 and HTTP/2: quic-go's request
+	// writer sends "content-length: 0" for a bodiless POST, PUT or PATCH only when
+	// the body is nil, and takes the http.NoBody an empty reader becomes as a body
+	// of unknown length, leaving the header out (servers then answer 411).
 	var bodyReader io.Reader
 	if req.BodyReader != nil {
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)

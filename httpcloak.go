@@ -89,7 +89,7 @@ func WithProxy(proxyURL string) Option {
 //
 // An empty name gives "chrome-latest". Available presets include:
 //   - "chrome-latest" (recommended), "chrome-latest-windows", "chrome-latest-linux", "chrome-latest-macos"
-//   - "chrome-155" down to "chrome-143", then "chrome-141" and "chrome-133"
+//   - "chrome-156" down to "chrome-143", then "chrome-141" and "chrome-133"
 //   - "firefox-latest", "firefox-133"
 //   - "safari-latest", "safari-18"
 //   - "chrome-latest-ios", "safari-latest-ios"

@@ -1210,6 +1210,13 @@ export const Preset: {
   CHROME_155_IOS: string;
   CHROME_155_ANDROID: string;
 
+  // Chrome 156 (desktop and Android; headers only, as 154 was; no iOS until a capture)
+  CHROME_156: string;
+  CHROME_156_WINDOWS: string;
+  CHROME_156_LINUX: string;
+  CHROME_156_MACOS: string;
+  CHROME_156_ANDROID: string;
+
   // Chrome 152 (trust anchors, plus a greased signature algorithm on TCP)
   CHROME_152: string;
   CHROME_152_WINDOWS: string;

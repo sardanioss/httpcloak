@@ -1101,21 +1101,28 @@ func (t *HTTP1Transport) doRequest(conn *http1Conn, req *http.Request) (*http.Re
 	conn.lastUsedAt = time.Now()
 	conn.useCount++
 
-	// Set deadline - use the earlier of context deadline and response timeout
-	deadline := time.Now().Add(t.responseTimeout)
-	if ctxDeadline, ok := req.Context().Deadline(); ok && ctxDeadline.Before(deadline) {
-		deadline = ctxDeadline
-	}
-	conn.conn.SetDeadline(deadline)
-	// NOTE: We intentionally do NOT defer clearing the deadline here.
-	// The deadline must remain active while the response body is being read
-	// (body is returned to caller via pooledBodyWrapper). The deadline is
-	// cleared in handleClose() when the body is done and conn returns to pool.
+	// responseTimeout bounds the wait for the response, and only that: it is
+	// armed once the request is on the wire and lifted when the headers are
+	// in. It used to be armed before the request was written and left on the
+	// socket for the body, so every HTTP/1.1 exchange had 60s in total
+	// whatever its context allowed: an upload slower than that, a download
+	// bigger than that, and every SSE or long-lived stream died with a raw
+	// "i/o timeout". Writing the request and reading the body are bounded by
+	// the context, as they are on HTTP/2 and HTTP/3; watchContext enforces it
+	// for a context with no deadline.
+	ctxDeadline, _ := req.Context().Deadline() // zero, so no deadline, if none
+	conn.conn.SetDeadline(ctxDeadline)
 
 	// Write request
 	if err := t.writeRequest(conn, req); err != nil {
 		return nil, err
 	}
+
+	deadline := time.Now().Add(t.responseTimeout)
+	if !ctxDeadline.IsZero() && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	conn.conn.SetReadDeadline(deadline)
 
 	// Read response. The casing peek has to happen first: it reads nothing, but
 	// once ReadResponse has consumed the header block the original spelling is
@@ -1126,6 +1133,10 @@ func (t *HTTP1Transport) doRequest(conn *http1Conn, req *http.Request) (*http.Re
 		return nil, err
 	}
 	stashHeaderCasing(resp.Header, casing)
+
+	// The body is the caller's to read at its own pace, within the context.
+	// handleClose clears this before the connection goes back to the pool.
+	conn.conn.SetReadDeadline(ctxDeadline)
 
 	return resp, nil
 }

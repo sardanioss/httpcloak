@@ -76,6 +76,12 @@ fi
 echo "  -> android/httpcloak/build.gradle.kts"
 sed -i "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"$NEW_VERSION\"/" "$SCRIPT_DIR/android/httpcloak/build.gradle.kts"
 
+# Update the Rust workspace version, and the exact pin the crate keeps on the
+# sys crate, which is the same library.
+echo "  -> rust/Cargo.toml, rust/httpcloak/Cargo.toml"
+sed -i "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"$NEW_VERSION\"/" "$SCRIPT_DIR/rust/Cargo.toml"
+sed -i "s/httpcloak-sys = { version = \"=[0-9]*\.[0-9]*\.[0-9]*\"/httpcloak-sys = { version = \"=$NEW_VERSION\"/" "$SCRIPT_DIR/rust/httpcloak/Cargo.toml"
+
 # Every file must now carry the new version. A pattern that stops matching
 # (as the clib one did when the version moved into libVersion, so 1.7.2-beta.2
 # and the first 1.7.3 bump reported the previous version) fails here instead
@@ -84,13 +90,15 @@ sed -i "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"$NEW_VERSION\"/" "$S
 # The paths are relative to this directory, which the glob needs too: the
 # script has moved into dotnet/HttpCloak by now, so it used to match nothing
 # and skip every npm platform package. The version must sit between quotes or
-# tags, so 1.7.3 is not satisfied by 1.7.30 or 11.7.3.
+# tags, so 1.7.3 is not satisfied by 1.7.30 or 11.7.3; the Rust crate's exact
+# pin on its sys crate writes it "=1.7.3".
 cd "$SCRIPT_DIR"
-version_re="[\">]${NEW_VERSION//./\\.}[\"<]"
+version_re="[\">=]${NEW_VERSION//./\\.}[\"<]"
 missing=0
 for f in nodejs/package.json python/pyproject.toml python/httpcloak/__init__.py \
          clib/httpcloak.go android/httpcloak/build.gradle.kts \
-         nodejs/npm/*/package.json dotnet/HttpCloak/HttpCloak.csproj; do
+         nodejs/npm/*/package.json dotnet/HttpCloak/HttpCloak.csproj \
+         rust/Cargo.toml rust/httpcloak/Cargo.toml; do
     if [ ! -f "$f" ]; then
         echo "ERROR: $f not found" >&2
         missing=1
@@ -114,6 +122,7 @@ echo "  - bindings/python/httpcloak/__init__.py"
 echo "  - bindings/clib/httpcloak.go"
 echo "  - bindings/dotnet/HttpCloak/HttpCloak.csproj (if exists)"
 echo "  - bindings/android/httpcloak/build.gradle.kts"
+echo "  - bindings/rust/Cargo.toml and bindings/rust/httpcloak/Cargo.toml"
 echo ""
 echo "Next steps:"
 echo "  1. Rebuild native libraries: cd bindings && make build"
