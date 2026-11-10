@@ -50,6 +50,7 @@ import (
 	"errors"
 	"fmt"
 	http "github.com/sardanioss/http"
+	"github.com/sardanioss/http/httptrace"
 	"io"
 	"math"
 	"math/rand"
@@ -57,6 +58,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/andybalholm/brotli"
@@ -324,6 +326,8 @@ func NewClient(presetName string, opts ...Option) *Client {
 // Cookies are automatically persisted between requests.
 // Retry is enabled by default (3 retries) to handle bot protection cookie challenges.
 // This mimics browser behavior where cookies are accepted and requests are retried.
+// A POST or PATCH that may have reached the server is not retried (see
+// ClientConfig.RetryEnabled).
 func NewSession(presetName string, opts ...Option) *Client {
 	// Prepend default retry so user opts can override if needed
 	defaultOpts := []Option{WithRetry(3)}
@@ -862,6 +866,17 @@ func (c *Client) doWithRetry(ctx context.Context, req *Request) (*Response, erro
 		}
 	}
 
+	// A retry sends the request again, so it follows the rule the transport
+	// holds its own resends to (transport.CanResend; the body is held in
+	// memory above): a failure is retried only when it proves the request
+	// was never sent, or the request is idempotent, and an answer (a status
+	// on the retry list, or a bot challenge) only when it is idempotent, since
+	// the server had the request and may have acted on it.
+	idempotent := transport.IdempotentMethod(req.Method)
+	// Whether an attempt before this one reached the server or may have, so
+	// that a later failure must not say the request was not sent.
+	earlierSent := false
+
 	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
 		if attempt > 0 {
 			// Calculate wait time with exponential backoff and jitter
@@ -896,15 +911,23 @@ func (c *Client) doWithRetry(ctx context.Context, req *Request) (*Response, erro
 			if errors.As(err, &hookErr) {
 				return nil, hookErr.err
 			}
+			if earlierSent {
+				err = transport.MarkSentBefore(err)
+			}
+			if !transport.CanResend(req.Method, true, err) {
+				return nil, err
+			}
 			lastErr = err
+			earlierSent = earlierSent || !transport.RequestNotSent(err)
 			continue
 		}
+		earlierSent = true
 
 		// Check for cookie challenge (403/429 + Set-Cookie from bot protection)
 		// This handles Akamai, Cloudflare, PerimeterX, etc.
 		// Cookie challenge flow: H2 request gets 403/429 + cookies, H3 retry succeeds
 		isChallengeStatus := resp.StatusCode == 403 || resp.StatusCode == 429
-		if isChallengeStatus && !cookieChallengeRetried && req.ForceProtocol == ProtocolAuto {
+		if idempotent && isChallengeStatus && !cookieChallengeRetried && req.ForceProtocol == ProtocolAuto {
 			if setCookies := resp.Headers["set-cookie"]; len(setCookies) > 0 {
 				cookieChallengeRetried = true
 				// Cookies are now stored in jar from first response
@@ -914,7 +937,7 @@ func (c *Client) doWithRetry(ctx context.Context, req *Request) (*Response, erro
 		}
 
 		// Check if we should retry based on status code
-		if c.shouldRetryStatus(resp.StatusCode) && attempt < c.config.MaxRetries {
+		if idempotent && c.shouldRetryStatus(resp.StatusCode) && attempt < c.config.MaxRetries {
 			lastResp = resp
 			lastErr = fmt.Errorf("server returned status %d", resp.StatusCode)
 			continue
@@ -1143,12 +1166,14 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 			if err != nil {
 				c.markH3Failed(hostKey)
 				// HTTP/3 failed, try HTTP/2
-				resetRequestBody(httpReq, bodyBytes)
-				resp, usedProtocol, err = c.doHTTP2(ctx, host, port, httpReq, timing, startTime)
+				resp, usedProtocol, err = c.fallBack(err, httpReq, bodyBytes, func() (*http.Response, string, error) {
+					return c.doHTTP2(ctx, host, port, httpReq, timing, startTime)
+				})
 				if err != nil {
 					// Both failed, try HTTP/1.1
-					resetRequestBody(httpReq, bodyBytes)
-					resp, usedProtocol, err = c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
+					resp, usedProtocol, err = c.fallBack(err, httpReq, bodyBytes, func() (*http.Response, string, error) {
+						return c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
+					})
 					if err != nil {
 						return nil, err
 					}
@@ -1160,13 +1185,15 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 			if err != nil {
 				// HTTP/2 failed, try HTTP/3 if available
 				if useH3 {
-					resetRequestBody(httpReq, bodyBytes)
-					resp, usedProtocol, err = c.doHTTP3(ctx, host, port, httpReq, timing, startTime)
+					resp, usedProtocol, err = c.fallBack(err, httpReq, bodyBytes, func() (*http.Response, string, error) {
+						return c.doHTTP3(ctx, host, port, httpReq, timing, startTime)
+					})
 					if err != nil {
 						c.markH3Failed(hostKey)
 						// Both H2 and H3 failed, try HTTP/1.1
-						resetRequestBody(httpReq, bodyBytes)
-						resp, usedProtocol, err = c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
+						resp, usedProtocol, err = c.fallBack(err, httpReq, bodyBytes, func() (*http.Response, string, error) {
+							return c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
+						})
 						if err != nil {
 							return nil, err
 						}
@@ -1174,8 +1201,9 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 				} else {
 					// No H3 available, try HTTP/1.1
 					c.markH2Failed(hostKey)
-					resetRequestBody(httpReq, bodyBytes)
-					resp, usedProtocol, err = c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
+					resp, usedProtocol, err = c.fallBack(err, httpReq, bodyBytes, func() (*http.Response, string, error) {
+						return c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
+					})
 					if err != nil {
 						return nil, err
 					}
@@ -1450,6 +1478,25 @@ func (c *Client) markH3Failed(hostKey string) {
 	c.h3Failures[hostKey] = time.Now()
 }
 
+// fallBack sends httpReq again through next, on another protocol, after an
+// attempt that failed with err, when that cannot have the server act on it
+// twice (transport.CanResend; the body here is always held in memory, so it
+// can be sent again whole): the attempt never had a connection to write it
+// on, or the request is idempotent. Otherwise err stands. A failure of next
+// after an attempt that may have delivered the request is marked so
+// (transport.MarkSentBefore), whatever next itself did.
+func (c *Client) fallBack(err error, httpReq *http.Request, body []byte, next func() (*http.Response, string, error)) (*http.Response, string, error) {
+	if !transport.CanResend(httpReq.Method, true, err) {
+		return nil, "", err
+	}
+	resetRequestBody(httpReq, body)
+	resp, usedProtocol, nextErr := next()
+	if nextErr != nil && !transport.RequestNotSent(err) {
+		nextErr = transport.MarkSentBefore(nextErr)
+	}
+	return resp, usedProtocol, nextErr
+}
+
 // doHTTP3 executes the request over HTTP/3
 // proxyURLs returns a consistent snapshot of the configured proxy URLs.
 //
@@ -1478,22 +1525,23 @@ func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.R
 	// One snapshot for the whole request; see h3Transports.
 	quicManager, masqueTransport, socks5H3Transport := c.h3Transports()
 
-	// Use MASQUE transport if available (for MASQUE proxies)
-	if masqueTransport != nil {
-		firstByteTime := time.Now()
-		resp, err := masqueTransport.RoundTrip(httpReq)
-		if err != nil {
-			return nil, "", err
+	// Use MASQUE transport if available (for MASQUE proxies), else the SOCKS5
+	// UDP relay transport (for SOCKS5 proxies). Either dials inside RoundTrip,
+	// so whether the request had a connection is read from its trace.
+	if proxied := masqueTransport; proxied != nil || socks5H3Transport != nil {
+		if proxied == nil {
+			proxied = socks5H3Transport
 		}
-		timing.FirstByte = float64(time.Since(firstByteTime).Milliseconds())
-		return resp, "h3", nil
-	}
-
-	// Use SOCKS5 UDP relay transport if available (for SOCKS5 proxies)
-	if socks5H3Transport != nil {
 		firstByteTime := time.Now()
-		resp, err := socks5H3Transport.RoundTrip(httpReq)
+		var gotConn atomic.Bool
+		traced := httpReq.WithContext(httptrace.WithClientTrace(httpReq.Context(), &httptrace.ClientTrace{
+			GotConn: func(httptrace.GotConnInfo) { gotConn.Store(true) },
+		}))
+		resp, err := proxied.RoundTrip(traced)
 		if err != nil {
+			if !gotConn.Load() {
+				err = transport.MarkNotSent(err)
+			}
 			return nil, "", err
 		}
 		timing.FirstByte = float64(time.Since(firstByteTime).Milliseconds())
@@ -1502,11 +1550,11 @@ func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.R
 
 	// Use QUICManager for direct connections
 	if quicManager == nil {
-		return nil, "", fmt.Errorf("no HTTP/3 transport available")
+		return nil, "", transport.MarkNotSent(fmt.Errorf("no HTTP/3 transport available"))
 	}
 	conn, err := quicManager.GetConn(ctx, host, port)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to get QUIC connection: %w", err)
+		return nil, "", transport.MarkNotSent(fmt.Errorf("failed to get QUIC connection: %w", err))
 	}
 
 	// Calculate timing
@@ -1524,7 +1572,7 @@ func (c *Client) doHTTP3(ctx context.Context, host, port string, httpReq *http.R
 		// Pre-send rejection only, so retrying once is method-safe.
 		conn, err = c.quicManager.GetConn(ctx, host, port)
 		if err != nil {
-			return nil, "", fmt.Errorf("failed to get QUIC connection: %w", err)
+			return nil, "", transport.MarkNotSent(fmt.Errorf("failed to get QUIC connection: %w", err))
 		}
 		resp, err = conn.RoundTrip(httpReq)
 	}
@@ -1542,7 +1590,7 @@ func (c *Client) doHTTP2(ctx context.Context, host, port string, httpReq *http.R
 
 	conn, err := c.poolManager.GetConn(ctx, host, port)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to get connection: %w", err)
+		return nil, "", transport.MarkNotSent(fmt.Errorf("failed to get connection: %w", err))
 	}
 
 	// Calculate timing. Uses(), not conn.UseCount: the pool bumps that counter
@@ -1567,7 +1615,7 @@ func (c *Client) doHTTP2(ctx context.Context, host, port string, httpReq *http.R
 		// never loops. (Retry borrowed from PR #84.)
 		conn, err = c.poolManager.GetConn(ctx, host, port)
 		if err != nil {
-			return nil, "", fmt.Errorf("failed to get connection: %w", err)
+			return nil, "", transport.MarkNotSent(fmt.Errorf("failed to get connection: %w", err))
 		}
 		resp, err = conn.RoundTrip(httpReq)
 	}

@@ -472,12 +472,17 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			s.parseAcceptCH(host, resp.Headers)
 		}
 
-		// Check if we should retry
+		// Check if we should retry. A retry sends the request again, so it
+		// follows the rule the transport holds its own resends to
+		// (transport.CanResend): a failure is retried only when it proves the
+		// request was never sent, or the request is idempotent; an answer
+		// whose status is on the retry list only when it is idempotent, since
+		// the server had the request and may have acted on it. A POST is
+		// never sent twice because a retry was asked for.
 		shouldRetry := false
 		if err != nil {
-			// Retry on network errors
-			shouldRetry = true
-		} else if resp != nil {
+			shouldRetry = transport.CanResend(req.Method, bodyReplayable, err)
+		} else if resp != nil && transport.IdempotentMethod(req.Method) {
 			// Check if status code is in retry list
 			for _, status := range retryOnStatus {
 				if resp.StatusCode == status {

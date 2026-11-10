@@ -56,9 +56,14 @@ func answerOnce(t *testing.T, answer string) string {
 
 func post(t *testing.T, s *Session, url string) error {
 	t.Helper()
+	return failed(t, s, "POST", url)
+}
+
+func failed(t *testing.T, s *Session, method, url string) error {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := s.Request(ctx, &transport.Request{Method: "POST", URL: url, Body: []byte("charge=100")})
+	_, err := s.Request(ctx, &transport.Request{Method: method, URL: url, Body: []byte("charge=100")})
 	if err == nil {
 		t.Fatal("the request should have failed")
 	}
@@ -94,9 +99,10 @@ func TestARequestAnEarlierAttemptReachedIsNotMarked(t *testing.T) {
 		}
 	})
 
+	// A PUT, since only an idempotent request is retried once it was answered.
 	t.Run("retry that cannot connect", func(t *testing.T) {
 		addr := answerOnce(t, "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-		if err := post(t, newBodyTestSession(t, retrying()), "http://"+addr+"/pay"); transport.RequestNotSent(err) {
+		if err := failed(t, newBodyTestSession(t, retrying()), "PUT", "http://"+addr+"/pay"); transport.RequestNotSent(err) {
 			t.Fatalf("marked as not sent: %v", err)
 		}
 	})

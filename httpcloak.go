@@ -780,7 +780,12 @@ func WithRedirects(follow bool, maxRedirects int) SessionOption {
 	}
 }
 
-// WithRetry enables retry with default settings
+// WithRetry enables retry with default settings.
+//
+// Only what transport.CanResend allows is retried: a failure that proves the
+// request was never sent, or a failure or a retryable status for an
+// idempotent request (GET, HEAD, OPTIONS, TRACE, PUT, DELETE). A POST or PATCH
+// that may have reached the server is never sent again.
 func WithRetry(count int) SessionOption {
 	return func(c *sessionConfig) {
 		c.retryCount = count

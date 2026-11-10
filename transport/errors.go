@@ -222,6 +222,16 @@ func markNotSent(err error) error {
 	return &requestNotSentError{err: err}
 }
 
+// MarkNotSent marks err as a failure from before any of the request was
+// written to a connection (an attempt that got no connection, or a request
+// refused before it was tried), so that RequestNotSent is true for it, unless
+// an earlier attempt may have delivered the request (MarkSentBefore). It is
+// for code built on this package that gets its own connections or refuses
+// requests itself; it returns nil for nil.
+func MarkNotSent(err error) error {
+	return markNotSent(err)
+}
+
 // sentBeforeError marks the failure of an attempt at a request that an
 // earlier attempt may have delivered: one on another protocol, a retry, or a
 // redirect hop before it. Whatever the last attempt's own mark says, the
