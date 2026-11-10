@@ -711,17 +711,23 @@ func buildHeaders(rawHeaders map[string]string, fetchMode string) map[string][]s
 }
 
 func makeResponseJSON(resp *httpcloak.Response) *C.char {
-	// Read body from io.ReadCloser
+	return C.CString(responseJSON(resp))
+}
+
+// responseJSON is a buffered response as the bindings read it: its body read
+// and closed, and with its metadata, as ResponseData's JSON.
+//
+// The JSON is written without Go's HTML escaping, which json.Marshal applies
+// to every string: each <, > and & in a body grew from one byte to six, so an
+// HTML page came out much larger than it was, and the binding had to decode
+// every one of them back. The JSON is as valid without.
+func responseJSON(resp *httpcloak.Response) string {
 	var bodyBytes []byte
 	if resp.Body != nil {
 		bodyBytes, _ = io.ReadAll(resp.Body)
 		resp.Body.Close()
 	}
 
-	// Parse cookies from Set-Cookie header
-	cookies := parseSetCookieHeaders(resp.Headers)
-
-	// Convert redirect history
 	var history []RedirectInfo
 	if len(resp.History) > 0 {
 		history = make([]RedirectInfo, len(resp.History))
@@ -745,11 +751,17 @@ func makeResponseJSON(resp *httpcloak.Response) *C.char {
 		BodyEncoding: bodyEncoding,
 		FinalURL:     resp.FinalURL,
 		Protocol:     resp.Protocol,
-		Cookies:      cookies,
+		Cookies:      parseSetCookieHeaders(resp.Headers),
 		History:      history,
 	}
-	jsonData, _ := json.Marshal(data)
-	return C.CString(string(jsonData))
+	var out bytes.Buffer
+	out.Grow(len(body) + 1024)
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	// ResponseData holds strings, maps and slices of them, and ints: it always
+	// encodes.
+	enc.Encode(data)
+	return strings.TrimSuffix(out.String(), "\n")
 }
 
 // makeRawResponse creates an optimized response with body as raw bytes
@@ -1920,45 +1932,7 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 			return
 		}
 
-		// Read body from io.ReadCloser
-		var bodyBytes []byte
-		if resp.Body != nil {
-			bodyBytes, _ = io.ReadAll(resp.Body)
-			resp.Body.Close()
-		}
-
-		// Parse cookies from Set-Cookie header
-		cookies := parseSetCookieHeaders(resp.Headers)
-
-		// Convert redirect history
-		var history []RedirectInfo
-		if len(resp.History) > 0 {
-			history = make([]RedirectInfo, len(resp.History))
-			for i, h := range resp.History {
-				history[i] = RedirectInfo{
-					StatusCode: h.StatusCode,
-					URL:        h.URL,
-					Headers:    h.Headers,
-				}
-			}
-		}
-
-		body, bodyEncoding := encodeResponseBody(bodyBytes)
-		data := ResponseData{
-			StatusCode:   resp.StatusCode,
-			Headers:      resp.Headers,
-			HeaderOrder:  resp.HeaderOrder,
-			HeaderCasing: resp.HeaderCasing,
-			Trailer:      resp.Trailer,
-			Body:         body,
-			BodyEncoding: bodyEncoding,
-			FinalURL:     resp.FinalURL,
-			Protocol:     resp.Protocol,
-			Cookies:      cookies,
-			History:      history,
-		}
-		jsonData, _ := json.Marshal(data)
-		invokeCallback(int64(callbackID), string(jsonData), "")
+		invokeCallback(int64(callbackID), responseJSON(resp), "")
 	}()
 }
 
@@ -2038,45 +2012,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 			return
 		}
 
-		// Read body from io.ReadCloser
-		var bodyBytes []byte
-		if resp.Body != nil {
-			bodyBytes, _ = io.ReadAll(resp.Body)
-			resp.Body.Close()
-		}
-
-		// Parse cookies from Set-Cookie header
-		cookies := parseSetCookieHeaders(resp.Headers)
-
-		// Convert redirect history
-		var history []RedirectInfo
-		if len(resp.History) > 0 {
-			history = make([]RedirectInfo, len(resp.History))
-			for i, h := range resp.History {
-				history[i] = RedirectInfo{
-					StatusCode: h.StatusCode,
-					URL:        h.URL,
-					Headers:    h.Headers,
-				}
-			}
-		}
-
-		body, bodyEncoding := encodeResponseBody(bodyBytes)
-		data := ResponseData{
-			StatusCode:   resp.StatusCode,
-			Headers:      resp.Headers,
-			HeaderOrder:  resp.HeaderOrder,
-			HeaderCasing: resp.HeaderCasing,
-			Trailer:      resp.Trailer,
-			Body:         body,
-			BodyEncoding: bodyEncoding,
-			FinalURL:     resp.FinalURL,
-			Protocol:     resp.Protocol,
-			Cookies:      cookies,
-			History:      history,
-		}
-		jsonData, _ := json.Marshal(data)
-		invokeCallback(int64(callbackID), string(jsonData), "")
+		invokeCallback(int64(callbackID), responseJSON(resp), "")
 	}()
 }
 
@@ -2147,45 +2083,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 			return
 		}
 
-		// Read body from io.ReadCloser
-		var bodyBytes []byte
-		if resp.Body != nil {
-			bodyBytes, _ = io.ReadAll(resp.Body)
-			resp.Body.Close()
-		}
-
-		// Parse cookies from Set-Cookie header
-		cookies := parseSetCookieHeaders(resp.Headers)
-
-		// Convert redirect history
-		var history []RedirectInfo
-		if len(resp.History) > 0 {
-			history = make([]RedirectInfo, len(resp.History))
-			for i, h := range resp.History {
-				history[i] = RedirectInfo{
-					StatusCode: h.StatusCode,
-					URL:        h.URL,
-					Headers:    h.Headers,
-				}
-			}
-		}
-
-		body, bodyEncoding := encodeResponseBody(bodyBytes)
-		data := ResponseData{
-			StatusCode:   resp.StatusCode,
-			Headers:      resp.Headers,
-			HeaderOrder:  resp.HeaderOrder,
-			HeaderCasing: resp.HeaderCasing,
-			Trailer:      resp.Trailer,
-			Body:         body,
-			BodyEncoding: bodyEncoding,
-			FinalURL:     resp.FinalURL,
-			Protocol:     resp.Protocol,
-			Cookies:      cookies,
-			History:      history,
-		}
-		jsonData, _ := json.Marshal(data)
-		invokeCallback(int64(callbackID), string(jsonData), "")
+		invokeCallback(int64(callbackID), responseJSON(resp), "")
 	}()
 }
 
@@ -4390,38 +4288,7 @@ func httpcloak_upload_finish(uploadHandle C.int64_t) (hcRet *C.char) {
 		return makeErrorJSON(result.err)
 	}
 
-	// Build response JSON
-	resp := result.response
-
-	// Read body from io.ReadCloser
-	var bodyBytes []byte
-	if resp.Body != nil {
-		bodyBytes, _ = io.ReadAll(resp.Body)
-		resp.Body.Close()
-	}
-
-	cookies := parseSetCookieHeaders(resp.Headers)
-
-	body, bodyEncoding := encodeResponseBody(bodyBytes)
-	responseData := ResponseData{
-		StatusCode:   resp.StatusCode,
-		Headers:      resp.Headers,
-		HeaderOrder:  resp.HeaderOrder,
-		HeaderCasing: resp.HeaderCasing,
-		Trailer:      resp.Trailer,
-		Body:         body,
-		BodyEncoding: bodyEncoding,
-		FinalURL:     resp.FinalURL,
-		Protocol:     resp.Protocol,
-		Cookies:      cookies,
-	}
-
-	jsonData, err := json.Marshal(responseData)
-	if err != nil {
-		return makeErrorJSON(err)
-	}
-
-	return C.CString(string(jsonData))
+	return makeResponseJSON(result.response)
 }
 
 //export httpcloak_upload_cancel
