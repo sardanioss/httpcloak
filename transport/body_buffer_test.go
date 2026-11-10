@@ -2,8 +2,11 @@ package transport
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -114,20 +117,26 @@ func TestReadBodyConcurrentIntegrity(t *testing.T) {
 	}
 }
 
-// A short read (server closed early) must still return only the bytes actually
-// received, and still own its buffer.
-func TestReadBodyShortReadOwnsBuffer(t *testing.T) {
+// A body that ends short of its Content-Length (the server closed early) is an
+// error, not a smaller body: it used to come back as if whole.
+func TestReadBodyShortReadIsAnError(t *testing.T) {
 	const declared = 4 * 1024 * 1024
 	actual := bytes.Repeat([]byte{'z'}, 1024)
 
 	body, err := readBodyOptimized(io.LimitReader(bytes.NewReader(actual), int64(len(actual))), declared)
-	if err != nil {
-		t.Fatalf("readBodyOptimized: %v", err)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("readBodyOptimized = %d bytes, %v; want io.ErrUnexpectedEOF", len(body), err)
 	}
-	if len(body) != len(actual) {
-		t.Fatalf("len(body) = %d, want %d", len(body), len(actual))
+	if !strings.Contains(err.Error(), "1024 of the 4194304 bytes") {
+		t.Errorf("error %q does not say how much arrived", err)
 	}
-	if !bytes.Equal(body, actual) {
-		t.Fatal("short-read body contents differ from what was sent")
+}
+
+// A response with no body still declares the length the full response would
+// have (HEAD, 304); reading nothing at all is not a truncation.
+func TestReadBodyEmptyBodyWithALengthIsNotAnError(t *testing.T) {
+	body, err := readBodyOptimized(http.NoBody, 1234)
+	if err != nil || len(body) != 0 {
+		t.Fatalf("readBodyOptimized(NoBody, 1234) = %d bytes, %v; want 0 bytes, nil", len(body), err)
 	}
 }

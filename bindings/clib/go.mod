@@ -25,3 +25,5 @@ require (
 
 // Use local httpcloak (same repo)
 replace github.com/sardanioss/httpcloak => ../..
+
+replace github.com/sardanioss/utls => github.com/abadawe-dev/utls v1.10.6-0.20261031021207-ddeeeacc0ade

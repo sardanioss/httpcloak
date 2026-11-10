@@ -292,6 +292,15 @@ type Request struct {
 	//	})
 	HeaderOrder []string
 
+	// RedirectHeaderOrder, when non-empty, takes HeaderOrder's place on every
+	// request that follows a redirect of this one, for a browser that orders a
+	// redirected request's headers differently from the request it started with.
+	// Safari does: it rebuilds the next request from what the last one put on
+	// the wire, so Accept-Language and Priority, which close its first request,
+	// are ordered among the others on every later hop. Same semantics as
+	// HeaderOrder. Empty or nil means the hops keep HeaderOrder.
+	RedirectHeaderOrder []string
+
 	// OnRedirect, when non-nil, is called once per redirect hop before the
 	// follow-up request is built. Return nil to follow the hop,
 	// ErrUseLastResponse to stop the chain and get the 3xx back as the response
@@ -780,7 +789,12 @@ func WithRedirects(follow bool, maxRedirects int) SessionOption {
 	}
 }
 
-// WithRetry enables retry with default settings
+// WithRetry enables retry with default settings.
+//
+// Only what transport.CanResend allows is retried: a failure that proves the
+// request was never sent, or a failure or a retryable status for an
+// idempotent request (GET, HEAD, OPTIONS, TRACE, PUT, DELETE). A POST or PATCH
+// that may have reached the server is never sent again.
 func WithRetry(count int) SessionOption {
 	return func(c *sessionConfig) {
 		c.retryCount = count
@@ -1246,6 +1260,7 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
+		RedirectHeaderOrder:           req.RedirectHeaderOrder,
 		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
 	}
@@ -1280,6 +1295,7 @@ func (s *Session) DoWithBody(ctx context.Context, req *Request, bodyReader io.Re
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
+		RedirectHeaderOrder:           req.RedirectHeaderOrder,
 		OnRedirect:                    req.OnRedirect,
 		Timeout:                       req.Timeout,
 	}
@@ -1313,6 +1329,12 @@ func (s *Session) GetCookies() []CookieInfo {
 // GetCookiesDetailed returns all cookies with full metadata (domain, path, expiry, etc.)
 func (s *Session) GetCookiesDetailed() []CookieInfo {
 	return s.inner.GetCookies()
+}
+
+// CookiesFor returns the cookies a request to url would carry, in the order its
+// Cookie header would list them.
+func (s *Session) CookiesFor(url string) []CookieInfo {
+	return s.inner.CookiesFor(url)
 }
 
 // SetCookie sets a cookie in the session with full metadata
@@ -1677,6 +1699,7 @@ func (s *Session) DoStream(ctx context.Context, req *Request) (*StreamResponse, 
 		DisableHighEntropyClientHints: req.DisableHighEntropyClientHints,
 		DisableRedirectReferer:        req.DisableRedirectReferer,
 		HeaderOrder:                   req.HeaderOrder,
+		RedirectHeaderOrder:           req.RedirectHeaderOrder,
 		Timeout:                       req.Timeout,
 	}
 

@@ -21,6 +21,9 @@ func TestLibVersionMatchesEveryBinding(t *testing.T) {
 		"../nodejs/package.json":                regexp.MustCompile(`"version": "([^"]+)"`),
 		"../dotnet/HttpCloak/HttpCloak.csproj":  regexp.MustCompile(`<Version>([^<]+)</Version>`),
 		"../android/httpcloak/build.gradle.kts": regexp.MustCompile(`(?m)^version = "([^"]+)"`),
+		"../rust/Cargo.toml":                    regexp.MustCompile(`(?m)^version = "([^"]+)"`),
+		// The crate pins the sys crate exactly: they are one library.
+		"../rust/httpcloak/Cargo.toml": regexp.MustCompile(`httpcloak-sys = \{ version = "=([^"]+)"`),
 	}
 	npm, _ := filepath.Glob("../nodejs/npm/*/package.json")
 	for _, f := range npm {

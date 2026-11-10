@@ -49,16 +49,23 @@ build_for_platform() {
 
     echo "Building for $os/$arch -> $output"
 
+    # MinGW links libgcc into a DLL dynamically, and a stock Windows has no
+    # libgcc_s_seh-1.dll, so the library would not load there.
+    local ldflags="-s -w"
+    if [ "$os" = "windows" ]; then
+        ldflags="$ldflags -extldflags=-static-libgcc"
+    fi
+
     if [ -n "$cc" ]; then
         CGO_ENABLED=1 GOOS="$os" GOARCH="$arch" CC="$cc" go build \
             -buildmode=c-shared \
-            -ldflags="-s -w" \
+            -ldflags="$ldflags" \
             -o "$output" \
             .
     else
         CGO_ENABLED=1 GOOS="$os" GOARCH="$arch" go build \
             -buildmode=c-shared \
-            -ldflags="-s -w" \
+            -ldflags="$ldflags" \
             -o "$output" \
             .
     fi

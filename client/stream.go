@@ -229,14 +229,15 @@ func (c *Client) DoStream(ctx context.Context, req *Request) (*StreamResponse, e
 			return nil, fmt.Errorf("HTTP/1.1 failed: %w", err)
 		}
 	default:
-		// Auto mode: try H3 -> H2 -> H1 with fallback
+		// Auto mode: try H3 -> H2 -> H1 with fallback, each only when that
+		// cannot have the request acted on twice (see fallBack)
 		if useH3 {
 			resp, usedProtocol, err = c.doHTTP3(ctx, host, port, httpReq, timing, startTime)
 			if err != nil {
 				c.markH3Failed(hostKey)
-				resetRequestBody(httpReq, bodyBytes)
-
-				resp, usedProtocol, err = c.doHTTP2(ctx, host, port, httpReq, timing, startTime)
+				resp, usedProtocol, err = c.fallBack(err, httpReq, bodyBytes, func() (*http.Response, string, error) {
+					return c.doHTTP2(ctx, host, port, httpReq, timing, startTime)
+				})
 			}
 		} else {
 			resp, usedProtocol, err = c.doHTTP2(ctx, host, port, httpReq, timing, startTime)
@@ -245,9 +246,9 @@ func (c *Client) DoStream(ctx context.Context, req *Request) (*StreamResponse, e
 		// If H2 failed and we should try H1, attempt fallback
 		if err != nil && c.shouldUseH1(hostKey) {
 			c.markH2Failed(hostKey)
-			resetRequestBody(httpReq, bodyBytes)
-
-			resp, usedProtocol, err = c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
+			resp, usedProtocol, err = c.fallBack(err, httpReq, bodyBytes, func() (*http.Response, string, error) {
+				return c.doHTTP1(ctx, host, port, httpReq, timing, startTime)
+			})
 		}
 
 		if err != nil {

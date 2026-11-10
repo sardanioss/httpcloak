@@ -49,6 +49,42 @@ func TestRequestHeaderOrder_SurvivesRedirects(t *testing.T) {
 	}
 }
 
+// A browser can order a redirected request's headers differently from the one
+// it started with (Safari does), so the caller can give the hops an order of
+// their own: the first request keeps HeaderOrder and every hop after it, not
+// just the next one, takes RedirectHeaderOrder.
+func TestRedirectHeaderOrder_OrdersEveryHopAfterTheFirst(t *testing.T) {
+	srv := newRedirectOrderCapture(t, 2)
+	s := NewSession("", &protocol.SessionConfig{
+		Preset:          "chrome-latest",
+		ForceHTTP1:      true,
+		FollowRedirects: true,
+	})
+	defer s.Close()
+
+	resp, err := s.Request(context.Background(), &transport.Request{
+		Method:              "GET",
+		URL:                 srv.url + "hop0",
+		Headers:             map[string][]string{"x-alpha": {"1"}},
+		HeaderOrder:         []string{"x-alpha", "accept", "user-agent"},
+		RedirectHeaderOrder: []string{"accept", "user-agent", "x-alpha"},
+	})
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Close()
+
+	hops := srv.all()
+	if len(hops) != 3 {
+		t.Fatalf("captured %d hops, want 3 (initial + 2 redirects)", len(hops))
+	}
+	assertPrefixf(t, hops[0], []string{"x-alpha", "accept", "user-agent"}, "the first request did not keep HeaderOrder")
+	for i, order := range hops[1:] {
+		assertPrefixf(t, order, []string{"accept", "user-agent", "x-alpha"},
+			"hop %d did not take the redirect order", i+1)
+	}
+}
+
 // assertPrefixf checks that got starts with want. The wire only carries the
 // headers the request actually has, so an order list is asserted as a leading
 // run, not as the whole thing.
