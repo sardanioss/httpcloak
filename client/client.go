@@ -66,6 +66,7 @@ import (
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/internal/compress"
 	"github.com/sardanioss/httpcloak/internal/gunzip"
+	"github.com/sardanioss/httpcloak/internal/origin"
 	"github.com/sardanioss/httpcloak/pool"
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/transport"
@@ -1289,8 +1290,8 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 
 			// Browser-parity scrubbing on scheme downgrade / cross-origin.
 			// See session.requestWithRedirects for the same policy and rationale.
-			schemeDowngrade := isSchemeDowngradeClient(reqURL, redirectURL)
-			crossOrigin := !sameOriginClient(reqURL, redirectURL)
+			schemeDowngrade := origin.Downgrade(reqURL, redirectURL)
+			crossOrigin := !origin.Same(reqURL, redirectURL)
 
 			// Ask the caller before taking the hop. After the cap check on
 			// purpose: the cap is a resource bound, not a policy question, and
@@ -1336,22 +1337,30 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					carriedHeaders = make(map[string][]string, len(req.Headers))
 					for k, v := range req.Headers {
 						lk := strings.ToLower(k)
-						if schemeDowngrade && lk == "referer" {
+						if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
 							continue
 						}
-						if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
+						if lk == "referer" {
+							if len(v) == 0 {
+								continue
+							}
+							if ref := origin.RedirectReferer(v[0], redirectURL); ref != "" {
+								carriedHeaders[k] = []string{ref}
+							}
 							continue
 						}
 						carriedHeaders[k] = v
 					}
 				}
 
-				carriedReferer := reqURL
+				// A redirect does not change who made the request: the hop
+				// carries the referrer the request already had (never the URL
+				// that answered with the redirect), written again for where
+				// the hop goes, and a request that had none is followed with
+				// none. See origin.RedirectReferer.
+				carriedReferer := origin.RedirectReferer(req.Referer, redirectURL)
 				carriedAuth := req.Auth
-				if schemeDowngrade {
-					carriedReferer = ""
-					carriedAuth = nil
-				} else if crossOrigin {
+				if crossOrigin || schemeDowngrade {
 					carriedAuth = nil
 				}
 
@@ -2480,42 +2489,4 @@ func decompress(data []byte, encoding string) ([]byte, error) {
 		// Unknown encoding, return as-is
 		return data, nil
 	}
-}
-
-// parseOriginClient returns (scheme, host, port) with default ports filled in.
-// Used to gate header scrubbing on scheme downgrade / cross-origin redirects.
-func parseOriginClient(urlStr string) (scheme, host, port string) {
-	u, err := url.Parse(urlStr)
-	if err != nil || u.Scheme == "" {
-		return "", "", ""
-	}
-	scheme = strings.ToLower(u.Scheme)
-	host = strings.ToLower(u.Hostname())
-	port = u.Port()
-	if port == "" {
-		switch scheme {
-		case "https":
-			port = "443"
-		case "http":
-			port = "80"
-		}
-	}
-	return scheme, host, port
-}
-
-// sameOriginClient reports whether two URLs share scheme+host+port.
-func sameOriginClient(a, b string) bool {
-	as, ah, ap := parseOriginClient(a)
-	bs, bh, bp := parseOriginClient(b)
-	if as == "" || bs == "" {
-		return false
-	}
-	return as == bs && ah == bh && ap == bp
-}
-
-// isSchemeDowngradeClient reports whether a redirect goes https → http.
-func isSchemeDowngradeClient(from, to string) bool {
-	fs, _, _ := parseOriginClient(from)
-	ts, _, _ := parseOriginClient(to)
-	return fs == "https" && ts == "http"
 }

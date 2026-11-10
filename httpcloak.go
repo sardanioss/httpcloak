@@ -250,16 +250,15 @@ type Request struct {
 	// platform-version, bitness, model, wow64) for this single request.
 	DisableHighEntropyClientHints bool
 
-	// DisableRedirectReferer, when true, stops a Referer being added on redirect
-	// hops. By default httpcloak synthesises one per Chrome's default
-	// strict-origin-when-cross-origin policy: the full previous URL same-origin,
-	// the origin alone cross-origin, and nothing at all on an https to http
-	// downgrade. That is what a browser does, so leave this off unless you are
-	// mirroring a client that sends no Referer.
-	//
-	// When set, no Referer reaches the next hop at all, including one you set on
-	// the original request, since forwarding that would leak the pre-redirect URL
-	// to the new host.
+	// DisableRedirectReferer, when true, keeps the request's Referer off every
+	// redirect hop. By default a hop carries the Referer the request had, as a
+	// browser's does: a redirect does not change who made the request, so the
+	// referrer stays the page that made it (never the URL that redirected),
+	// written per Chrome's default strict-origin-when-cross-origin policy for
+	// where the hop goes: whole to the referrer's own origin, the origin alone
+	// to another, and not at all from https to http. A request with no Referer
+	// is followed with none. Leave this off unless you are mirroring a client
+	// that sends no Referer after a redirect.
 	DisableRedirectReferer bool
 
 	// HeaderOrder, when non-empty, sets the header order for this single request

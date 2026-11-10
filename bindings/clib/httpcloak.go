@@ -210,10 +210,11 @@ type RequestConfig struct {
 	DisableClientHints            bool `json:"disable_client_hints,omitempty"`
 	DisableHighEntropyClientHints bool `json:"disable_high_entropy_client_hints,omitempty"`
 
-	// DisableRedirectReferer stops a Referer being added on redirect hops. By
-	// default one is synthesised per Chrome's strict-origin-when-cross-origin
-	// policy, which is what a browser does. When set, no Referer reaches the
-	// next hop at all, including one the caller set on the original request.
+	// DisableRedirectReferer keeps the request's Referer off redirect hops. By
+	// default a hop carries the Referer the request had (the page that made it,
+	// never the URL that redirected), written per Chrome's
+	// strict-origin-when-cross-origin policy for where the hop goes, which is
+	// what a browser does.
 	DisableRedirectReferer bool `json:"disable_redirect_referer,omitempty"`
 
 	// UnboundedBody applies to the streaming entry points only: with no
@@ -1616,10 +1617,11 @@ type RequestOptions struct {
 	DisableClientHints            bool `json:"disable_client_hints,omitempty"`
 	DisableHighEntropyClientHints bool `json:"disable_high_entropy_client_hints,omitempty"`
 
-	// DisableRedirectReferer stops a Referer being added on redirect hops. By
-	// default one is synthesised per Chrome's strict-origin-when-cross-origin
-	// policy, which is what a browser does. When set, no Referer reaches the
-	// next hop at all, including one the caller set on the original request.
+	// DisableRedirectReferer keeps the request's Referer off redirect hops. By
+	// default a hop carries the Referer the request had (the page that made it,
+	// never the URL that redirected), written per Chrome's
+	// strict-origin-when-cross-origin policy for where the hop goes, which is
+	// what a browser does.
 	DisableRedirectReferer bool `json:"disable_redirect_referer,omitempty"`
 
 	// UnboundedBody applies to the streaming entry points only: with no

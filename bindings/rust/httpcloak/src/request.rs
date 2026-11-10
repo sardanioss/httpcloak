@@ -57,8 +57,10 @@ pub struct RequestHead<'a> {
     /// spelling and value of each: those set with
     /// [`header`](RequestBuilder::header), a `Cookie` holding the cookies
     /// added with [`cookie`](RequestBuilder::cookie), then the `Content-Type`
-    /// a body helper implies when none was set. The preset's headers and the
-    /// jar's cookies are not among them: the library adds those.
+    /// a body helper implies when none was set. A header set to an empty
+    /// value, which leaves it off the request, is here with that value. The
+    /// preset's headers and the jar's cookies are not among them: the library
+    /// adds those.
     pub headers: &'a [(String, String)],
     /// Whether the request has a body. An empty one counts as none.
     pub has_body: bool,
@@ -397,7 +399,12 @@ impl RequestBuilder {
         self
     }
 
-    /// Adds no `Referer` on redirect hops, and drops the request's own there.
+    /// Keeps the request's `Referer` off redirect hops.
+    ///
+    /// A hop otherwise carries the `Referer` the request had, as a browser's
+    /// does: the page that made the request, never the URL that redirected,
+    /// cut down to its origin for a hop to another origin and left off from
+    /// https to http. A request with no `Referer` is followed with none.
     pub fn disable_redirect_referer(mut self) -> Self {
         self.disable_redirect_referer = true;
         self
