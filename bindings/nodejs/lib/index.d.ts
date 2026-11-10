@@ -363,9 +363,10 @@ export interface RequestOptions {
   disableHighEntropyClientHints?: boolean;
 
   /**
-   * Per-request opt-out of the Referer httpcloak adds when it follows a
-   * redirect. When true no Referer is synthesised for the next hop; a Referer
-   * the caller set themselves still goes out.
+   * Keeps the request's Referer off redirect hops. By default a hop carries
+   * the Referer the request had (the page that made it, never the URL that
+   * redirected), written per Chrome's strict-origin-when-cross-origin policy
+   * for where the hop goes.
    */
   disableRedirectReferer?: boolean;
 

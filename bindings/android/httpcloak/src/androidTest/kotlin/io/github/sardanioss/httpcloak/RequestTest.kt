@@ -86,7 +86,10 @@ class RequestTest {
         val binary = ByteArray(4096) { it.toByte() }
         for (send in listOf<suspend (Request) -> Response>({ session.request(it) }, { session.execute(it) })) {
             val echoedText = send(Request("https://httpbin.org/post", "POST", body = Body.text(text, "text/plain")))
-            assertEquals(text, echoedText.jsonObject().getString("data"))
+            // httpbin echoes a body holding a NUL as a data URI, however it is typed.
+            val textData = echoedText.jsonObject().getString("data")
+            val echoed = if (textData.startsWith("data:")) String(base64Decode(textData.substringAfter(",")), Charsets.UTF_8) else textData
+            assertEquals(text, echoed)
 
             val json = send(Request("https://httpbin.org/post", "POST", body = Body.text("""{"a":"ü"}""")))
             assertEquals("ü", json.jsonObject().getJSONObject("json").getString("a"))

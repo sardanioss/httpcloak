@@ -381,6 +381,13 @@ DATA len=7
           "key": "sec-fetch-user",
           "value": "?1"
         }
+      ],
+      "zero_content_length_methods": [
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS"
       ]
     },
     "protocols": {

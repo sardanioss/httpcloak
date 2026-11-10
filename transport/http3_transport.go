@@ -1447,6 +1447,9 @@ func (t *HTTP3Transport) buildHTTP3Transport(dialFunc func(ctx context.Context, 
 		AdditionalSettings:     additionalSettings,
 		MaxResponseHeaderBytes: int(t.preset.H3MaxResponseHeaderBytes()),
 		SendGreaseFrames:       t.preset.H3SendGreaseFrames(),
+		// The methods that say "content-length: 0" with no body are the
+		// browser's, on HTTP/3 as on the other two.
+		ZeroContentLengthMethods: t.preset.ResolveZeroContentLengthMethods(),
 		// Never add "accept-encoding: gzip" on the caller's behalf; see the
 		// same setting in internal/h2build.
 		DisableCompression: true,

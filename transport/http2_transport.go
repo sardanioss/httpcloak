@@ -1249,7 +1249,7 @@ func (t *HTTP2Transport) dialHTTPProxyBlocking(ctx context.Context, conn net.Con
 
 	if resp.StatusCode != http.StatusOK {
 		conn.Close()
-		return nil, fmt.Errorf("proxy CONNECT failed with status %d: %s", resp.StatusCode, resp.Status)
+		return nil, &ProxyStatusError{StatusCode: resp.StatusCode, Status: resp.Status}
 	}
 
 	// Connection established - tunnel is now open

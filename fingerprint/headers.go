@@ -469,6 +469,24 @@ func (p *Preset) ResolveImageAccept() string {
 	return legacyImageAccept
 }
 
+// ResolveZeroContentLengthMethods returns the methods whose requests say
+// "content-length: 0" when they carry no body. The transports read it on every
+// protocol they write the header for, and must not modify what it returns.
+//
+// Measured with fetch() and XMLHttpRequest on every method, no body given:
+// Chrome 156.0.8078.47 and Firefox 159.0 send the header on a POST and a PUT
+// and on nothing else, which is the default here. Safari 26.6 sends it on a
+// PATCH, a DELETE and an OPTIONS as well (a CORS preflight included), so the
+// Apple-stack presets list theirs. None sends it on a GET or a HEAD.
+func (p *Preset) ResolveZeroContentLengthMethods() []string {
+	if p != nil && len(p.ZeroContentLengthMethods) > 0 {
+		return p.ZeroContentLengthMethods
+	}
+	return defaultZeroContentLengthMethods
+}
+
+var defaultZeroContentLengthMethods = []string{"POST", "PUT"}
+
 // NewHeaderCoherence creates a new HeaderCoherence helper
 func NewHeaderCoherence(preset *Preset) *HeaderCoherence {
 	return &HeaderCoherence{

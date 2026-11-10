@@ -71,6 +71,10 @@ internal_tests/
 # Node regression locks, on the same terms.
 !/tests/nodejs/test_session_cache_concurrency.js
 !/tests/nodejs/test_configure.js
+# The Rust crates keep their integration tests in tests/, as cargo expects;
+# the blanket tests/ rule above would drop the whole suite.
+!/bindings/rust/httpcloak/tests/
+!/bindings/rust/httpcloak-sys/tests/
 
 # Local workspace config (points at machine-local fork paths)
 go.work

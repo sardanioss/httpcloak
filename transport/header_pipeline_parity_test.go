@@ -2,7 +2,9 @@ package transport
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
+	"net/url"
 	"reflect"
 	"sort"
 	"strings"
@@ -26,7 +28,8 @@ import (
 // TLS-only mode and stripped client hints.
 //
 // The frozen functions below are that pre-merge code, renamed, and must not
-// be edited: they are the reference.
+// be edited: they are the reference. Changes made to the pipeline on purpose
+// since then are applied to their output by laterChanges.
 func TestHeaderPipelineMatchesThePreviousOne(t *testing.T) {
 	tr := NewTransport("chrome-latest")
 	defer tr.Close()
@@ -76,7 +79,9 @@ func TestHeaderPipelineMatchesThePreviousOne(t *testing.T) {
 								}
 								old, cur := mk(), mk()
 								frozenApplyPresetHeaders(old, preset, order, nil, tlsOnly, proto, req.Headers, strip, exact)
+								laterChanges(old.Header, preset, tlsOnly, req, exact)
 								frozenMergeCallerHeaders(old, req)
+								laterMergeChanges(old.Header, req)
 								applyPresetHeaders(cur, tr.wireHeaders(preset), order, nil, tlsOnly, proto, req.Headers, strip, exact)
 								mergeCallerHeaders(cur, req)
 								cases++
@@ -112,6 +117,53 @@ func TestHeaderPipelineMatchesThePreviousOne(t *testing.T) {
 		}
 	}
 	t.Logf("%d request cases identical", cases)
+}
+
+// laterChanges applies to the frozen pipeline's output what has changed in the
+// pipeline on purpose since it was frozen, each change tested on its own:
+//
+//   - A no-cors load sends its destination's Accept, the image Accept on an
+//     image (TestApplyPresetHeadersDerivesSubresourceContext). The same change
+//     takes a fetch()'s Sec-Fetch-Site and Origin from its Referer, which no
+//     shape here sends on a fetch().
+//   - A navigation with a Referer takes its Sec-Fetch-Site from it, and one
+//     that is not a GET carries the page's Origin
+//     (TestApplyPresetHeadersDerivesNavigationSite).
+func laterChanges(h http.Header, preset *fingerprint.Preset, tlsOnly bool, req *Request, exact []fingerprint.HeaderPair) {
+	if tlsOnly || len(exact) > 0 || !presetSendsSecFetch(preset) {
+		return
+	}
+	if !sniffXHRMode(req.Method, req.Headers) {
+		if referer := headerVal(req.Headers, "Referer"); referer != "" {
+			u, _ := url.Parse(req.URL)
+			site := cmp.Or(headerVal(req.Headers, "Sec-Fetch-Site"), subresourceFetchSite(referer, u))
+			h["Sec-Fetch-Site"] = []string{site}
+			if origin := requestOrigin(referer, "navigate", site, req.Method); origin != "" && headerVal(req.Headers, "Origin") == "" {
+				h["Origin"] = []string{origin}
+			}
+		}
+		return
+	}
+	if headerVal(req.Headers, "Accept") == "" {
+		mode := cmp.Or(headerVal(req.Headers, "Sec-Fetch-Mode"), "cors")
+		dest := cmp.Or(headerVal(req.Headers, "Sec-Fetch-Dest"), "empty")
+		h["Accept"] = []string{subresourceAccept(preset, mode, dest)}
+	}
+}
+
+// laterMergeChanges applies to the frozen merge's output what has changed in it
+// on purpose since: a caller header whose only value is "" is removed rather
+// than sent empty, as the headers documentation says
+// (TestMergeCallerHeadersEmptyValueRemoves). Exact mode still merges nothing.
+func laterMergeChanges(h http.Header, req *Request) {
+	if len(req.ExactHeaders) > 0 {
+		return
+	}
+	for key, values := range req.Headers {
+		if len(values) == 1 && values[0] == "" {
+			delete(h, http.CanonicalHeaderKey(key))
+		}
+	}
 }
 
 func dumpHeader(h http.Header) string {
@@ -365,7 +417,7 @@ func frozenApplyPresetHeaders(httpReq *http.Request, preset *fingerprint.Preset,
 	// run, and the priority table a few lines up reads the same field.
 	httpReq.Header[http.HeaderOrderKey] = frozenCompleteHeaderOrder(
 		customHeaderOrder,
-		preset.H2HeaderOrderFor(httpReq.Header.Get("Sec-Fetch-Dest")),
+		preset.H2HeaderOrderFor(httpReq.Header.Get("Sec-Fetch-Dest"), httpReq.Header.Get("Sec-Purpose")),
 		httpReq.Header, userHeaders)
 
 	// Set pseudo-header order: custom (Akamai) > preset H2Config > heuristic

@@ -32,7 +32,7 @@ public data class Request @JvmOverloads constructor(
     public val disableClientHints: Boolean = false,
     /** Keeps the sec-ch-ua trio but drops the high-entropy client hints. */
     public val disableHighEntropyClientHints: Boolean = false,
-    /** Stops a Referer being added on redirect hops. */
+    /** Keeps the request's Referer off redirect hops, which carry it otherwise. */
     public val disableRedirectReferer: Boolean = false,
     /**
      * Replaces the whole header pipeline: these pairs go out exactly as given,
