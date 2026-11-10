@@ -56,9 +56,6 @@ func buildHTTPRequest(ctx context.Context, req *Request, preset *fingerprint.Pre
 			return nil, fmt.Errorf("failed to read request body: %w", err)
 		}
 		bodyReader = bytes.NewReader(bodyBytes)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		// POST/PUT/PATCH with empty body must send Content-Length: 0
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -66,7 +63,7 @@ func buildHTTPRequest(ctx context.Context, req *Request, preset *fingerprint.Pre
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Normalize request (Content-Length: 0 for empty POST/PUT/PATCH, Content-Type detection, etc.)
+	// Normalize request (Content-Length, Content-Type detection, etc.)
 	normalizeRequestWithBody(httpReq, bodyBytes)
 
 	// Set preset headers first
@@ -168,15 +165,13 @@ func normalizeRequest(req *http.Request, bodyLen int) {
 	method := strings.ToUpper(req.Method)
 
 	// If there's a body, always set Content-Length explicitly
-	// Some servers require this header to be present
+	// Some servers require this header to be present. Without one, whether
+	// the request says "Content-Length: 0" is the transport's to decide: it
+	// depends on the browser as well as the method
+	// (fingerprint.Preset.ResolveZeroContentLengthMethods).
 	if bodyLen > 0 {
 		req.ContentLength = int64(bodyLen)
 		req.Header.Set("Content-Length", fmt.Sprintf("%d", bodyLen))
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		// POST/PUT/PATCH with empty body must send Content-Length: 0
-		// This is standard HTTP behavior
-		req.ContentLength = 0
-		req.Header.Set("Content-Length", "0")
 	}
 
 	// Ensure Host header is set (Go usually handles this, but be explicit)
@@ -324,23 +319,9 @@ func min(a, b int) int {
 	return b
 }
 
-// hasBody returns true if the HTTP method typically has a request body
-func hasBody(method string) bool {
-	switch strings.ToUpper(method) {
-	case "POST", "PUT", "PATCH":
-		return true
-	default:
-		return false
-	}
-}
-
 // resetRequestBody resets the request body for retry attempts
-// This handles both non-empty bodies and empty POST/PUT/PATCH bodies
 func resetRequestBody(httpReq *http.Request, body []byte) {
 	if len(body) > 0 {
 		httpReq.Body = io.NopCloser(bytes.NewReader(body))
-	} else if hasBody(httpReq.Method) {
-		// POST/PUT/PATCH with empty body - still need a valid (empty) reader
-		httpReq.Body = io.NopCloser(bytes.NewReader([]byte{}))
 	}
 }

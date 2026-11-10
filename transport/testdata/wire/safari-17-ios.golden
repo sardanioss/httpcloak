@@ -291,6 +291,13 @@ body "{\"k\":1}"
           "key": "user-agent",
           "value": ""
         }
+      ],
+      "zero_content_length_methods": [
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS"
       ]
     },
     "protocols": {

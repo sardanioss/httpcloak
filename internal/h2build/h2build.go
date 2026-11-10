@@ -104,6 +104,10 @@ func Transport(o Options) *http2.Transport {
 		DisableCookieSplit: p.H2DisableCookieSplit(),
 		PseudoHeaderOrder:  pseudoOrder,
 
+		// Which methods say "content-length: 0" with no body is the browser's
+		// rule, not net/http's.
+		ZeroContentLengthMethods: p.ResolveZeroContentLengthMethods(),
+
 		// Chrome 120+ uses RFC 9218 extensible priorities (the priority
 		// header) rather than RFC 7540 PRIORITY frames. StreamWeight 0 means
 		// no PRIORITY data on the wire.

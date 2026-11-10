@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/sardanioss/net/http2/hpack"
 	"os"
+	"slices"
 	"strings"
 
 	tls "github.com/sardanioss/utls"
@@ -256,6 +257,11 @@ type HeaderSpec struct {
 	// Accept in Order, but image requests are built elsewhere and need their
 	// own value, which moves between Chrome versions (155 added image/jxl).
 	ImageAccept string `json:"image_accept,omitempty"`
+
+	// ZeroContentLengthMethods names the methods whose requests say
+	// "content-length: 0" when they carry no body, which differs between
+	// browsers. Empty means POST and PUT, as Chrome and Firefox do.
+	ZeroContentLengthMethods []string `json:"zero_content_length_methods,omitempty"`
 }
 
 // HeaderPairSpec is a key-value pair for ordered headers in JSON.
@@ -500,6 +506,8 @@ func clonePreset(src *Preset) *Preset {
 		dst.HeaderOrder = make([]HeaderPair, len(src.HeaderOrder))
 		copy(dst.HeaderOrder, src.HeaderOrder)
 	}
+
+	dst.ZeroContentLengthMethods = slices.Clone(src.ZeroContentLengthMethods)
 
 	// Deep copy H2Config
 	if src.H2Config != nil {
@@ -1265,6 +1273,9 @@ func applyHeaders(p *Preset, spec *HeaderSpec) {
 	}
 	if spec.ImageAccept != "" {
 		p.ImageAccept = spec.ImageAccept
+	}
+	if len(spec.ZeroContentLengthMethods) > 0 {
+		p.ZeroContentLengthMethods = slices.Clone(spec.ZeroContentLengthMethods)
 	}
 
 	// Merge values into Headers map

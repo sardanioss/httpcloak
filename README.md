@@ -1055,6 +1055,7 @@ Any field below is editable in the JSON spec produced by `describe_preset` (see 
 | `preset.tcp` | TCP/IP fingerprint |
 | `preset.headers.values` / `preset.headers.order` | Header values and request order |
 | `preset.headers.image_accept` | `Accept` header for image loads (Chrome 155 added `image/jxl`) |
+| `preset.headers.zero_content_length_methods` | Methods that say `content-length: 0` with no body (Chrome and Firefox: `POST`, `PUT`; Safari adds `PATCH`, `DELETE`, `OPTIONS`) |
 | `preset.tls.trust_anchors` / `preset.tls.quic_trust_anchors_shuffle` | Trust anchor IDs, and whether QUIC reshuffles them per connection |
 
 Round-trip is byte-equal — `describe_preset` → mutate JSON → `load_preset_from_json` → run → `describe_preset` returns identical bytes.

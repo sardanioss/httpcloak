@@ -1047,9 +1047,6 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	var bodyReader io.Reader
 	if len(bodyBytes) > 0 {
 		bodyReader = bytes.NewReader(bodyBytes)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		// POST/PUT/PATCH with empty body must send Content-Length: 0
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
@@ -1057,7 +1054,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Normalize request (Content-Length: 0 for empty POST/PUT/PATCH, Content-Type detection, etc.)
+	// Normalize request (Content-Length, Content-Type detection, etc.)
 	normalizeRequestWithBody(httpReq, bodyBytes)
 
 	// Apply headers based on TLSOnly mode or FetchMode

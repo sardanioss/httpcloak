@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/textproto"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1471,6 +1472,13 @@ func valuesForSlot(vals []string, n, i int) []string {
 	return vals[i : i+1]
 }
 
+// declaresEmptyBody reports whether req, which has no body to send, says so
+// with "Content-Length: 0". Browsers disagree on the methods that do, so the
+// preset names them, as it does for HTTP/2.
+func (t *HTTP1Transport) declaresEmptyBody(req *http.Request) bool {
+	return req.ContentLength == 0 && slices.Contains(t.preset.ResolveZeroContentLengthMethods(), req.Method)
+}
+
 // writeHeadersInOrder writes headers in a browser-like order
 func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request, useChunked bool) {
 	// Check if custom header order is specified (from preset or user)
@@ -1547,8 +1555,7 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 				// Fallback to ContentLength field
 				fmt.Fprintf(w, "Content-Length: %d\r\n", req.ContentLength)
 				written[canonicalKey] = true
-			} else if req.ContentLength == 0 && req.Body != nil && !useChunked {
-				// Empty body but Body is set (POST/PUT/PATCH with empty body)
+			} else if t.declaresEmptyBody(req) {
 				fmt.Fprintf(w, "Content-Length: 0\r\n")
 				written[canonicalKey] = true
 			}
@@ -1644,7 +1651,7 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 			}
 		} else if req.ContentLength > 0 {
 			fmt.Fprintf(w, "Content-Length: %d\r\n", req.ContentLength)
-		} else if req.ContentLength == 0 && req.Body != nil {
+		} else if t.declaresEmptyBody(req) {
 			fmt.Fprintf(w, "Content-Length: 0\r\n")
 		}
 	}

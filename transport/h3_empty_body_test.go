@@ -11,7 +11,9 @@ import (
 // A bodiless POST is sent with "content-length: 0", as Chrome sends it; some
 // servers answer 411 Length Required without it. Over HTTP/3 the empty body
 // went out as http.NoBody, which quic-go's request writer reads as a body of
-// unknown length, so it left the header out.
+// unknown length, so it left the header out. The PATCH is quic-go's rule and
+// not Chrome's, which sends it on a POST and a PUT alone: HTTP/3 does not
+// follow the preset's methods yet (Preset.ResolveZeroContentLengthMethods).
 func TestHTTP3EmptyBodySendsZeroContentLength(t *testing.T) {
 	var mu sync.Mutex
 	seen := map[string]string{}

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	tls "github.com/sardanioss/utls"
@@ -214,10 +215,11 @@ func flattenHeaders(p *Preset) *HeaderSpec {
 			out.Order[i] = HeaderPairSpec{Key: hp.Key, Value: hp.Value}
 		}
 	}
-	// Only when set: an empty value means the pre-155 default, and writing that
+	// Both only when set: an empty value means the default, and writing that
 	// default out would pin it on a described preset that should keep
-	// following ResolveImageAccept.
+	// following ResolveImageAccept and ResolveZeroContentLengthMethods.
 	out.ImageAccept = p.ImageAccept
+	out.ZeroContentLengthMethods = slices.Clone(p.ZeroContentLengthMethods)
 	return out
 }
 
