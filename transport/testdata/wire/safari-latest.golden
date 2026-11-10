@@ -255,7 +255,6 @@ HEADERS
   literal name="sec-fetch-dest" name-huffman=true never=false huffman=true "empty"
   literal name="sec-fetch-mode" name-huffman=true never=false huffman=true "cors"
   literal name="sec-fetch-site" name-huffman=true never=false huffman=true "cross-site"
-  literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
   literal name-ref static=true 72 never=false huffman=true "en-US,en;q=0.9"
   indexed static=true 31
   literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"

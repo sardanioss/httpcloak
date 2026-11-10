@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Over HTTP/3, a request went out with preset headers it had left out**: the header pipeline decides what a request carries and leaves out what its kind of request does not send, and the HTTP/3 transport then gave the request every preset header it lacked, just before sending it. So over HTTP/3, and only there, a `fetch()` or XHR carried the `Sec-Fetch-User: ?1` and `Upgrade-Insecure-Requests: 1` of a navigation, a request with `DisableClientHints` carried the `Sec-CH-UA` trio, and `ExactHeaders`, which promises that nothing is added, gained the preset's whole block. `Transport` now sends over HTTP/3 with the headers the pipeline built, as it does over HTTP/1.1 and HTTP/2. `HTTP3Transport.RoundTrip`, for a caller using that transport on its own, still fills them in.
+
 ## [1.7.3] - 2026-10-14
 
 ### Added

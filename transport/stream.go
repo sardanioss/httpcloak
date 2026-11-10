@@ -648,7 +648,7 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 	finishEstablishment := boundStreamEstablishment(t.streamEffectiveTimeout(req), cancel)
 
 	// Make request
-	resp, err := snap.h3.RoundTrip(httpReq)
+	resp, err := snap.h3.roundTrip(httpReq)
 	finishEstablishment()
 	if err != nil {
 		cancel()
