@@ -182,7 +182,12 @@ type SessionConfig struct {
 	FollowRedirects bool `json:"followRedirects,omitempty"`
 	MaxRedirects    int  `json:"maxRedirects,omitempty"`
 
-	// Retry configuration
+	// Retry configuration. A retry sends the request again, so only what
+	// transport.CanResend allows is retried: a failure that proves the
+	// request was never sent, or a failure or a status on RetryOnStatus for
+	// an idempotent request (GET, HEAD, OPTIONS, TRACE, PUT, DELETE) whose
+	// body can be sent again. A POST or PATCH that may have reached the
+	// server is never retried.
 	RetryEnabled  bool  `json:"retryEnabled,omitempty"`
 	MaxRetries    int   `json:"maxRetries,omitempty"`
 	RetryWaitMin  int   `json:"retryWaitMin,omitempty"`  // Milliseconds

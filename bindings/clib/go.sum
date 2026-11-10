@@ -1,3 +1,5 @@
+github.com/abadawe-dev/utls v1.10.6-0.20261031021207-ddeeeacc0ade h1:sTMLymbNP2udvdyCogdVTkjk92/PpPq/i/2Os5/VsXg=
+github.com/abadawe-dev/utls v1.10.6-0.20261031021207-ddeeeacc0ade/go.mod h1:3sXK05Ir31HiMGINYV1uMDFRv/z9JL+QY9ITi/WEbV0=
 github.com/andybalholm/brotli v1.2.0 h1:ukwgCxwYrmACq68yiUqwIWnGY0cTPox/M94sVwToPjQ=
 github.com/andybalholm/brotli v1.2.0/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=

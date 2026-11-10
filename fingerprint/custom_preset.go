@@ -152,6 +152,7 @@ type HTTP2Spec struct {
 	// HPACK config
 	HPACKHeaderOrder            []string `json:"hpack_header_order,omitempty"`
 	HPACKHeaderOrderSubresource []string `json:"hpack_header_order_subresource,omitempty"`
+	HPACKHeaderOrderFetch       []string `json:"hpack_header_order_fetch,omitempty"`
 	HPACKIndexingPolicy         *string  `json:"hpack_indexing_policy,omitempty"` // "chrome","never","always","default"
 	// HPACKRepresentation pins the HPACK representation per header name:
 	// "incremental", "without", "never" or "default". Override layer, empty
@@ -510,6 +511,10 @@ func clonePreset(src *Preset) *Preset {
 		if src.H2Config.HPACKHeaderOrderSubresource != nil {
 			h2.HPACKHeaderOrderSubresource = make([]string, len(src.H2Config.HPACKHeaderOrderSubresource))
 			copy(h2.HPACKHeaderOrderSubresource, src.H2Config.HPACKHeaderOrderSubresource)
+		}
+		if src.H2Config.HPACKHeaderOrderFetch != nil {
+			h2.HPACKHeaderOrderFetch = make([]string, len(src.H2Config.HPACKHeaderOrderFetch))
+			copy(h2.HPACKHeaderOrderFetch, src.H2Config.HPACKHeaderOrderFetch)
 		}
 		if src.H2Config.HPACKRepresentation != nil {
 			h2.HPACKRepresentation = make(map[string]string, len(src.H2Config.HPACKRepresentation))
@@ -1082,7 +1087,7 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 
 	// H2 fingerprinting config
 	if spec.SettingsOrder != nil || spec.PseudoOrder != nil ||
-		spec.HPACKHeaderOrder != nil || spec.HPACKHeaderOrderSubresource != nil ||
+		spec.HPACKHeaderOrder != nil || spec.HPACKHeaderOrderSubresource != nil || spec.HPACKHeaderOrderFetch != nil ||
 		spec.HPACKIndexingPolicy != nil ||
 		spec.HPACKNeverIndex != nil || spec.HPACKRepresentation != nil ||
 		spec.StreamPriorityMode != nil ||
@@ -1110,6 +1115,10 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 		if spec.HPACKHeaderOrderSubresource != nil {
 			p.H2Config.HPACKHeaderOrderSubresource = make([]string, len(spec.HPACKHeaderOrderSubresource))
 			copy(p.H2Config.HPACKHeaderOrderSubresource, spec.HPACKHeaderOrderSubresource)
+		}
+		if spec.HPACKHeaderOrderFetch != nil {
+			p.H2Config.HPACKHeaderOrderFetch = make([]string, len(spec.HPACKHeaderOrderFetch))
+			copy(p.H2Config.HPACKHeaderOrderFetch, spec.HPACKHeaderOrderFetch)
 		}
 		if spec.HPACKIndexingPolicy != nil {
 			p.H2Config.HPACKIndexingPolicy = *spec.HPACKIndexingPolicy

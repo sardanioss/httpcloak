@@ -118,6 +118,7 @@ const sidebars: SidebarsConfig = {
         'bindings/nodejs',
         'bindings/dotnet',
         'bindings/android',
+        'bindings/rust',
       ],
     },
     {

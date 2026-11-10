@@ -14,6 +14,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"net"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -33,15 +35,27 @@ func init() {
 	// Initialize library
 }
 
-// decodeRequestBody decodes the request body based on encoding type
+// decodeRequestBody decodes the request body based on encoding type. A body
+// that does not decode refuses the request before anything is sent.
 func decodeRequestBody(body, encoding string) ([]byte, error) {
 	if body == "" {
 		return nil, nil
 	}
 	if encoding == "base64" {
-		return base64.StdEncoding.DecodeString(body)
+		b, err := base64.StdEncoding.DecodeString(body)
+		if err != nil {
+			return nil, refused(fmt.Errorf("invalid base64 body: %w", err))
+		}
+		return b, nil
 	}
 	return []byte(body), nil
+}
+
+// refused is err for a request this library refused before handing it to a
+// session (a request JSON or a body it cannot read, a session handle that is
+// not one): nothing of it was sent, which the error object says (not_sent).
+func refused(err error) error {
+	return transport.MarkNotSent(err)
 }
 
 // encodeResponseBody serializes a response body into ResponseData.Body/BodyEncoding.
@@ -162,9 +176,16 @@ type RequestConfig struct {
 	// this order, and anything left out keeps the preset's own position. Use it
 	// instead of setting a session-wide order around a request, which races
 	// with every other request in flight.
-	HeaderOrder  []string `json:"header_order,omitempty"`
-	Body         string   `json:"body,omitempty"`
-	BodyEncoding string   `json:"body_encoding,omitempty"` // "text" (default) or "base64"
+	HeaderOrder []string `json:"header_order,omitempty"`
+
+	// RedirectHeaderOrder takes HeaderOrder's place on every request that
+	// follows a redirect of this one, for a browser that orders a redirected
+	// request's headers differently from the first (Safari). Left out, the
+	// hops keep HeaderOrder.
+	RedirectHeaderOrder []string `json:"redirect_header_order,omitempty"`
+
+	Body         string `json:"body,omitempty"`
+	BodyEncoding string `json:"body_encoding,omitempty"` // "text" (default) or "base64"
 	// Timeout's UNIT DEPENDS ON THE ENTRY POINT: httpcloak_request_raw reads it
 	// as MILLISECONDS; httpcloak_request and httpcloak_request_async (and
 	// httpcloak_stream_request) read it as SECONDS. Bindings must convert to
@@ -189,11 +210,19 @@ type RequestConfig struct {
 	DisableClientHints            bool `json:"disable_client_hints,omitempty"`
 	DisableHighEntropyClientHints bool `json:"disable_high_entropy_client_hints,omitempty"`
 
-	// DisableRedirectReferer stops a Referer being added on redirect hops. By
-	// default one is synthesised per Chrome's strict-origin-when-cross-origin
-	// policy, which is what a browser does. When set, no Referer reaches the
-	// next hop at all, including one the caller set on the original request.
+	// DisableRedirectReferer keeps the request's Referer off redirect hops. By
+	// default a hop carries the Referer the request had (the page that made it,
+	// never the URL that redirected), written per Chrome's
+	// strict-origin-when-cross-origin policy for where the hop goes, which is
+	// what a browser does.
 	DisableRedirectReferer bool `json:"disable_redirect_referer,omitempty"`
+
+	// UnboundedBody applies to the streaming entry points only: with no
+	// Timeout, the stream gets no overall deadline instead of the 2 minute
+	// default, for event streams and downloads with no natural end. The
+	// connection and the response headers are still bounded by the session's
+	// timeout. Ignored when Timeout is set.
+	UnboundedBody bool `json:"unbounded_body,omitempty"`
 }
 
 // Cookie represents a parsed cookie from Set-Cookie header
@@ -311,17 +340,80 @@ type SessionConfig struct {
 	TCPDFBit                      *bool                  `json:"tcp_df,omitempty"`                            // Override IP Don't Fragment flag
 }
 
-// Error response
+// ErrorResponse is a failure as it crosses to a binding.
 type ErrorResponse struct {
-	Error   string `json:"error"`
+	Error string `json:"error"`
+	// Code is the kind of failure, when the error's types say it: one of
+	// "timeout", "proxy", "dns", "tls", "connect", "redirect", "io" and
+	// "decode". Empty when only the message could tell, which a binding then
+	// reads itself, as it did before codes were sent.
 	Code    string `json:"code,omitempty"`
 	Details string `json:"details,omitempty"`
+	// NotSent says that no part of the request reached the server, so it was
+	// not acted on (transport.RequestNotSent). Absent, the request may have
+	// been sent.
+	NotSent bool `json:"not_sent,omitempty"`
+	// ProxyStatus is the status an HTTP proxy refused the request's tunnel
+	// with: 407 when it wants credentials or refused the ones it was given.
+	ProxyStatus int `json:"proxy_status,omitempty"`
+}
+
+// errorResponse is err as it crosses to a binding, with what its types say
+// about it beside its message.
+func errorResponse(err error) ErrorResponse {
+	resp := ErrorResponse{Error: err.Error(), Code: errorCode(err), NotSent: transport.RequestNotSent(err)}
+	var refused *transport.ProxyStatusError
+	if errors.As(err, &refused) {
+		resp.ProxyStatus = refused.StatusCode
+	}
+	return resp
+}
+
+// errorCode is the kind of failure err is, in ErrorResponse.Code's names,
+// read from its types: a timeout anywhere in it, a redirect that could not be
+// followed, a proxy's refusal, or the operation the transport names its
+// failure by where it is one that says the kind. Anything else is "", and a
+// binding reads the kind from the message.
+func errorCode(err error) string {
+	var netErr net.Error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, os.ErrDeadlineExceeded),
+		errors.Is(err, transport.ErrTimeout), errors.As(err, &netErr) && netErr.Timeout():
+		return "timeout"
+	case errors.Is(err, transport.ErrTooManyRedirects), errors.Is(err, transport.ErrBodyNotReplayable):
+		return "redirect"
+	}
+	var refused *transport.ProxyStatusError
+	if errors.As(err, &refused) {
+		return "proxy"
+	}
+	var failed *transport.TransportError
+	if errors.As(err, &failed) {
+		switch failed.Op {
+		case "dial_proxy":
+			return "proxy"
+		case "dns_resolve":
+			return "dns"
+		case "dial":
+			return "connect"
+		case "tls_handshake", "alpn":
+			return "tls"
+		case "read_body":
+			return "io"
+		case "decompress":
+			return "decode"
+		}
+	}
+	return ""
+}
+
+func errorJSON(err error) string {
+	data, _ := json.Marshal(errorResponse(err))
+	return string(data)
 }
 
 func makeErrorJSON(err error) *C.char {
-	resp := ErrorResponse{Error: err.Error()}
-	data, _ := json.Marshal(resp)
-	return C.CString(string(data))
+	return C.CString(errorJSON(err))
 }
 
 // --- cgo panic guards (P0) ---
@@ -404,11 +496,9 @@ func parseSetCookieHeaders(headers map[string][]string) []Cookie {
 
 		cookie := Cookie{}
 
-		// Split by semicolon to get name=value and attributes
-		parts := splitBySemicolon(line)
-		if len(parts) == 0 {
-			continue
-		}
+		// Split by semicolon to get name=value and attributes. The split is by
+		// byte, so a value's UTF-8 passes through whole.
+		parts := strings.Split(line, ";")
 
 		// First part is name=value
 		firstPart := trim(parts[0])
@@ -458,7 +548,11 @@ func parseSetCookieHeaders(headers map[string][]string) []Cookie {
 			case "expires":
 				cookie.Expires = attrValue
 			case "max-age":
-				cookie.MaxAge = parseInt(attrValue)
+				// RFC 6265 5.2.2: a value that is not an optional "-" and
+				// digits is ignored, not read up to its first non-digit.
+				if isDecimal(attrValue) {
+					cookie.MaxAge = parseInt(attrValue)
+				}
 			case "samesite":
 				// Normalize to capitalized form
 				sameSiteLower := toLower(attrValue)
@@ -481,24 +575,6 @@ func parseSetCookieHeaders(headers map[string][]string) []Cookie {
 	return cookies
 }
 
-// splitBySemicolon splits a string by semicolon
-func splitBySemicolon(s string) []string {
-	var result []string
-	var current string
-	for i := 0; i < len(s); i++ {
-		if s[i] == ';' {
-			result = append(result, current)
-			current = ""
-		} else {
-			current += string(s[i])
-		}
-	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
-}
-
 // toLower converts a string to lowercase (simple ASCII)
 func toLower(s string) string {
 	result := make([]byte, len(s))
@@ -512,7 +588,10 @@ func toLower(s string) string {
 	return string(result)
 }
 
-// parseInt parses an integer from a string, returns 0 on error
+// parseInt parses the leading integer of a string, 0 when there is none. A
+// value too large for an int saturates: it used to wrap, so a Max-Age of
+// 99999999999999999999999 came out as some other number, possibly negative,
+// which reads as "delete this cookie now".
 func parseInt(s string) int {
 	result := 0
 	negative := false
@@ -528,13 +607,35 @@ func parseInt(s string) int {
 		if c < '0' || c > '9' {
 			break
 		}
-		result = result*10 + int(c-'0')
+		d := int(c - '0')
+		if result > (math.MaxInt-d)/10 {
+			if negative {
+				return math.MinInt
+			}
+			return math.MaxInt
+		}
+		result = result*10 + d
 	}
 
 	if negative {
 		return -result
 	}
 	return result
+}
+
+// isDecimal reports whether s is an optional "-" followed by one or more
+// digits, the form RFC 6265 gives Max-Age.
+func isDecimal(s string) bool {
+	s = strings.TrimPrefix(s, "-")
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // Helper functions for cookie parsing
@@ -630,17 +731,23 @@ func buildHeaders(rawHeaders map[string]string, fetchMode string) map[string][]s
 }
 
 func makeResponseJSON(resp *httpcloak.Response) *C.char {
-	// Read body from io.ReadCloser
+	return C.CString(responseJSON(resp))
+}
+
+// responseJSON is a buffered response as the bindings read it: its body read
+// and closed, and with its metadata, as ResponseData's JSON.
+//
+// The JSON is written without Go's HTML escaping, which json.Marshal applies
+// to every string: each <, > and & in a body grew from one byte to six, so an
+// HTML page came out much larger than it was, and the binding had to decode
+// every one of them back. The JSON is as valid without.
+func responseJSON(resp *httpcloak.Response) string {
 	var bodyBytes []byte
 	if resp.Body != nil {
 		bodyBytes, _ = io.ReadAll(resp.Body)
 		resp.Body.Close()
 	}
 
-	// Parse cookies from Set-Cookie header
-	cookies := parseSetCookieHeaders(resp.Headers)
-
-	// Convert redirect history
 	var history []RedirectInfo
 	if len(resp.History) > 0 {
 		history = make([]RedirectInfo, len(resp.History))
@@ -664,11 +771,17 @@ func makeResponseJSON(resp *httpcloak.Response) *C.char {
 		BodyEncoding: bodyEncoding,
 		FinalURL:     resp.FinalURL,
 		Protocol:     resp.Protocol,
-		Cookies:      cookies,
+		Cookies:      parseSetCookieHeaders(resp.Headers),
 		History:      history,
 	}
-	jsonData, _ := json.Marshal(data)
-	return C.CString(string(jsonData))
+	var out bytes.Buffer
+	out.Grow(len(body) + 1024)
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	// ResponseData holds strings, maps and slices of them, and ints: it always
+	// encodes.
+	enc.Encode(data)
+	return strings.TrimSuffix(out.String(), "\n")
 }
 
 // makeRawResponse creates an optimized response with body as raw bytes
@@ -886,6 +999,7 @@ func httpcloak_get_raw(handle C.int64_t, url *C.char, optionsJSON *C.char) (hcRe
 	req := &httpcloak.Request{
 		Method:                        "GET",
 		URL:                           urlStr,
+		Timeout:                       requestTimeout(options.Timeout, time.Millisecond),
 		Headers:                       buildHeaders(options.Headers, options.FetchMode),
 		FollowRedirects:               options.FollowRedirects,
 		DisableConditionalCache:       options.DisableConditionalCache,
@@ -967,6 +1081,7 @@ func httpcloak_post_raw(handle C.int64_t, url *C.char, body *C.char, bodyLen C.i
 	req := &httpcloak.Request{
 		Method:                        "POST",
 		URL:                           urlStr,
+		Timeout:                       requestTimeout(options.Timeout, time.Millisecond),
 		Headers:                       buildHeaders(options.Headers, options.FetchMode),
 		Body:                          bodyReader,
 		FollowRedirects:               options.FollowRedirects,
@@ -1016,8 +1131,7 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 		var err error
 		bodyBytes, err = decodeRequestBody(config.Body, config.BodyEncoding)
 		if err != nil {
-			setLastError(handle, "request body could not be decoded as %s: %v",
-				config.BodyEncoding, err)
+			setLastError(handle, "%v", err)
 			return -1
 		}
 	}
@@ -1044,9 +1158,11 @@ func httpcloak_request_raw(handle C.int64_t, requestJSON *C.char, body *C.char, 
 	req := &httpcloak.Request{
 		Method:                        method,
 		URL:                           config.URL,
+		Timeout:                       requestTimeout(config.Timeout, time.Millisecond),
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
 		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 		HeaderOrder:                   config.HeaderOrder,
+		RedirectHeaderOrder:           config.RedirectHeaderOrder,
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -1418,6 +1534,20 @@ func clearLastError(handle C.int64_t) {
 	delete(lastErrors, int64(handle))
 }
 
+// requestTimeout is a request's own timeout as httpcloak.Request.Timeout
+// takes it, in the unit its entry point reads. Zero leaves the session's.
+//
+// Bounding the context alone was not enough: Session.Do also applies
+// Request.Timeout, falling back to the session's, and the earlier deadline
+// wins, so a request asking for longer than its session was still cut off at
+// the session's timeout.
+func requestTimeout(n int, unit time.Duration) time.Duration {
+	if n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * unit
+}
+
 func getSession(handle C.int64_t) *httpcloak.Session {
 	sessionMu.RLock()
 	defer sessionMu.RUnlock()
@@ -1487,11 +1617,19 @@ type RequestOptions struct {
 	DisableClientHints            bool `json:"disable_client_hints,omitempty"`
 	DisableHighEntropyClientHints bool `json:"disable_high_entropy_client_hints,omitempty"`
 
-	// DisableRedirectReferer stops a Referer being added on redirect hops. By
-	// default one is synthesised per Chrome's strict-origin-when-cross-origin
-	// policy, which is what a browser does. When set, no Referer reaches the
-	// next hop at all, including one the caller set on the original request.
+	// DisableRedirectReferer keeps the request's Referer off redirect hops. By
+	// default a hop carries the Referer the request had (the page that made it,
+	// never the URL that redirected), written per Chrome's
+	// strict-origin-when-cross-origin policy for where the hop goes, which is
+	// what a browser does.
 	DisableRedirectReferer bool `json:"disable_redirect_referer,omitempty"`
+
+	// UnboundedBody applies to the streaming entry points only: with no
+	// Timeout, the stream gets no overall deadline instead of the 2 minute
+	// default, for event streams and downloads with no natural end. The
+	// connection and the response headers are still bounded by the session's
+	// timeout. Ignored when Timeout is set.
+	UnboundedBody bool `json:"unbounded_body,omitempty"`
 	// BodyEncoding controls how the request body string is interpreted by
 	// post_async / get_async style entry points where the body is passed as
 	// a separate C string. "" (default) treats the body as UTF-8 text.
@@ -1535,6 +1673,7 @@ func httpcloak_get(handle C.int64_t, url *C.char, optionsJSON *C.char) (hcRet *C
 	req := &httpcloak.Request{
 		Method:                        "GET",
 		URL:                           urlStr,
+		Timeout:                       requestTimeout(options.Timeout, time.Millisecond),
 		Headers:                       buildHeaders(options.Headers, options.FetchMode),
 		FollowRedirects:               options.FollowRedirects,
 		DisableConditionalCache:       options.DisableConditionalCache,
@@ -1591,7 +1730,7 @@ func httpcloak_post(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.
 		// embedded NUL bytes without C.GoString truncating them at the first NUL.
 		rawBody, decodeErr := decodeRequestBody(bodyStr, options.BodyEncoding)
 		if decodeErr != nil {
-			return makeErrorJSON(fmt.Errorf("invalid base64 body: %w", decodeErr))
+			return makeErrorJSON(decodeErr)
 		}
 		if len(rawBody) > 0 {
 			bodyReader = bytes.NewReader(rawBody)
@@ -1601,6 +1740,7 @@ func httpcloak_post(handle C.int64_t, url *C.char, body *C.char, optionsJSON *C.
 	req := &httpcloak.Request{
 		Method:                        "POST",
 		URL:                           urlStr,
+		Timeout:                       requestTimeout(options.Timeout, time.Millisecond),
 		Headers:                       buildHeaders(options.Headers, options.FetchMode),
 		Body:                          bodyReader,
 		FollowRedirects:               options.FollowRedirects,
@@ -1630,7 +1770,7 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) (hcRet *C.char) {
 	if requestJSON != nil {
 		jsonStr := C.GoString(requestJSON)
 		if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
-			return makeErrorJSON(err)
+			return makeErrorJSON(refused(fmt.Errorf("invalid request JSON: %w", err)))
 		}
 	}
 
@@ -1661,9 +1801,11 @@ func httpcloak_request(handle C.int64_t, requestJSON *C.char) (hcRet *C.char) {
 	req := &httpcloak.Request{
 		Method:                        config.Method,
 		URL:                           config.URL,
+		Timeout:                       requestTimeout(config.Timeout, time.Second),
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
 		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 		HeaderOrder:                   config.HeaderOrder,
+		RedirectHeaderOrder:           config.RedirectHeaderOrder,
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -1790,13 +1932,14 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 		defer cancel()
 		defer guardAsync("get_async goroutine", int64(callbackID))
 		if session == nil {
-			invokeCallback(int64(callbackID), "", ErrInvalidSession.Error())
+			invokeCallback(int64(callbackID), "", errorJSON(ErrInvalidSession))
 			return
 		}
 
 		req := &httpcloak.Request{
 			Method:                        "GET",
 			URL:                           urlStr,
+			Timeout:                       requestTimeout(options.Timeout, time.Second),
 			Headers:                       buildHeaders(options.Headers, options.FetchMode),
 			FollowRedirects:               options.FollowRedirects,
 			DisableConditionalCache:       options.DisableConditionalCache,
@@ -1807,51 +1950,11 @@ func httpcloak_get_async(handle C.int64_t, url *C.char, optionsJSON *C.char, cal
 
 		resp, err := session.Do(ctx, req)
 		if err != nil {
-			errResp := ErrorResponse{Error: err.Error()}
-			errJSON, _ := json.Marshal(errResp)
-			invokeCallback(int64(callbackID), "", string(errJSON))
+			invokeCallback(int64(callbackID), "", errorJSON(err))
 			return
 		}
 
-		// Read body from io.ReadCloser
-		var bodyBytes []byte
-		if resp.Body != nil {
-			bodyBytes, _ = io.ReadAll(resp.Body)
-			resp.Body.Close()
-		}
-
-		// Parse cookies from Set-Cookie header
-		cookies := parseSetCookieHeaders(resp.Headers)
-
-		// Convert redirect history
-		var history []RedirectInfo
-		if len(resp.History) > 0 {
-			history = make([]RedirectInfo, len(resp.History))
-			for i, h := range resp.History {
-				history[i] = RedirectInfo{
-					StatusCode: h.StatusCode,
-					URL:        h.URL,
-					Headers:    h.Headers,
-				}
-			}
-		}
-
-		body, bodyEncoding := encodeResponseBody(bodyBytes)
-		data := ResponseData{
-			StatusCode:   resp.StatusCode,
-			Headers:      resp.Headers,
-			HeaderOrder:  resp.HeaderOrder,
-			HeaderCasing: resp.HeaderCasing,
-			Trailer:      resp.Trailer,
-			Body:         body,
-			BodyEncoding: bodyEncoding,
-			FinalURL:     resp.FinalURL,
-			Protocol:     resp.Protocol,
-			Cookies:      cookies,
-			History:      history,
-		}
-		jsonData, _ := json.Marshal(data)
-		invokeCallback(int64(callbackID), string(jsonData), "")
+		invokeCallback(int64(callbackID), responseJSON(resp), "")
 	}()
 }
 
@@ -1896,7 +1999,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		defer cancel()
 		defer guardAsync("post_async goroutine", int64(callbackID))
 		if session == nil {
-			invokeCallback(int64(callbackID), "", ErrInvalidSession.Error())
+			invokeCallback(int64(callbackID), "", errorJSON(ErrInvalidSession))
 			return
 		}
 
@@ -1904,9 +2007,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		if bodyStr != "" {
 			rawBody, decodeErr := decodeRequestBody(bodyStr, options.BodyEncoding)
 			if decodeErr != nil {
-				errResp := ErrorResponse{Error: "invalid base64 body: " + decodeErr.Error()}
-				errJSON, _ := json.Marshal(errResp)
-				invokeCallback(int64(callbackID), "", string(errJSON))
+				invokeCallback(int64(callbackID), "", errorJSON(decodeErr))
 				return
 			}
 			if len(rawBody) > 0 {
@@ -1917,6 +2018,7 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 		req := &httpcloak.Request{
 			Method:                        "POST",
 			URL:                           urlStr,
+			Timeout:                       requestTimeout(options.Timeout, time.Second),
 			Headers:                       buildHeaders(options.Headers, options.FetchMode),
 			Body:                          bodyReader,
 			FollowRedirects:               options.FollowRedirects,
@@ -1928,51 +2030,11 @@ func httpcloak_post_async(handle C.int64_t, url *C.char, body *C.char, optionsJS
 
 		resp, err := session.Do(ctx, req)
 		if err != nil {
-			errResp := ErrorResponse{Error: err.Error()}
-			errJSON, _ := json.Marshal(errResp)
-			invokeCallback(int64(callbackID), "", string(errJSON))
+			invokeCallback(int64(callbackID), "", errorJSON(err))
 			return
 		}
 
-		// Read body from io.ReadCloser
-		var bodyBytes []byte
-		if resp.Body != nil {
-			bodyBytes, _ = io.ReadAll(resp.Body)
-			resp.Body.Close()
-		}
-
-		// Parse cookies from Set-Cookie header
-		cookies := parseSetCookieHeaders(resp.Headers)
-
-		// Convert redirect history
-		var history []RedirectInfo
-		if len(resp.History) > 0 {
-			history = make([]RedirectInfo, len(resp.History))
-			for i, h := range resp.History {
-				history[i] = RedirectInfo{
-					StatusCode: h.StatusCode,
-					URL:        h.URL,
-					Headers:    h.Headers,
-				}
-			}
-		}
-
-		body, bodyEncoding := encodeResponseBody(bodyBytes)
-		data := ResponseData{
-			StatusCode:   resp.StatusCode,
-			Headers:      resp.Headers,
-			HeaderOrder:  resp.HeaderOrder,
-			HeaderCasing: resp.HeaderCasing,
-			Trailer:      resp.Trailer,
-			Body:         body,
-			BodyEncoding: bodyEncoding,
-			FinalURL:     resp.FinalURL,
-			Protocol:     resp.Protocol,
-			Cookies:      cookies,
-			History:      history,
-		}
-		jsonData, _ := json.Marshal(data)
-		invokeCallback(int64(callbackID), string(jsonData), "")
+		invokeCallback(int64(callbackID), responseJSON(resp), "")
 	}()
 }
 
@@ -1981,10 +2043,15 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 	defer guardVoid("httpcloak_request_async")
 	session := getSession(handle)
 
+	// A request JSON that does not parse is refused, as httpcloak_request and
+	// httpcloak_stream_request_async refuse it. It used to be ignored, and a
+	// GET went out to the empty URL the zero config held.
 	var config RequestConfig
 	if requestJSON != nil {
-		jsonStr := C.GoString(requestJSON)
-		json.Unmarshal([]byte(jsonStr), &config)
+		if err := json.Unmarshal([]byte(C.GoString(requestJSON)), &config); err != nil {
+			go invokeCallback(int64(callbackID), "", errorJSON(refused(fmt.Errorf("invalid request JSON: %w", err))))
+			return
+		}
 	}
 
 	// Create cancellable context and store cancel func for this request
@@ -1997,7 +2064,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 		defer cancel()
 		defer guardAsync("request_async goroutine", int64(callbackID))
 		if session == nil {
-			invokeCallback(int64(callbackID), "", ErrInvalidSession.Error())
+			invokeCallback(int64(callbackID), "", errorJSON(ErrInvalidSession))
 			return
 		}
 
@@ -2016,9 +2083,7 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 		if config.Body != "" {
 			bodyBytes, err := decodeRequestBody(config.Body, config.BodyEncoding)
 			if err != nil {
-				errResp := ErrorResponse{Error: err.Error()}
-				errJSON, _ := json.Marshal(errResp)
-				invokeCallback(int64(callbackID), "", string(errJSON))
+				invokeCallback(int64(callbackID), "", errorJSON(err))
 				return
 			}
 			bodyReader = bytes.NewReader(bodyBytes)
@@ -2027,9 +2092,11 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 		req := &httpcloak.Request{
 			Method:                        config.Method,
 			URL:                           config.URL,
+			Timeout:                       requestTimeout(config.Timeout, time.Second),
 			Headers:                       buildHeaders(config.Headers, config.FetchMode),
 			ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 			HeaderOrder:                   config.HeaderOrder,
+			RedirectHeaderOrder:           config.RedirectHeaderOrder,
 			Body:                          bodyReader,
 			FollowRedirects:               config.FollowRedirects,
 			DisableConditionalCache:       config.DisableConditionalCache,
@@ -2040,51 +2107,11 @@ func httpcloak_request_async(handle C.int64_t, requestJSON *C.char, callbackID C
 
 		resp, err := session.Do(ctx, req)
 		if err != nil {
-			errResp := ErrorResponse{Error: err.Error()}
-			errJSON, _ := json.Marshal(errResp)
-			invokeCallback(int64(callbackID), "", string(errJSON))
+			invokeCallback(int64(callbackID), "", errorJSON(err))
 			return
 		}
 
-		// Read body from io.ReadCloser
-		var bodyBytes []byte
-		if resp.Body != nil {
-			bodyBytes, _ = io.ReadAll(resp.Body)
-			resp.Body.Close()
-		}
-
-		// Parse cookies from Set-Cookie header
-		cookies := parseSetCookieHeaders(resp.Headers)
-
-		// Convert redirect history
-		var history []RedirectInfo
-		if len(resp.History) > 0 {
-			history = make([]RedirectInfo, len(resp.History))
-			for i, h := range resp.History {
-				history[i] = RedirectInfo{
-					StatusCode: h.StatusCode,
-					URL:        h.URL,
-					Headers:    h.Headers,
-				}
-			}
-		}
-
-		body, bodyEncoding := encodeResponseBody(bodyBytes)
-		data := ResponseData{
-			StatusCode:   resp.StatusCode,
-			Headers:      resp.Headers,
-			HeaderOrder:  resp.HeaderOrder,
-			HeaderCasing: resp.HeaderCasing,
-			Trailer:      resp.Trailer,
-			Body:         body,
-			BodyEncoding: bodyEncoding,
-			FinalURL:     resp.FinalURL,
-			Protocol:     resp.Protocol,
-			Cookies:      cookies,
-			History:      history,
-		}
-		jsonData, _ := json.Marshal(data)
-		invokeCallback(int64(callbackID), string(jsonData), "")
+		invokeCallback(int64(callbackID), responseJSON(resp), "")
 	}()
 }
 
@@ -2100,10 +2127,28 @@ func httpcloak_get_cookies(handle C.int64_t) (hcRet *C.char) {
 		return makeErrorJSON(ErrInvalidSession)
 	}
 
-	cookieStates := session.GetCookies()
-	// Convert to clib Cookie format with RFC1123 expires string
-	var cookies []Cookie
-	for _, c := range cookieStates {
+	return C.CString(cookiesJSON(session.GetCookies()))
+}
+
+// httpcloak_get_cookies_for_url returns the cookies a request to url would
+// carry, in the order its Cookie header would list them, as
+// httpcloak_get_cookies returns cookies.
+//
+//export httpcloak_get_cookies_for_url
+func httpcloak_get_cookies_for_url(handle C.int64_t, url *C.char) (hcRet *C.char) {
+	defer guardCharP("httpcloak_get_cookies_for_url", &hcRet)
+	session := getSession(handle)
+	if session == nil {
+		return makeErrorJSON(ErrInvalidSession)
+	}
+	return C.CString(cookiesJSON(session.CookiesFor(C.GoString(url))))
+}
+
+// cookiesJSON is cookies in the clib's Cookie format, with RFC 1123 expiry
+// dates, as a JSON array.
+func cookiesJSON(states []httpcloak.CookieInfo) string {
+	cookies := make([]Cookie, 0, len(states))
+	for _, c := range states {
 		cookie := Cookie{
 			Name:     c.Name,
 			Value:    c.Value,
@@ -2119,11 +2164,8 @@ func httpcloak_get_cookies(handle C.int64_t) (hcRet *C.char) {
 		}
 		cookies = append(cookies, cookie)
 	}
-	if cookies == nil {
-		cookies = []Cookie{}
-	}
 	data, _ := json.Marshal(cookies)
-	return C.CString(string(data))
+	return string(data)
 }
 
 //export httpcloak_set_cookie
@@ -2690,7 +2732,9 @@ func httpcloak_get_ech_dns_servers() (hcRet *C.char) {
 // ============================================================================
 
 var (
-	ErrInvalidSession    = errors.New("invalid session handle")
+	// ErrInvalidSession is marked as not sent: no request made with a handle
+	// that is not a session's goes anywhere.
+	ErrInvalidSession    = refused(errors.New("invalid session handle"))
 	ErrInvalidStream     = errors.New("invalid stream handle")
 	ErrInvalidLocalProxy = errors.New("invalid local proxy handle")
 	ErrInvalidPresetPool = errors.New("invalid preset pool handle")
@@ -3599,17 +3643,13 @@ func httpcloak_stream_get(sessionHandle C.int64_t, url *C.char, optionsJSON *C.c
 	// Create context with timeout for streaming (longer than regular requests)
 	ctx := context.Background()
 	var cancel context.CancelFunc
-	if options.Timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(options.Timeout)*time.Millisecond)
-	} else {
-		// Use 2-minute timeout for streaming (connection + data transfer)
-		ctx, cancel = context.WithTimeout(ctx, 2*time.Minute)
-	}
+	ctx, cancel = streamContext(ctx, options.Timeout, time.Millisecond, options.UnboundedBody)
 	// Note: We don't defer cancel() here - it will be called when stream is closed
 
 	req := &httpcloak.Request{
 		Method:                        "GET",
 		URL:                           urlStr,
+		Timeout:                       requestTimeout(options.Timeout, time.Millisecond),
 		Headers:                       buildHeaders(options.Headers, options.FetchMode),
 		FollowRedirects:               options.FollowRedirects,
 		DisableConditionalCache:       options.DisableConditionalCache,
@@ -3662,11 +3702,7 @@ func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, o
 	// Create context with timeout for streaming (longer than regular requests)
 	ctx := context.Background()
 	var cancel context.CancelFunc
-	if options.Timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(options.Timeout)*time.Millisecond)
-	} else {
-		ctx, cancel = context.WithTimeout(ctx, 2*time.Minute)
-	}
+	ctx, cancel = streamContext(ctx, options.Timeout, time.Millisecond, options.UnboundedBody)
 
 	var bodyReader io.Reader
 	if bodyStr != "" {
@@ -3676,6 +3712,7 @@ func httpcloak_stream_post(sessionHandle C.int64_t, url *C.char, body *C.char, o
 	req := &httpcloak.Request{
 		Method:                        "POST",
 		URL:                           urlStr,
+		Timeout:                       requestTimeout(options.Timeout, time.Millisecond),
 		Headers:                       buildHeaders(options.Headers, options.FetchMode),
 		Body:                          bodyReader,
 		FollowRedirects:               options.FollowRedirects,
@@ -3727,19 +3764,14 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 	// Create context with timeout for streaming (longer than regular requests)
 	ctx := context.Background()
 	var cancel context.CancelFunc
-	if config.Timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(config.Timeout)*time.Second)
-	} else {
-		ctx, cancel = context.WithTimeout(ctx, 2*time.Minute)
-	}
+	ctx, cancel = streamContext(ctx, config.Timeout, time.Second, config.UnboundedBody)
 
 	var bodyReader io.Reader
 	if config.Body != "" {
 		bodyBytes, err := decodeRequestBody(config.Body, config.BodyEncoding)
 		if err != nil {
 			cancel()
-			setLastError(sessionHandle, "request body could not be decoded as %s: %v",
-				config.BodyEncoding, err)
+			setLastError(sessionHandle, "%v", err)
 			return -1
 		}
 		bodyReader = bytes.NewReader(bodyBytes)
@@ -3748,9 +3780,11 @@ func httpcloak_stream_request(sessionHandle C.int64_t, requestJSON *C.char) (hcR
 	req := &httpcloak.Request{
 		Method:                        config.Method,
 		URL:                           config.URL,
+		Timeout:                       requestTimeout(config.Timeout, time.Second),
 		Headers:                       buildHeaders(config.Headers, config.FetchMode),
 		ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 		HeaderOrder:                   config.HeaderOrder,
+		RedirectHeaderOrder:           config.RedirectHeaderOrder,
 		Body:                          bodyReader,
 		FollowRedirects:               config.FollowRedirects,
 		DisableConditionalCache:       config.DisableConditionalCache,
@@ -3802,8 +3836,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 	if requestJSON != nil {
 		if err := json.Unmarshal([]byte(C.GoString(requestJSON)), &config); err != nil {
 			go func() {
-				errJSON, _ := json.Marshal(ErrorResponse{Error: "invalid request JSON: " + err.Error()})
-				invokeCallback(int64(callbackID), "", string(errJSON))
+				invokeCallback(int64(callbackID), "", errorJSON(refused(fmt.Errorf("invalid request JSON: %w", err))))
 			}()
 			return
 		}
@@ -3830,13 +3863,12 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 		}()
 		defer guardAsync("stream_request_async goroutine", int64(callbackID))
 
-		fail := func(msg string) {
-			errJSON, _ := json.Marshal(ErrorResponse{Error: msg})
-			invokeCallback(int64(callbackID), "", string(errJSON))
+		fail := func(err error) {
+			invokeCallback(int64(callbackID), "", errorJSON(err))
 		}
 
 		if session == nil {
-			fail(ErrInvalidSession.Error())
+			fail(ErrInvalidSession)
 			return
 		}
 		if config.Method == "" {
@@ -3845,20 +3877,14 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 
 		// Same default as the synchronous path: a stream that never sends is a
 		// leaked goroutine and a held connection, so it gets an outer bound.
-		streamCtx := ctx
-		var timeoutCancel context.CancelFunc
-		if config.Timeout > 0 {
-			streamCtx, timeoutCancel = context.WithTimeout(ctx, time.Duration(config.Timeout)*time.Second)
-		} else {
-			streamCtx, timeoutCancel = context.WithTimeout(ctx, 2*time.Minute)
-		}
+		streamCtx, timeoutCancel := streamContext(ctx, config.Timeout, time.Second, config.UnboundedBody)
 
 		var bodyReader io.Reader
 		if config.Body != "" {
 			bodyBytes, err := decodeRequestBody(config.Body, config.BodyEncoding)
 			if err != nil {
 				timeoutCancel()
-				fail(err.Error())
+				fail(err)
 				return
 			}
 			bodyReader = bytes.NewReader(bodyBytes)
@@ -3867,9 +3893,11 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 		req := &httpcloak.Request{
 			Method:                        config.Method,
 			URL:                           config.URL,
+			Timeout:                       requestTimeout(config.Timeout, time.Second),
 			Headers:                       buildHeaders(config.Headers, config.FetchMode),
 			ExactHeaders:                  buildExactHeaders(config.ExactHeaders),
 			HeaderOrder:                   config.HeaderOrder,
+			RedirectHeaderOrder:           config.RedirectHeaderOrder,
 			Body:                          bodyReader,
 			FollowRedirects:               config.FollowRedirects,
 			DisableConditionalCache:       config.DisableConditionalCache,
@@ -3881,7 +3909,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 		resp, err := session.DoStream(streamCtx, req)
 		if err != nil {
 			timeoutCancel()
-			fail(err.Error())
+			fail(err)
 			return
 		}
 
@@ -3902,7 +3930,7 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 		metaJSON, err := json.Marshal(meta)
 		if err != nil {
 			httpcloak_stream_close(C.int64_t(handle))
-			fail("encode stream metadata: " + err.Error())
+			fail(fmt.Errorf("encode stream metadata: %w", err))
 			return
 		}
 		// A caller that cancelled by unregistering the callback never learns
@@ -3911,6 +3939,46 @@ func httpcloak_stream_request_async(sessionHandle C.int64_t, requestJSON *C.char
 			httpcloak_stream_close(C.int64_t(handle))
 		}
 	}()
+}
+
+// streamContext bounds a streamed request: by its own timeout when it has one,
+// not at all when the caller asked for an unbounded body, and by 2 minutes
+// otherwise. The establishment watchdog is separate and reads
+// Request.Timeout, which the entry points set alongside this so that a stream
+// asking for longer than the session's timeout gets it there too.
+func streamContext(parent context.Context, timeout int, unit time.Duration, unbounded bool) (context.Context, context.CancelFunc) {
+	switch {
+	case timeout > 0:
+		return context.WithTimeout(parent, time.Duration(timeout)*unit)
+	case unbounded:
+		return context.WithCancel(parent)
+	default:
+		return context.WithTimeout(parent, 2*time.Minute)
+	}
+}
+
+// httpcloak_stream_cancel cancels a stream's context without closing it: a
+// read blocked on the stream, in another thread, returns with an error, and
+// the stream stays open until httpcloak_stream_close.
+//
+// Closing is not a substitute. It tears down the body reader and its
+// decompressor, which must not happen under a read running on another thread
+// (a pooled gzip reader could be handed to another response while still in
+// use), so a binding that reads on one thread had no safe way to stop it from
+// another: an abandoned stream on an idle connection held its thread, socket
+// and session until the peer sent something. Cancelling is what Go's own
+// readers expect to happen concurrently. Unknown and closed handles are a
+// no-op.
+//
+//export httpcloak_stream_cancel
+func httpcloak_stream_cancel(streamHandle C.int64_t) {
+	defer guardVoid("httpcloak_stream_cancel")
+	streamMu.RLock()
+	entry := streams[int64(streamHandle)]
+	streamMu.RUnlock()
+	if entry != nil && entry.cancel != nil {
+		entry.cancel()
+	}
 }
 
 //export httpcloak_stream_get_metadata
@@ -4108,23 +4176,29 @@ func httpcloak_upload_start(sessionHandle C.int64_t, url *C.char, optionsJSON *C
 
 	// Start the request in a goroutine
 	go func() {
+		// However the request ends, nothing reads the pipe after it, so close
+		// the read side with the reason. A request that failed before it read
+		// the body (a refused connection, an unknown preset) used to leave
+		// httpcloak_upload_write blocked forever on a pipe nobody would drain,
+		// holding upload.mu, so httpcloak_upload_cancel and _finish blocked
+		// behind it too. Now the write fails and finish reports why.
+		ended := errUploadRequestEnded
+		defer func() { upload.pipeReader.CloseWithError(ended) }()
 		defer func() {
 			if r := recover(); r != nil {
 				logClibPanic("upload_start goroutine", r)
+				ended = fmt.Errorf("internal panic: %v", r)
 				select {
-				case upload.responseCh <- &uploadResult{err: fmt.Errorf("internal panic: %v", r)}:
+				case upload.responseCh <- &uploadResult{err: ended}:
 				default:
 				}
 			}
 		}()
-		ctx := context.Background()
-		var cancel context.CancelFunc
+		timeout := 5 * time.Minute // the default for uploads
 		if upload.timeout > 0 {
-			ctx, cancel = context.WithTimeout(ctx, time.Duration(upload.timeout)*time.Millisecond)
-		} else {
-			// Default 5 minute timeout for uploads
-			ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+			timeout = time.Duration(upload.timeout) * time.Millisecond
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
 		req := &httpcloak.Request{
@@ -4132,10 +4206,16 @@ func httpcloak_upload_start(sessionHandle C.int64_t, url *C.char, optionsJSON *C
 			URL:     upload.url,
 			Headers: convertHeaders(upload.headers),
 			Body:    nil, // Will use pipe reader
+			// Without this the session's own timeout, 30s by default, cut the
+			// upload short whatever the context allowed.
+			Timeout: timeout,
 		}
 
 		// Use the pipe reader as body
 		resp, err := session.DoWithBody(ctx, req, upload.pipeReader)
+		if err != nil {
+			ended = err
+		}
 		upload.responseCh <- &uploadResult{response: resp, err: err}
 	}()
 
@@ -4239,38 +4319,7 @@ func httpcloak_upload_finish(uploadHandle C.int64_t) (hcRet *C.char) {
 		return makeErrorJSON(result.err)
 	}
 
-	// Build response JSON
-	resp := result.response
-
-	// Read body from io.ReadCloser
-	var bodyBytes []byte
-	if resp.Body != nil {
-		bodyBytes, _ = io.ReadAll(resp.Body)
-		resp.Body.Close()
-	}
-
-	cookies := parseSetCookieHeaders(resp.Headers)
-
-	body, bodyEncoding := encodeResponseBody(bodyBytes)
-	responseData := ResponseData{
-		StatusCode:   resp.StatusCode,
-		Headers:      resp.Headers,
-		HeaderOrder:  resp.HeaderOrder,
-		HeaderCasing: resp.HeaderCasing,
-		Trailer:      resp.Trailer,
-		Body:         body,
-		BodyEncoding: bodyEncoding,
-		FinalURL:     resp.FinalURL,
-		Protocol:     resp.Protocol,
-		Cookies:      cookies,
-	}
-
-	jsonData, err := json.Marshal(responseData)
-	if err != nil {
-		return makeErrorJSON(err)
-	}
-
-	return C.CString(string(jsonData))
+	return makeResponseJSON(result.response)
 }
 
 //export httpcloak_upload_cancel
@@ -4284,83 +4333,40 @@ func httpcloak_upload_cancel(uploadHandle C.int64_t) {
 	uploadMu.Unlock()
 
 	if upload != nil {
+		// Close before taking upload.mu: a write blocked on the pipe holds it,
+		// and closing is what unblocks that write, so locking first waited on
+		// it forever. A pipe may be closed from any goroutine, and the upload
+		// cannot already be finished, since finish removes it from the map.
+		upload.pipeWriter.CloseWithError(errors.New("upload cancelled"))
 		upload.mu.Lock()
-		if !upload.finished {
-			upload.pipeWriter.CloseWithError(errors.New("upload cancelled"))
-		}
+		upload.finished = true
 		upload.mu.Unlock()
 	}
 }
 
-// decodeBase64 decodes a base64 string to bytes
+// errUploadRequestEnded fails a write that arrives after the upload's request
+// has already completed, typically because the server answered without reading
+// the whole body. httpcloak_upload_finish still returns that answer.
+var errUploadRequestEnded = errors.New("the upload's request has already completed")
+
+// decodeBase64 decodes the base64 a binding sends an upload chunk in. Padding
+// is optional, and line breaks are ignored, as MIME encoders insert them.
+//
+// It used to be a hand-written decoder that skipped any character it did not
+// know inside a group of four, so a line break shifted every byte after it
+// ("0\n000" decoded to two bytes instead of three) and garbage was silently
+// dropped instead of reported. A fuzzer against the standard decoder found it.
 func decodeBase64(s string) ([]byte, error) {
-	const base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
-	// Remove padding
-	s = trimRight(s, "=")
-
-	if len(s) == 0 {
-		return []byte{}, nil
-	}
-
-	// Build decode table
-	decodeTable := make(map[byte]int)
-	for i, c := range base64Chars {
-		decodeTable[byte(c)] = i
-	}
-
-	// Calculate output length
-	outLen := len(s) * 3 / 4
-	result := make([]byte, outLen)
-
-	j := 0
-	for i := 0; i < len(s); i += 4 {
-		var n uint32
-		count := 0
-		for k := 0; k < 4 && i+k < len(s); k++ {
-			if val, ok := decodeTable[s[i+k]]; ok {
-				n = n<<6 | uint32(val)
-				count++
-			}
-		}
-
-		// Pad with zeros for incomplete groups
-		for k := count; k < 4; k++ {
-			n = n << 6
-		}
-
-		if count >= 2 && j < len(result) {
-			result[j] = byte(n >> 16)
-			j++
-		}
-		if count >= 3 && j < len(result) {
-			result[j] = byte(n >> 8)
-			j++
-		}
-		if count >= 4 && j < len(result) {
-			result[j] = byte(n)
-			j++
-		}
-	}
-
-	return result[:j], nil
+	return base64.RawStdEncoding.DecodeString(strings.TrimRight(stripLineBreaks(s), "="))
 }
 
-func trimRight(s, cutset string) string {
-	for len(s) > 0 {
-		found := false
-		for _, c := range cutset {
-			if rune(s[len(s)-1]) == c {
-				s = s[:len(s)-1]
-				found = true
-				break
-			}
-		}
-		if !found {
-			break
-		}
+// stripLineBreaks drops CR and LF. The decoder ignores them itself, but they
+// have to go first so that padding followed by a line break is trimmed too.
+func stripLineBreaks(s string) string {
+	if !strings.ContainsAny(s, "\r\n") {
+		return s
 	}
-	return s
+	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
 }
 
 // encodeBase64 encodes bytes to base64 string
@@ -4447,6 +4453,19 @@ func httpcloak_describe_preset(name *C.char) (hcRet *C.char) {
 		return makeErrorJSON(err)
 	}
 	return C.CString(out)
+}
+
+// httpcloak_preset_exists returns 1 when a preset of this name is registered,
+// built in or loaded, and 0 when not: what httpcloak_describe_preset answers
+// without describing the whole preset.
+//
+//export httpcloak_preset_exists
+func httpcloak_preset_exists(name *C.char) (hcRet C.int) {
+	defer guardInt("httpcloak_preset_exists", &hcRet)
+	if fingerprint.GetStrict(C.GoString(name)) == nil {
+		return 0
+	}
+	return 1
 }
 
 // --- Preset Pool Lifecycle ---

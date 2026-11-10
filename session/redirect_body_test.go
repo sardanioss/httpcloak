@@ -419,7 +419,8 @@ func TestTooManyRedirects_SentinelAndResponse(t *testing.T) {
 
 // TestRetry_ReplaysBodyOnSecondAttempt covers the other half of the same root
 // cause: the retry loop re-sends the same request, so a streaming body used to
-// arrive empty on attempt two.
+// arrive empty on attempt two. A PUT, since only an idempotent request is
+// retried once the server has answered.
 func TestRetry_ReplaysBodyOnSecondAttempt(t *testing.T) {
 	const payload = "retry-me"
 	srv := newBodyCapture(t, 503, 200)
@@ -433,7 +434,7 @@ func TestRetry_ReplaysBodyOnSecondAttempt(t *testing.T) {
 	})
 
 	resp, err := s.Request(context.Background(), &transport.Request{
-		Method:     "POST",
+		Method:     "PUT",
 		URL:        srv.url + "hop0",
 		Headers:    map[string][]string{"Content-Type": {"text/plain"}},
 		BodyReader: strings.NewReader(payload),
@@ -459,7 +460,7 @@ func TestRetry_ReplaysBodyOnSecondAttempt(t *testing.T) {
 
 // TestRetry_NonReplayableBodySkipsRetry locks the deliberate asymmetry with the
 // redirect case: a retry is optional, so a body that cannot be replayed disables
-// it rather than failing the request.
+// it rather than failing the request. A PUT, which would otherwise be retried.
 func TestRetry_NonReplayableBodySkipsRetry(t *testing.T) {
 	srv := newBodyCapture(t, 503, 200)
 	s := newBodyTestSession(t, &protocol.SessionConfig{
@@ -472,7 +473,7 @@ func TestRetry_NonReplayableBodySkipsRetry(t *testing.T) {
 	})
 
 	resp, err := s.Request(context.Background(), &transport.Request{
-		Method:     "POST",
+		Method:     "PUT",
 		URL:        srv.url + "hop0",
 		BodyReader: oneShot{strings.NewReader("nope")},
 	})

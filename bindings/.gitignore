@@ -29,3 +29,6 @@ dotnet/**/bin/
 dotnet/**/obj/
 dotnet/nupkg/
 *.nupkg
+
+# Rust
+rust/target/

@@ -322,9 +322,28 @@ field `priority_table` keys off. `document` and `iframe` take the navigation
 order; everything else takes this one. Omit the field and a preset uses
 `hpack_header_order` for both, which is what a client with one order wants.
 
-Measured across script, style, image, font, manifest and `fetch()` requests, all
-six produce a single order, so this is a two-way split rather than one order per
-resource type.
+Measured across script, style, image, font and manifest requests, all five
+produce a single order, so the document's own loads share one order rather than
+having one per resource type. A script's `fetch()` differs, and has its own field.
+
+### `hpack_header_order_fetch`
+
+A third header order, for a page script's `fetch()` or `XMLHttpRequest`: a
+request whose `sec-fetch-dest` is `empty` and that carries no `sec-purpose`
+(which marks a `<link rel=prefetch>`, a load the document makes itself and that
+takes `hpack_header_order_subresource`).
+
+```json
+"http2": {
+  "hpack_header_order_subresource": ["origin", "sec-ch-ua-platform", "..."],
+  "hpack_header_order_fetch":       ["content-length", "sec-ch-ua-platform", "...", "accept", "origin", "..."]
+}
+```
+
+Chrome adds `Origin` to a script's request after `Accept`, where the document's
+CORS loads (fonts, module scripts, prefetches) carry it first, and the
+`Content-Type` a script sets goes between `sec-ch-ua` and `sec-ch-ua-mobile`.
+Omit the field and a preset uses `hpack_header_order_subresource` for these too.
 
 ### Other `http2` fields
 
