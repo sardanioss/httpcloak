@@ -411,6 +411,11 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 	// bytes.Reader over it on every Do.
 	bodyReplayable := req.BodyReader == nil || req.GetBody != nil
 
+	// Whether an attempt before this one reached the server or may have: then
+	// the request may have been sent whatever becomes of a later one, and a
+	// later failure must not say it was not.
+	earlierSent := false
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		// Build Cookie header fresh each attempt from original + session cookies.
 		// Skip the jar lookup entirely when WithoutCookieJar — caller-provided
@@ -445,6 +450,9 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 		}
 
 		resp, err = s.transport.Do(ctx, req)
+		if err != nil && earlierSent {
+			err = transport.MarkSentBefore(err)
+		}
 
 		// If no error and no retry config, or this is the last attempt, break
 		if maxRetries == 0 {
@@ -480,6 +488,7 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 		if !shouldRetry || !bodyReplayable || attempt >= maxRetries {
 			break
 		}
+		earlierSent = earlierSent || resp != nil || !transport.RequestNotSent(err)
 
 		// Calculate wait time with exponential backoff and jitter
 		waitTime := retryWaitMin * time.Duration(1<<uint(attempt))
@@ -733,8 +742,10 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 			// it stops being a no-op the moment body streaming reaches Do.
 			resp.Close()
 
-			// Follow redirect with accumulated history
-			return s.requestWithRedirects(ctx, newReq, redirectCount+1, history)
+			// Follow redirect with accumulated history. This hop was answered,
+			// so the request was sent whatever becomes of the next.
+			next, err := s.requestWithRedirects(ctx, newReq, redirectCount+1, history)
+			return next, transport.MarkSentBefore(err)
 		}
 	}
 

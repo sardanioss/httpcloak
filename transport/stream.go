@@ -298,13 +298,18 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 				// sending a truncated or duplicate request.
 				return nil, err
 			}
-			return t.doStreamHTTP2OrHTTP1(ctx, req)
+			resp, retryErr := t.doStreamHTTP2OrHTTP1(ctx, req)
+			return resp, laterAttempt(err, retryErr)
 		case ProtocolHTTP1:
 			return t.doStreamHTTP1(ctx, req)
 		case ProtocolHTTP2:
 			return t.doStreamHTTP2OrHTTP1(ctx, req)
 		}
 	}
+
+	// The HTTP/3 attempt's failure, when one was made and the request went on
+	// to HTTP/2.
+	var h3Err error
 
 	// No cached decision yet: race a connection probe when H3 is viable.
 	if snap.preset.SupportHTTP3 && snap.h3 != nil {
@@ -325,7 +330,8 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 		decision := t.raceConnectProtocol(probeCtx, host, port)
 		switch {
 		case decision.err != nil:
-			return nil, decision.err
+			// Neither protocol connected, so nothing was sent.
+			return nil, markNotSent(decision.err)
 		case decision.alpnErr != nil:
 			// The probe negotiated http/1.1: the server is H1-only. Drop the probe
 			// conn and stream over HTTP/1.1 directly (issue #75) instead of retrying
@@ -348,6 +354,7 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 				return nil, err
 			}
 			// Safe to send again: fall through to H2.
+			h3Err = err
 		}
 	}
 
@@ -359,7 +366,7 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 			t.cacheProtocol(host, ProtocolHTTP2)
 		}
 	}
-	return resp, err
+	return resp, laterAttempt(h3Err, err)
 }
 
 // doStreamHTTP2OrHTTP1 streams over HTTP/2 and, when the server negotiates
@@ -549,10 +556,13 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	finishEstablishment := boundStreamEstablishment(t.streamEffectiveTimeout(req), cancel)
 
 	// Make request
-	resp, err := snap.h2.RoundTrip(httpReq)
+	resp, sent, err := snap.h2.roundTrip(httpReq)
 	finishEstablishment()
 	if err != nil {
 		cancel()
+		if !sent {
+			err = markNotSent(err)
+		}
 		return nil, WrapError("roundtrip", host, port, "h2", err)
 	}
 

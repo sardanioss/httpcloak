@@ -222,6 +222,64 @@ func markNotSent(err error) error {
 	return &requestNotSentError{err: err}
 }
 
+// sentBeforeError marks the failure of an attempt at a request that an
+// earlier attempt may have delivered: one on another protocol, a retry, or a
+// redirect hop before it. Whatever the last attempt's own mark says, the
+// request may have reached the server.
+type sentBeforeError struct{ err error }
+
+func (e *sentBeforeError) Error() string { return e.err.Error() }
+func (e *sentBeforeError) Unwrap() error { return e.err }
+
+// MarkSentBefore marks err, the failure of a later attempt at a request, as
+// coming after an attempt that reached the server or may have, so that
+// RequestNotSent is false for it. It returns nil for nil.
+func MarkSentBefore(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &sentBeforeError{err: err}
+}
+
+// laterAttempt returns err, the failure of an attempt made after one that
+// failed with earlier (nil when there was none), marked as coming after a
+// delivery unless earlier proves that attempt sent nothing.
+func laterAttempt(earlier, err error) error {
+	if earlier == nil || RequestNotSent(earlier) {
+		return err
+	}
+	return MarkSentBefore(err)
+}
+
+// RequestNotSent reports whether err proves that no part of the request
+// reached the server: no attempt at it ever had a connection to send it on,
+// or an HTTP proxy refused to open the tunnel for it. Such a request was not
+// acted on, and may be sent again whatever it does.
+//
+// It is false whenever that is not known, which includes every failure once
+// a request was written or may have been: a request it is false for may have
+// reached the server, and may have been acted on.
+func RequestNotSent(err error) bool {
+	var notSent *requestNotSentError
+	var sentBefore *sentBeforeError
+	return errors.As(err, &notSent) && !errors.As(err, &sentBefore)
+}
+
+// ProxyStatusError is an HTTP proxy refusing to open a tunnel: it answered
+// the CONNECT for the request's host with a status other than 200, 407 when
+// it wants credentials or refused the ones it was given. Nothing was sent to
+// the host.
+type ProxyStatusError struct {
+	StatusCode int
+	// Status is the status line's text, as Go's http.Response has it:
+	// "407 Proxy Authentication Required".
+	Status string
+}
+
+func (e *ProxyStatusError) Error() string {
+	return fmt.Sprintf("proxy CONNECT failed with status %d: %s", e.StatusCode, e.Status)
+}
+
 // withH3SendTrace returns ctx with a trace that records whether the HTTP/3
 // layer handed the request to a connection. It does that only once a dial has
 // returned one, so a request that failed without it, on a failed dial or a
@@ -248,13 +306,6 @@ func h3NotSent(err error, gotConn *atomic.Bool) error {
 // was sent, so auto mode may send it again on HTTP/2.
 func errHTTP3Disabled(host, port string) error {
 	return markNotSent(NewProtocolError(host, port, "h3", errors.New("HTTP/3 is disabled on this transport")))
-}
-
-// requestNotSent reports whether err says the request never reached the
-// server.
-func requestNotSent(err error) bool {
-	var ns *requestNotSentError
-	return errors.As(err, &ns)
 }
 
 // WrapError wraps an error with transport context

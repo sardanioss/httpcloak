@@ -323,7 +323,8 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	// Try to get an idle connection
 	conn, err := t.getIdleConn(key)
-	if err == nil && conn != nil {
+	triedIdle := err == nil && conn != nil
+	if triedIdle {
 		stopWatch := watchContext(req.Context(), conn)
 		resp, err := t.doRequest(conn, req)
 		if err == nil && req.Context().Err() == nil {
@@ -371,6 +372,11 @@ func (t *HTTP1Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Create new connection (pass request host for SNI, connectHost used internally for DNS)
 	conn, err = t.createConnRetry(req.Context(), host, port, scheme)
 	if err != nil {
+		// No connection, so nothing of this attempt was written. An attempt on
+		// an idle connection before it may have been.
+		if !triedIdle {
+			err = markNotSent(err)
+		}
 		return nil, err
 	}
 
@@ -581,7 +587,8 @@ func (t *HTTP1Transport) StreamRoundTrip(req *http.Request) (*http.Response, err
 	// Create new connection (don't use pool for streaming)
 	conn, err := t.createConnRetry(req.Context(), host, port, scheme)
 	if err != nil {
-		return nil, err
+		// No connection, so nothing was written.
+		return nil, markNotSent(err)
 	}
 
 	stopWatch := watchContext(req.Context(), conn)
@@ -1043,7 +1050,7 @@ func (t *HTTP1Transport) dialHTTPProxyBlocking(ctx context.Context, conn net.Con
 
 	if resp.StatusCode != http.StatusOK {
 		conn.Close()
-		return nil, fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
+		return nil, &ProxyStatusError{StatusCode: resp.StatusCode, Status: resp.Status}
 	}
 
 	// If the bufio.Reader read ahead past the HTTP response (e.g., start of

@@ -1638,12 +1638,16 @@ func (t *Transport) doAuto(ctx context.Context, req *Request) (*Response, error)
 	// its body can be sent again. Otherwise the first attempt's error is the
 	// answer, as it is in Chrome, which does not resend a POST over another
 	// protocol after a stream error.
+	//
+	// When the first attempt may have been sent, the fallback's failure is
+	// marked so, whatever its own attempt did: the request may have reached
+	// the server.
 	if failed != nil && !canResendOnAnotherProtocol(req, failed) {
 		return nil, failed
 	}
 	resp, err := t.doHTTP1(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, laterAttempt(failed, err)
 	}
 	return resp, nil
 }
@@ -1671,7 +1675,8 @@ func (t *Transport) doHTTP2OrHTTP1(ctx context.Context, req *Request) (*Response
 	if !canResendOnAnotherProtocol(req, err) {
 		return nil, err
 	}
-	return t.doHTTP1(ctx, req)
+	resp, retryErr := t.doHTTP1(ctx, req)
+	return resp, laterAttempt(err, retryErr)
 }
 
 // canResendOnAnotherProtocol reports whether a request whose attempt on one
@@ -1681,7 +1686,7 @@ func (t *Transport) doHTTP2OrHTTP1(ctx context.Context, req *Request) (*Response
 // memory: a body read from a stream was consumed by the first attempt, and
 // resending it would send it empty.
 func canResendOnAnotherProtocol(req *Request, err error) bool {
-	if requestNotSent(err) {
+	if RequestNotSent(err) {
 		return true
 	}
 	if req.BodyReader != nil {
