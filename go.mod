@@ -30,3 +30,7 @@ require (
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
 )
+
+replace github.com/sardanioss/utls => github.com/abadawe-dev/utls v1.10.6-0.20261031021207-ddeeeacc0ade
+
+replace github.com/sardanioss/net => github.com/abadawe-dev/net v1.2.13-0.20261110203421-c61aa3031701

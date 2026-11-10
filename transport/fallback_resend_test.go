@@ -1,8 +1,10 @@
 package transport
 
 import (
+	"bufio"
 	"context"
 	"io"
+	"net"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"strings"
@@ -74,6 +76,72 @@ func TestAutoDoesNotResendAPostThatWasSent(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// connectProxy is an HTTP proxy that answers each CONNECT with refusal when
+// it is set, and otherwise opens the tunnel to the host asked for.
+func connectProxy(t *testing.T, refusal string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				connect, err := stdhttp.ReadRequest(bufio.NewReader(c))
+				if err != nil {
+					return
+				}
+				if refusal != "" {
+					io.WriteString(c, refusal)
+					return
+				}
+				up, err := net.Dial("tcp", connect.Host)
+				if err != nil {
+					return
+				}
+				defer up.Close()
+				io.WriteString(c, "HTTP/1.1 200 Connection Established\r\n\r\n")
+				go io.Copy(up, c)
+				io.Copy(c, up)
+			}(c)
+		}
+	}()
+	return "http://" + ln.Addr().String()
+}
+
+// Through an HTTP proxy, auto mode took any HTTP/2 failure but an ALPN
+// downgrade for a reason to send the request again over HTTP/1.1, which
+// doAuto stopped doing for direct connections: a POST whose stream was reset
+// after the server had read it went out twice.
+func TestAutoThroughAProxyDoesNotResendAPostThatWasSent(t *testing.T) {
+	srv, seen := resetOnH2Server(t)
+	tr := NewTransportWithConfig("chrome-146", &ProxyConfig{URL: connectProxy(t, "")}, nil)
+	tr.SetInsecureSkipVerify(true)
+	tr.SetProtocol(ProtocolAuto)
+	t.Cleanup(tr.Close)
+
+	if err := doReq(tr, &Request{Method: "POST", URL: srv.URL + "/pay", Body: []byte("charge=100")}); err == nil {
+		t.Fatal("a POST whose HTTP/2 stream was reset after it was sent should fail")
+	}
+	if got := seen(); len(got) != 1 || got[0] != "HTTP/2.0 POST charge=100" {
+		t.Fatalf("server saw %q, want the POST once, over HTTP/2", got)
+	}
+
+	// A GET may be sent again, and still is.
+	if err := doReq(tr, &Request{Method: "GET", URL: srv.URL}); err != nil {
+		t.Fatalf("GET should fall back to HTTP/1.1 and succeed: %v", err)
+	}
+	if got := seen(); len(got) != 3 || got[1] != "HTTP/2.0 GET " || got[2] != "HTTP/1.1 GET " {
+		t.Fatalf("server saw %q, want the GET over HTTP/2 then HTTP/1.1", got)
 	}
 }
 

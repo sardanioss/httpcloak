@@ -77,9 +77,6 @@ func (c *Client) Prepare(ctx context.Context, req *Request) (*PreparedRequest, e
 	var bodyReader io.Reader
 	if len(bodyBytes) > 0 {
 		bodyReader = bytes.NewReader(bodyBytes)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		// POST/PUT/PATCH with empty body must send Content-Length: 0
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	// Create http.Request
@@ -88,7 +85,7 @@ func (c *Client) Prepare(ctx context.Context, req *Request) (*PreparedRequest, e
 		return nil, err
 	}
 
-	// Normalize request (Content-Length: 0 for empty POST/PUT/PATCH, Content-Type detection, etc.)
+	// Normalize request (Content-Length, Content-Type detection, etc.)
 	normalizeRequestWithBody(httpReq, bodyBytes)
 
 	// Apply preset headers

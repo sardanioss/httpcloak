@@ -64,7 +64,8 @@ jobs:
         run: |
           cd bindings/clib
           mkdir -p dist
-          CGO_ENABLED=1 go build -buildmode=c-shared -ldflags="-s -w" -o dist/libhttpcloak-windows-amd64.dll .
+          # libgcc linked in: a stock Windows has no libgcc_s_seh-1.dll to load.
+          CGO_ENABLED=1 go build -buildmode=c-shared -ldflags="-s -w -extldflags=-static-libgcc" -o dist/libhttpcloak-windows-amd64.dll .
 
       - name: Upload native library
         uses: actions/upload-artifact@v4

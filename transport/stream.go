@@ -168,6 +168,9 @@ func (t *Transport) DoStream(ctx context.Context, req *Request) (*StreamResponse
 	if err != nil {
 		return nil, NewRequestError("parse_url", "", "", "", err)
 	}
+	if err := checkScheme(parsedURL); err != nil {
+		return nil, err
+	}
 
 	// Snapshot the mutable fields once so a concurrent SetProxy/SetPreset/
 	// SetProtocol can't race the dispatch below (see transportSnapshot).
@@ -295,13 +298,18 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 				// sending a truncated or duplicate request.
 				return nil, err
 			}
-			return t.doStreamHTTP2OrHTTP1(ctx, req)
+			resp, retryErr := t.doStreamHTTP2OrHTTP1(ctx, req)
+			return resp, laterAttempt(err, retryErr)
 		case ProtocolHTTP1:
 			return t.doStreamHTTP1(ctx, req)
 		case ProtocolHTTP2:
 			return t.doStreamHTTP2OrHTTP1(ctx, req)
 		}
 	}
+
+	// The HTTP/3 attempt's failure, when one was made and the request went on
+	// to HTTP/2.
+	var h3Err error
 
 	// No cached decision yet: race a connection probe when H3 is viable.
 	if snap.preset.SupportHTTP3 && snap.h3 != nil {
@@ -322,7 +330,8 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 		decision := t.raceConnectProtocol(probeCtx, host, port)
 		switch {
 		case decision.err != nil:
-			return nil, decision.err
+			// Neither protocol connected, so nothing was sent.
+			return nil, markNotSent(decision.err)
 		case decision.alpnErr != nil:
 			// The probe negotiated http/1.1: the server is H1-only. Drop the probe
 			// conn and stream over HTTP/1.1 directly (issue #75) instead of retrying
@@ -345,6 +354,7 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 				return nil, err
 			}
 			// Safe to send again: fall through to H2.
+			h3Err = err
 		}
 	}
 
@@ -356,7 +366,7 @@ func (t *Transport) doStreamAuto(ctx context.Context, req *Request) (*StreamResp
 			t.cacheProtocol(host, ProtocolHTTP2)
 		}
 	}
-	return resp, err
+	return resp, laterAttempt(h3Err, err)
 }
 
 // doStreamHTTP2OrHTTP1 streams over HTTP/2 and, when the server negotiates
@@ -417,8 +427,6 @@ func (t *Transport) doStreamHTTP1(ctx context.Context, req *Request) (*StreamRes
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -517,8 +525,6 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -546,10 +552,13 @@ func (t *Transport) doStreamHTTP2(ctx context.Context, req *Request) (*StreamRes
 	finishEstablishment := boundStreamEstablishment(t.streamEffectiveTimeout(req), cancel)
 
 	// Make request
-	resp, err := snap.h2.RoundTrip(httpReq)
+	resp, sent, err := snap.h2.roundTrip(httpReq)
 	finishEstablishment()
 	if err != nil {
 		cancel()
+		if !sent {
+			err = markNotSent(err)
+		}
 		return nil, WrapError("roundtrip", host, port, "h2", err)
 	}
 
@@ -614,13 +623,18 @@ func (t *Transport) doStreamHTTP3(ctx context.Context, req *Request) (*StreamRes
 		method = "GET"
 	}
 
+	// An empty body has to stay nil here: quic-go's request writer sends
+	// "content-length: 0" for a bodiless POST, PUT or PATCH only when the body
+	// is nil, and takes the http.NoBody an empty reader becomes as a body of
+	// unknown length, leaving the header out (servers then answer 411). Those
+	// three methods are its own rule, net/http's, and not the preset's
+	// (fingerprint.Preset.ResolveZeroContentLengthMethods), which HTTP/1.1 and
+	// HTTP/2 follow.
 	var bodyReader io.Reader
 	if req.BodyReader != nil {
 		bodyReader = req.BodyReader
 	} else if len(req.Body) > 0 {
 		bodyReader = bytes.NewReader(req.Body)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)

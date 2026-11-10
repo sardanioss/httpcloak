@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// The Python, Node.js and .NET bindings each carry their own list of preset
-// name constants, and the Node.js typings carry a fourth copy of the Node
+// The Python, Node.js, .NET and Rust bindings each carry their own list of
+// preset name constants, and the Node.js typings carry a fourth copy of the Node
 // list. Nothing ties those to the registry, so they drift: the typings stopped
 // at Chrome 151 while the runtime object gained 152 to 155, and the binding
 // constants once stopped at 151 while chrome-152 shipped. This reads each list
@@ -84,6 +84,11 @@ func TestBindingPresetConstantsMatchRegistry(t *testing.T) {
 		regexp.MustCompile(`public const string (\w+) = "([^"]+)";`),
 		regexp.MustCompile(`public const string (\w+) = (\w+);`))
 
+	rust := parseConstants(t, "rust",
+		between(t, readBindingFile(t, "rust/httpcloak/src/presets.rs"), "holds them to.\n", "\n/// Every preset name above", "rust"),
+		regexp.MustCompile(`^pub const ([A-Z0-9_]+): &str = "([^"]+)";`),
+		regexp.MustCompile(`^pub const ([A-Z0-9_]+): &str = ([A-Z0-9_]+);`))
+
 	var current []string
 	for name := range presets {
 		// The ios-chrome-NNN / android-chrome-NNN spellings are kept for old
@@ -95,7 +100,7 @@ func TestBindingPresetConstantsMatchRegistry(t *testing.T) {
 	}
 	sort.Strings(current)
 
-	for _, b := range []bindingConstants{py, node, dotnet} {
+	for _, b := range []bindingConstants{py, node, dotnet, rust} {
 		have := map[string]bool{}
 		for constant, value := range b.values {
 			have[value] = true
@@ -128,9 +133,15 @@ func TestBindingPresetConstantsMatchRegistry(t *testing.T) {
 			t.Errorf("dotnet: the constant for python's %s is %q, python has %q", constant, v, value)
 		}
 	}
-	if len(node.values) != len(py.values) || len(dotnet.values) != len(py.values) {
-		t.Errorf("constant counts differ: python %d, node %d, dotnet %d",
-			len(py.values), len(node.values), len(dotnet.values))
+	// Rust spells them exactly as Python does.
+	for constant, value := range py.values {
+		if v, ok := rust.values[constant]; !ok || v != value {
+			t.Errorf("rust: presets::%s is %q, python has %q", constant, v, value)
+		}
+	}
+	if len(node.values) != len(py.values) || len(dotnet.values) != len(py.values) || len(rust.values) != len(py.values) {
+		t.Errorf("constant counts differ: python %d, node %d, dotnet %d, rust %d",
+			len(py.values), len(node.values), len(dotnet.values), len(rust.values))
 	}
 
 	// The typings declare exactly the runtime object's constants.

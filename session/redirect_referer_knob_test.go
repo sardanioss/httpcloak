@@ -10,16 +10,18 @@ import (
 	"github.com/sardanioss/httpcloak/transport"
 )
 
-// By default a redirect hop carries a Referer, because that is what Chrome does.
-// This is the control for the two tests below: without it, a knob that silently
-// did nothing and a knob that worked would look identical.
-func TestRedirectRefererOnByDefault(t *testing.T) {
+// refererOnHop sends one GET that the server redirects once and returns what
+// the redirected request carried as its Referer, and whether it carried one.
+func refererOnHop(t *testing.T, referer string, disable bool) (string, bool) {
+	t.Helper()
 	srv := newBodyCapture(t, 302, 200)
 	s := newBodyTestSession(t, &protocol.SessionConfig{FollowRedirects: true})
 
-	if _, err := s.Request(context.Background(), &transport.Request{
-		Method: "GET", URL: srv.url + "hop0",
-	}); err != nil {
+	req := &transport.Request{Method: "GET", URL: srv.url + "hop0", DisableRedirectReferer: disable}
+	if referer != "" {
+		req.Headers = map[string][]string{"Referer": {strings.ReplaceAll(referer, "{server}", srv.url)}}
+	}
+	if _, err := s.Request(context.Background(), req); err != nil {
 		t.Fatalf("request: %v", err)
 	}
 
@@ -28,62 +30,38 @@ func TestRedirectRefererOnByDefault(t *testing.T) {
 	if len(srv.hops) != 2 {
 		t.Fatalf("server saw %d hops, want 2", len(srv.hops))
 	}
-	if !hasHeader(srv.hops[1], "referer") {
-		t.Fatal("hop 2 carried no Referer by default; Chrome sends one on every " +
-			"hop except an https->http downgrade")
-	}
-	if got := srv.hops[1].values["referer"]; !strings.Contains(got, "hop0") {
-		t.Errorf("hop 2 Referer = %q, want it to name the URL that issued the 302", got)
+	return strings.ReplaceAll(srv.hops[1].values["referer"], srv.url, "{server}"), hasHeader(srv.hops[1], "referer")
+}
+
+// A redirect does not change who made the request, so the hop carries the
+// referrer the request had: the page, never the URL that redirected. Chrome
+// 156 sends the page's whole URL to a hop on the page's origin.
+func TestARedirectKeepsTheReferrerOfItsRequest(t *testing.T) {
+	if got, _ := refererOnHop(t, "{server}page?q=1", false); got != "{server}page?q=1" {
+		t.Errorf("the hop's Referer = %q, want the request's own, {server}page?q=1", got)
 	}
 }
 
-// DisableRedirectReferer suppresses it.
-func TestDisableRedirectRefererSuppressesIt(t *testing.T) {
-	srv := newBodyCapture(t, 302, 200)
-	s := newBodyTestSession(t, &protocol.SessionConfig{FollowRedirects: true})
-
-	if _, err := s.Request(context.Background(), &transport.Request{
-		Method: "GET", URL: srv.url + "hop0",
-		DisableRedirectReferer: true,
-	}); err != nil {
-		t.Fatalf("request: %v", err)
-	}
-
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
-	if len(srv.hops) != 2 {
-		t.Fatalf("server saw %d hops, want 2", len(srv.hops))
-	}
-	if hasHeader(srv.hops[1], "referer") {
-		t.Errorf("hop 2 carried Referer %q despite DisableRedirectReferer",
-			srv.hops[1].values["referer"])
+// And the page's origin alone to a hop on another: a referrer on another
+// origin than the server is cut down to its origin.
+func TestARedirectToAnotherOriginCarriesTheReferrersOrigin(t *testing.T) {
+	if got, _ := refererOnHop(t, "http://caller.example/secret?token=abc", false); got != "http://caller.example/" {
+		t.Errorf("the hop's Referer = %q, want the referrer's origin, http://caller.example/", got)
 	}
 }
 
-// And a Referer the caller set on the ORIGINAL request must not be forwarded
-// either. Suppressing only the synthesis would leave the caller's own value in
-// place, which names the pre-redirect URL and so leaks to the new host exactly
-// what the caller asked us not to send.
-func TestDisableRedirectRefererDropsACallerSuppliedOne(t *testing.T) {
-	srv := newBodyCapture(t, 302, 200)
-	s := newBodyTestSession(t, &protocol.SessionConfig{FollowRedirects: true})
-
-	if _, err := s.Request(context.Background(), &transport.Request{
-		Method: "GET", URL: srv.url + "hop0",
-		Headers:                map[string][]string{"Referer": {"https://caller.example/secret?token=abc"}},
-		DisableRedirectReferer: true,
-	}); err != nil {
-		t.Fatalf("request: %v", err)
+// A request that had no referrer (an address typed, a bookmark opened) is
+// followed with none: the URL that redirected is nobody's referrer.
+func TestARedirectAddsNoRefererOfItsOwn(t *testing.T) {
+	if got, sent := refererOnHop(t, "", false); sent {
+		t.Errorf("the hop carried Referer %q though the request had none", got)
 	}
+}
 
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
-	if len(srv.hops) != 2 {
-		t.Fatalf("server saw %d hops, want 2", len(srv.hops))
-	}
-	if got := srv.hops[1].values["referer"]; got != "" {
-		t.Errorf("hop 2 forwarded the caller's Referer %q; it names the "+
-			"pre-redirect URL and must not reach the new host", got)
+// DisableRedirectReferer keeps the request's Referer off every hop.
+func TestDisableRedirectRefererDropsTheRequestsOwn(t *testing.T) {
+	if got, sent := refererOnHop(t, "{server}page", true); sent {
+		t.Errorf("the hop carried Referer %q despite DisableRedirectReferer", got)
 	}
 }
 
@@ -103,8 +81,7 @@ func TestExactHeadersSurviveARedirect(t *testing.T) {
 
 	if _, err := s.Request(context.Background(), &transport.Request{
 		Method: "GET", URL: srv.url + "hop0",
-		ExactHeaders:           exact,
-		DisableRedirectReferer: true, // Referer is the one thing the hop may still add
+		ExactHeaders: exact,
 	}); err != nil {
 		t.Fatalf("request: %v", err)
 	}

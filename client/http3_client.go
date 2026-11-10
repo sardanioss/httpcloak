@@ -141,9 +141,6 @@ func (c *HTTP3Client) Do(ctx context.Context, req *Request) (*Response, error) {
 	var bodyReader io.Reader
 	if len(bodyBytes) > 0 {
 		bodyReader = bytes.NewReader(bodyBytes)
-	} else if method == "POST" || method == "PUT" || method == "PATCH" {
-		// POST/PUT/PATCH with empty body must send Content-Length: 0
-		bodyReader = bytes.NewReader([]byte{})
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bodyReader)
@@ -151,7 +148,7 @@ func (c *HTTP3Client) Do(ctx context.Context, req *Request) (*Response, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Normalize request (Content-Length: 0 for empty POST/PUT/PATCH, Content-Type detection, etc.)
+	// Normalize request (Content-Length, Content-Type detection, etc.)
 	normalizeRequestWithBody(httpReq, bodyBytes)
 
 	// Set preset headers first
