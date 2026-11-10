@@ -2336,12 +2336,11 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// An empty body has to stay nil here: quic-go's request writer sends
-	// "content-length: 0" for a bodiless POST, PUT or PATCH only when the body
-	// is nil, and takes the http.NoBody an empty reader becomes as a body of
-	// unknown length, leaving the header out (servers then answer 411). Those
-	// three methods are its own rule, net/http's, and not the preset's
-	// (fingerprint.Preset.ResolveZeroContentLengthMethods), which HTTP/1.1 and
-	// HTTP/2 follow.
+	// "content-length: 0" for a bodiless request only when the body is nil,
+	// and takes the http.NoBody an empty reader becomes as a body of unknown
+	// length, leaving the header out (servers then answer 411). Which methods
+	// send it is the preset's rule, as on HTTP/1.1 and HTTP/2
+	// (fingerprint.Preset.ResolveZeroContentLengthMethods).
 	var bodyReader io.Reader
 	if req.BodyReader != nil {
 		bodyReader = req.BodyReader

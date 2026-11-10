@@ -311,6 +311,7 @@ HEADERS
   literal name-ref static=true 0 never=false huffman=true "127.0.0.1:PORT"
   indexed static=true 23
   literal name-ref static=true 1 never=false huffman=true "/c"
+  literal name-ref static=true 4 never=false huffman=true "7"
   literal name="sec-ch-ua-platform" name-huffman=true never=false huffman=true "\"Android\""
   literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
   literal name="sec-ch-ua" name-huffman=true never=false huffman=true "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\""
@@ -325,7 +326,6 @@ HEADERS
   literal name="priority" name-huffman=true never=false huffman=true "u=1, i"
   literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
   indexed static=true 94
-  literal name-ref static=true 4 never=false huffman=true "7"
 DATA len=7
 
 ## describe
