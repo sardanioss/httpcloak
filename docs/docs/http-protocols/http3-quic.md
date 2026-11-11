@@ -39,6 +39,8 @@ Forcing H3 on a host that doesn't actually serve it ends in a QUIC handshake tim
 
 A TLS session ticket from a previous successful handshake to the same host lets the lib attach the first request as 0-RTT data on the same UDP packet as the QUIC INITIAL. Saves a full round trip on the cold path.
 
+That takes a ticket the server issued with early data allowed. On a ticket that doesn't allow it, the handshake still resumes, but nothing goes early and the hello carries no `early_data` extension, which is how Chrome and Firefox resume there.
+
 The ticket cache is per-session by default. Plug in a `SessionCacheBackend` via `WithSessionCache(...)` to keep tickets across process restarts.
 
 0-RTT comes with the usual replay caveat. The server decides what's safe (RFC 9001 says only idempotent methods should ride 0-RTT). httpcloak sends what you hand it, so the first request after a fresh session should be a `GET` or some other safe method.
