@@ -1098,14 +1098,17 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	//
 	// The Cookie the caller set is kept aside first, because the copy mixes in
 	// the jar's, and only the caller's may follow a redirect hop (see below).
+	// The names of every header the caller set are kept too: only those
+	// follow a redirect hop. The rest of the copy is what this request
+	// generated (Sec-Fetch-*, Origin, Referer, the preset's set), and carried
+	// as if the caller had written them they pinned the first request's values
+	// on every hop after it.
 	ownCookieKey, ownCookie := "", []string(nil)
-	ownAuthorization := false
+	ownKeys := make(map[string]bool, len(req.Headers))
 	for key, values := range req.Headers {
-		switch {
-		case strings.EqualFold(key, "Cookie"):
+		ownKeys[strings.ToLower(key)] = true
+		if strings.EqualFold(key, "Cookie") {
 			ownCookieKey, ownCookie = key, values
-		case strings.EqualFold(key, "Authorization"):
-			ownAuthorization = true
 		}
 	}
 	// The Digest retry below starts from the caller's request, not from this
@@ -1345,20 +1348,20 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					carriedHeaders = make(map[string][]string, len(req.Headers))
 					for k, v := range req.Headers {
 						lk := strings.ToLower(k)
-						if schemeDowngrade && lk == "referer" {
+						// Only what the caller set goes on; the hop generates
+						// its own. Referer is set for the hop below, from the
+						// URL that redirected, so a caller's copy is dropped
+						// rather than sent twice or carried to a new origin.
+						if !ownKeys[lk] || lk == "referer" {
 							continue
 						}
 						if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
 							continue
 						}
 						// An Authorization the client's Auth wrote is not the
-						// caller's: it answered this request (a Digest answer
-						// names this URI and nonce count), and the hop gets its
-						// own from Auth. Carrying it sent a stale answer
-						// whenever Auth had nothing to apply to the hop.
-						if lk == "authorization" && !ownAuthorization {
-							continue
-						}
+						// caller's, so the ownKeys check above leaves it: it
+						// answered this request (a Digest answer names this URI
+						// and nonce count), and the hop gets its own from Auth.
 						// The hop's cookies come from the jar, for its own URL.
 						// req.Headers holds the Cookie this request sent, copied
 						// in for debugging, so carrying it handed one host's
@@ -1395,12 +1398,20 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					carriedHeaders[ownCookieKey] = ownCookie
 				}
 
-				carriedReferer := reqURL
+				// The hop's Referer follows Chrome's default policy,
+				// strict-origin-when-cross-origin, as Session's does: the full
+				// URL on the same origin, only the origin across origins, and
+				// none on a downgrade to http.
+				carriedReferer := redirectRefererClient(reqURL, schemeDowngrade, crossOrigin)
+				// The mode this request went out in, sniffed or not, is the
+				// chain's: a fetch() POST answered with 303 is still a fetch()
+				// on the GET, though the GET has no body left to sniff.
+				hopMode := callerReq.FetchMode
+				if hopMode == FetchModeNavigate && sniffXHRMode(callerReq) {
+					hopMode = FetchModeCORS
+				}
 				carriedAuth := req.Auth
-				if schemeDowngrade {
-					carriedReferer = ""
-					carriedAuth = nil
-				} else if crossOrigin {
+				if schemeDowngrade || crossOrigin {
 					carriedAuth = nil
 				}
 
@@ -1412,7 +1423,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					Timeout:         req.Timeout,
 					UserAgent:       req.UserAgent,
 					ForceProtocol:   req.ForceProtocol,
-					FetchMode:       req.FetchMode,
+					FetchMode:       hopMode,
 					FetchSite:       FetchSiteCrossSite, // Redirects are usually cross-site
 					Referer:         carriedReferer,
 					Auth:            carriedAuth,
@@ -1438,6 +1449,12 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 						newReq.Body = bytes.NewReader(bodyBytes)
 					}
 				}
+
+				// Read what is left of the 3xx body before the next hop, so
+				// HTTP/1.1 can put the connection back for it to reuse rather
+				// than dial again. Bounded: a large body costs less to drop
+				// with the connection than to read.
+				drainBody(resp.Body)
 
 				// Follow redirect
 				return c.doOnce(ctx, newReq, redirectHistory)
@@ -1468,6 +1485,8 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 			// here as well, to a request about to be dropped, used up a nonce
 			// count, so the first answer went out as nc=00000002.
 			ctx = context.WithValue(ctx, authResendsKey{}, authResends{hop: len(redirectHistory), n: resends + 1})
+			// As for a redirect: free the connection for the retry.
+			drainBody(resp.Body)
 			return c.doOnce(ctx, &retry, redirectHistory)
 		}
 	}
@@ -2535,6 +2554,40 @@ func sameOriginClient(a, b string) bool {
 		return false
 	}
 	return as == bs && ah == bh && ap == bp
+}
+
+// redirectRefererClient returns the Referer for a redirect hop from prevURL,
+// the URL that answered with the 3xx, under strict-origin-when-cross-origin:
+// "" on an https to http downgrade, the URL without fragment or userinfo on
+// the same origin, and the origin with a trailing slash across origins.
+func redirectRefererClient(prevURL string, schemeDowngrade, crossOrigin bool) string {
+	if schemeDowngrade {
+		return ""
+	}
+	u, err := url.Parse(prevURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	u.Fragment, u.RawFragment, u.User = "", "", nil
+	scheme := strings.ToLower(u.Scheme)
+	host := u.Hostname()
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if p := u.Port(); p != "" && !((scheme == "https" && p == "443") || (scheme == "http" && p == "80")) {
+		host += ":" + p
+	}
+	if crossOrigin {
+		return scheme + "://" + strings.ToLower(host) + "/"
+	}
+	u.Host = host
+	return u.String()
+}
+
+// drainBody reads up to 64 KiB of what is left of body and closes it.
+func drainBody(body io.ReadCloser) {
+	io.Copy(io.Discard, io.LimitReader(body, 64<<10))
+	body.Close()
 }
 
 // isSchemeDowngradeClient reports whether a redirect goes https → http.

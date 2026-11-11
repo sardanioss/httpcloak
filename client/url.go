@@ -147,47 +147,24 @@ func DecodeParams(query string) (map[string]string, error) {
 	return params, nil
 }
 
-// JoinURL joins a base URL with a path
+// JoinURL resolves path, an absolute or relative reference such as a
+// Location header, against base, as RFC 3986 section 5 does. A query or
+// fragment in path is kept as one; this used to put them into the path,
+// where "/next?q=1" went out as "/next%3Fq=1".
 func JoinURL(base, path string) string {
 	if path == "" {
 		return base
 	}
-
-	// Handle absolute URLs
-	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+	ref, err := url.Parse(path)
+	if err != nil {
 		return path
 	}
-
-	// Parse base URL
 	parsed, err := url.Parse(base)
 	if err != nil {
+		if ref.IsAbs() {
+			return path
+		}
 		return base + "/" + strings.TrimPrefix(path, "/")
 	}
-
-	// Handle protocol-relative URLs
-	if strings.HasPrefix(path, "//") {
-		return parsed.Scheme + ":" + path
-	}
-
-	// Handle root-relative URLs
-	if strings.HasPrefix(path, "/") {
-		parsed.Path = path
-		parsed.RawQuery = ""
-		return parsed.String()
-	}
-
-	// Handle relative URLs
-	if !strings.HasSuffix(parsed.Path, "/") {
-		// Remove last path segment
-		lastSlash := strings.LastIndex(parsed.Path, "/")
-		if lastSlash >= 0 {
-			parsed.Path = parsed.Path[:lastSlash+1]
-		} else {
-			parsed.Path = "/"
-		}
-	}
-	parsed.Path += path
-	parsed.RawQuery = ""
-
-	return parsed.String()
+	return parsed.ResolveReference(ref).String()
 }
