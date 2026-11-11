@@ -457,6 +457,9 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
+          # A re-run after a partial publish skips the files already up,
+          # as NuGet's --skip-duplicate does.
+          skip-existing: true
 
   publish-npm-platforms:
     name: Publish npm platform packages
