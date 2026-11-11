@@ -1,6 +1,7 @@
 package client
 
 import (
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ type Cookie struct {
 	Domain   string
 	Path     string
 	Expires  time.Time
-	MaxAge   int // seconds
+	MaxAge   int // seconds; 0 means no Max-Age, -1 a Max-Age of 0 or less
 	Secure   bool
 	HttpOnly bool
 	SameSite string // "Strict", "Lax", "None"
@@ -172,9 +173,17 @@ func ParseSetCookie(header string, requestURL *url.URL) *Cookie {
 				cookie.Expires = t
 			}
 		case "max-age":
-			if maxAge := parseInt(value); maxAge != 0 || value == "0" {
-				cookie.MaxAge = maxAge
+			// RFC 6265 Section 5.2.2: a Max-Age of 0 or less expires the
+			// cookie, and MaxAge 0 means none, so it is stored as -1. As in
+			// Chrome and Firefox, the last Max-Age decides, and an invalid
+			// one leaves none.
+			maxAge, ok := parseInt(value)
+			if !ok {
+				maxAge = 0
+			} else if maxAge <= 0 {
+				maxAge = -1
 			}
+			cookie.MaxAge = maxAge
 		case "secure":
 			cookie.Secure = true
 		case "httponly":
@@ -185,9 +194,15 @@ func ParseSetCookie(header string, requestURL *url.URL) *Cookie {
 	}
 
 	// RFC 6265 Section 5.3: convert Max-Age to absolute Expires time
-	// Max-Age takes precedence over Expires when both are present
+	// Max-Age takes precedence over Expires when both are present; a
+	// negative MaxAge does too, since every expiry check tests it first
 	if cookie.MaxAge > 0 {
-		cookie.Expires = time.Now().Add(time.Duration(cookie.MaxAge) * time.Second)
+		// A Max-Age longer than a time.Duration can hold gets the longest one
+		lifetime := time.Duration(math.MaxInt64)
+		if int64(cookie.MaxAge) < int64(lifetime/time.Second) {
+			lifetime = time.Duration(cookie.MaxAge) * time.Second
+		}
+		cookie.Expires = time.Now().Add(lifetime)
 	}
 
 	return cookie
@@ -214,31 +229,37 @@ func parseExpires(s string) (time.Time, error) {
 	return time.Time{}, errorf("unable to parse expires: %s", s)
 }
 
-// parseInt parses an integer, returning 0 on error
-func parseInt(s string) int {
+// parseInt parses a decimal integer with an optional leading "-". ok is false
+// for anything else, such as "", "-", "+1" or "1abc". A value too large for an
+// int stops at the largest one, so that it cannot wrap around
+func parseInt(s string) (int, bool) {
 	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
 
 	negative := false
-	if s[0] == '-' {
+	if strings.HasPrefix(s, "-") {
 		negative = true
 		s = s[1:]
+	}
+	if s == "" {
+		return 0, false
 	}
 
 	var n int
 	for _, c := range s {
 		if c < '0' || c > '9' {
-			return 0
+			return 0, false
 		}
-		n = n*10 + int(c-'0')
+		if d := int(c - '0'); n <= (math.MaxInt-d)/10 {
+			n = n*10 + d
+		} else {
+			n = math.MaxInt
+		}
 	}
 
 	if negative {
-		return -n
+		return -n, true
 	}
-	return n
+	return n, true
 }
 
 // errorf creates an error with a formatted message

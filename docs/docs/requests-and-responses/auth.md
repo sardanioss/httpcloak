@@ -68,7 +68,9 @@ Flow on the wire:
 4. Client retries the same request, this time with the computed `Digest response=...`.
 5. Server returns the real response.
 
-The nonce-counter (`nc`) increments on every reuse, so the same `DigestAuth` value can ride multiple requests without re-challenging. Discard it once the credentials change.
+If the server answers that response with another challenge, the credentials were wrong. The client returns that 401 rather than answering again, and forgets the challenge, so the next request starts over with no Authorization header. That is where Chrome and Firefox drop the credentials and ask the user, and where curl returns the 401. There are two exceptions. A challenge with `stale=true` means the nonce expired but the credentials were right, so the client sends the request again with an answer to the new nonce. And a reused `DigestAuth` answers the last challenge it saw up front, before the server asks: if the server has moved to a new nonce in the meantime without saying `stale=true`, the client answers the new one once, as Chrome does when the same credentials are given again, and returns the 401 only if that answer is refused too. A hop's request goes out at most 32 times, as in Chrome, after which the last 401 comes back. The bound holds for any `Auth` whose `HandleChallenge` keeps asking for a retry.
+
+The nonce-counter (`nc`) starts at `00000001` for each challenge and increments on every reuse, so the same `DigestAuth` value can ride multiple requests without re-challenging. Discard it once the credentials change.
 
 ## Custom schemes via SetAuth
 
@@ -232,4 +234,4 @@ resp, _ := c.Do(ctx, &client.Request{
 })
 ```
 
-One safety bit lives in the redirect handler: a redirect that crosses origins drops `Authorization` and `Proxy-Authorization` before following. The same rule applies to HTTPS-to-HTTP downgrades. Browsers behave the same way, and httpcloak matches that, so credentials don't leak to whatever domain the response bounces to.
+One safety bit lives in the redirect handler: a redirect that crosses origins drops `Authorization` and `Proxy-Authorization` before following. The same rule applies to HTTPS-to-HTTP downgrades. It holds for both scopes: once a hop leaves the origin the request started on, neither the client's Auth nor `Request.Auth` is applied to it or to any hop after it, even one that comes back to that origin. Browsers behave the same way, and httpcloak matches that, so credentials don't leak to whatever domain the response bounces to.

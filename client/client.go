@@ -624,7 +624,10 @@ type Response struct {
 	Timing     *protocol.Timing
 	Protocol   string // "h3" or "h2"
 
-	// Request info
+	// Request is the request that produced this response: the last hop's,
+	// after redirects. Its Headers hold every header that request was sent
+	// with, the ones the client added included, for debugging. It is a copy,
+	// so the Request passed to Do and its Headers map are left as they were.
 	Request *Request
 
 	// Redirect history
@@ -1039,10 +1042,22 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		applyModeHeaders(httpReq, c.preset, req, parsedURL, c.effectiveHeaderOrder(req))
 	}
 
-	// Apply authentication
+	// Apply authentication. The client's own auth goes only to the origin a
+	// redirect chain started on, and not even there once a hop has left it:
+	// Request.Auth and a caller's Authorization header are dropped the same
+	// way, as Fetch drops Authorization. A hop that had dropped Request.Auth
+	// used to fall back to the client's here, which sent it to every host the
+	// chain reached. redirectHistory holds every earlier request of the chain.
+	// With auth nil, a Digest challenge from such a hop also goes unanswered.
 	auth := req.Auth
 	if auth == nil {
 		auth = c.auth
+		for _, prev := range redirectHistory {
+			if !sameOriginClient(prev.URL, reqURL) {
+				auth = nil
+				break
+			}
+		}
 	}
 	if auth != nil {
 		if err := auth.Apply(httpReq); err != nil {
@@ -1071,9 +1086,27 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 
 	// Copy all headers from httpReq to req.Headers for debugging
 	// This captures all headers that will actually be sent (preset headers, auth, cookies, etc.)
-	if req.Headers == nil {
-		req.Headers = make(map[string][]string)
+	// The copy goes into a copy of the request, which Response.Request returns.
+	// The Request and its Headers map are the caller's: written into, they
+	// sent one request's Cookie, Referer and Sec-Fetch-* with the next request
+	// that reused the map. A redirect hop and the Digest retry below start
+	// from this copy, as they did from the original.
+	//
+	// The Cookie the caller set is kept aside first, because the copy mixes in
+	// the jar's, and only the caller's may follow a redirect hop (see below).
+	ownCookieKey, ownCookie := "", []string(nil)
+	for key, values := range req.Headers {
+		if strings.EqualFold(key, "Cookie") {
+			ownCookieKey, ownCookie = key, values
+			break
+		}
 	}
+	sent := *req
+	sent.Headers = make(map[string][]string, len(req.Headers)+len(httpReq.Header))
+	for key, values := range req.Headers {
+		sent.Headers[key] = values
+	}
+	req = &sent
 	for key, values := range httpReq.Header {
 		// Skip internal/special headers
 		if key == http.HeaderOrderKey || key == http.PHeaderOrderKey {
@@ -1306,8 +1339,40 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 						if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
 							continue
 						}
+						// The hop's cookies come from the jar, for its own URL.
+						// req.Headers holds the Cookie this request sent, copied
+						// in for debugging, so carrying it handed one host's
+						// cookies to the next and brought back any cookie the
+						// 3xx had just deleted. A Cookie the caller set is
+						// carried below, on a hop that keeps the origin.
+						if lk == "cookie" {
+							continue
+						}
+						// A hop that turns into a GET leaves the body behind, and
+						// the headers that describe it go with it: Fetch's
+						// request-body-header names, plus the Content-Length
+						// copied in with the rest. A GET carrying Content-Length
+						// left an HTTP/1.1 server waiting for a body.
+						if newMethod != method {
+							switch lk {
+							case "content-type", "content-length", "content-encoding", "content-language", "content-location":
+								continue
+							}
+						}
 						carriedHeaders[k] = v
 					}
+				}
+				// A Cookie the caller set goes on with a hop that stays on the
+				// origin, as Authorization does, so a client without a jar
+				// keeps its login across a same-origin redirect. A hop that
+				// leaves the origin drops it, and so no later hop carries it,
+				// even one back on that origin. Where the jar holds cookies for
+				// the hop's URL, they replace it, as on the first request.
+				if ownCookie != nil && !crossOrigin {
+					if carriedHeaders == nil {
+						carriedHeaders = make(map[string][]string, 1)
+					}
+					carriedHeaders[ownCookieKey] = ownCookie
 				}
 
 				carriedReferer := reqURL
@@ -1343,8 +1408,12 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					OnRedirect: req.OnRedirect,
 				}
 
-				// 307/308 preserve body (use cached bytes since original reader was consumed)
-				if resp.StatusCode == 307 || resp.StatusCode == 308 {
+				// A hop that keeps the method keeps the body, as in Fetch's
+				// HTTP-redirect fetch: every 307 and 308, and a 301 or 302 for
+				// anything but a POST. Only 307 and 308 used to, so a PUT
+				// answered with 302 went out again empty. Cached bytes, since
+				// the original reader was consumed.
+				if newMethod == method {
 					if len(bodyBytes) > 0 {
 						newReq.Body = bytes.NewReader(bodyBytes)
 					}
@@ -1366,17 +1435,18 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		if err != nil {
 			return nil, fmt.Errorf("failed to handle auth challenge: %w", err)
 		}
-		if shouldRetry {
+		// Past the bound, the last 401 goes back to the caller.
+		resends := authResendsSoFar(ctx, len(redirectHistory))
+		if shouldRetry && resends < maxAuthResends {
 			// Reset request body for retry
 			resetRequestBody(httpReq, bodyBytes)
 			if len(bodyBytes) > 0 {
 				req.Body = bytes.NewReader(bodyBytes)
 			}
-			// Apply auth again with challenge info
-			if err := auth.Apply(httpReq); err != nil {
-				return nil, fmt.Errorf("failed to apply authentication after challenge: %w", err)
-			}
-			// Retry request
+			// Retry request. The retry applies the answer itself. Applying it
+			// here as well, to a request about to be dropped, used up a nonce
+			// count, so the first answer went out as nc=00000002.
+			ctx = context.WithValue(ctx, authResendsKey{}, authResends{hop: len(redirectHistory), n: resends + 1})
 			return c.doOnce(ctx, req, redirectHistory)
 		}
 	}
