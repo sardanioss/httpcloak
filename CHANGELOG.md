@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.4-beta.1] - 2026-11-11
+
 ### Added
 
 - **Chrome 156 and 157 presets**: `chrome-156` and `chrome-157`, each for windows, linux, macos and android, with `chrome-latest` and the other desktop and Android `-latest` aliases moved onto 157. Both are headers-only over 155: the User-Agent and `sec-ch-ua` move, and the TLS handshake, the HTTP/2 settings, the header order and the `Accept` values stay as they were, which we checked against the real 156 and 157 builds. `chrome-latest-ios` stays on `chrome-155-ios` until there's an iOS capture to build 157 from. Exposed as constants in Python, Node.js and .NET.
