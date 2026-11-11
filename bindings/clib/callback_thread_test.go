@@ -31,6 +31,10 @@ func TestHostCallbacksRunOnShimThreads(t *testing.T) {
 	}
 	defer hcTestSessionFree(h)
 
+	// The C counters live as long as the process (other tests and -count
+	// runs add to them), so everything below counts from here.
+	calls0, onWorker0, gets0, getsOnWorker0 := hcTestCounts()
+
 	const n = 20
 	for i := 0; i < n; i++ {
 		id := hcTestRegisterAsync()
@@ -39,6 +43,7 @@ func TestHostCallbacksRunOnShimThreads(t *testing.T) {
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		calls, onWorker, _, _ := hcTestCounts()
+		calls, onWorker = calls-calls0, onWorker-onWorker0
 		if calls >= n {
 			if onWorker != calls {
 				t.Errorf("%d of %d async callbacks ran on a Go thread", calls-onWorker, calls)
@@ -58,6 +63,7 @@ func TestHostCallbacksRunOnShimThreads(t *testing.T) {
 	}
 	wg.Wait()
 	_, _, gets, getsOnWorker := hcTestCounts()
+	gets, getsOnWorker = gets-gets0, getsOnWorker-getsOnWorker0
 	if gets != 16 || getsOnWorker != gets {
 		t.Errorf("sync cache callbacks: %d calls, %d on shim threads; want 16 and 16", gets, getsOnWorker)
 	}
@@ -137,6 +143,8 @@ func TestConcurrentExportCallsFromHostThreads(t *testing.T) {
 // A host callback that calls the library while Go waits on it: the call hops
 // from a callback thread to an export thread and must not deadlock.
 func TestExportCalledFromHostCallback(t *testing.T) {
+	// The C counter lives as long as the process, so count from here.
+	before := hcTestExportFromCallbackCount()
 	done := make(chan int, 1)
 	go func() {
 		var wg sync.WaitGroup
@@ -145,7 +153,7 @@ func TestExportCalledFromHostCallback(t *testing.T) {
 			go func() { defer wg.Done(); hcTestExportFromCallback() }()
 		}
 		wg.Wait()
-		done <- hcTestExportFromCallback()
+		done <- hcTestExportFromCallback() - before
 	}()
 	select {
 	case ok := <-done:

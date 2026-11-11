@@ -157,6 +157,9 @@ func hcTestExportFromCallback() int {
 	return int(C.t_export_in_cb())
 }
 
+// hcTestExportFromCallbackCount reports the same count without a call.
+func hcTestExportFromCallbackCount() int { return int(C.t_export_in_cb()) }
+
 // hcTestGetFromThreads makes n concurrent GETs through the public C API, each
 // from its own new C thread, and returns how many got a 200.
 func hcTestGetFromThreads(cfg, url string, n int) int {

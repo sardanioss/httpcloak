@@ -2656,7 +2656,7 @@ func hcgo_httpcloak_session_get_max_redirects(handle C.int64_t) (hcRet C.int) {
 // Utility Functions
 // ============================================================================
 
-// httpcloak_free_string is plain C, in export_hop.c: it only calls free, so it
+// httpcloak_free_string is plain C, in exports_gen.c: it only calls free, so it
 // needs neither Go nor a hop onto another thread.
 
 // libVersion is the one place the C ABI reports a version from. It has to be
