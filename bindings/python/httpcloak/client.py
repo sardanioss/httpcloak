@@ -390,7 +390,7 @@ class Cookie:
         domain: Cookie domain
         path: Cookie path
         expires: Expiration date (RFC1123 format)
-        max_age: Max age in seconds (0 means not set)
+        max_age: Max age in seconds (0 means not set, -1 means the server asked to delete it)
         secure: Secure flag
         http_only: HttpOnly flag
         same_site: SameSite attribute (Strict, Lax, None)
@@ -2989,7 +2989,7 @@ class Session:
             secure: Secure flag
             http_only: HttpOnly flag
             same_site: SameSite attribute (Strict, Lax, None)
-            max_age: Max age in seconds (0 means not set)
+            max_age: Max age in seconds (0 means not set, -1 means the server asked to delete it)
             expires: Expiration date in RFC1123 format (e.g. "Mon, 02 Jan 2006 15:04:05 GMT")
         """
         cookie = {
