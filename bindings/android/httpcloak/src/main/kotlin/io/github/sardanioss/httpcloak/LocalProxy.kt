@@ -30,6 +30,11 @@ public class LocalProxy @JvmOverloads constructor(
     /** Upstream proxy for HTTP/3. */
     udpProxy: String? = null,
     tlsOnly: Boolean = false,
+    /**
+     * Verify the certificates of the sites the proxy connects to. false is
+     * for testing against a self-signed certificate.
+     */
+    verify: Boolean = true,
 ) : Closeable {
     private val handle: Long
 
@@ -41,6 +46,7 @@ public class LocalProxy @JvmOverloads constructor(
         tcpProxy?.let { config.put("tcp_proxy", it) }
         udpProxy?.let { config.put("udp_proxy", it) }
         if (tlsOnly) config.put("tls_only", true)
+        if (!verify) config.put("verify", false)
         handle = Native.localProxyStart(config.toString())
         if (handle <= 0) throw HttpCloakException("could not start local proxy on port $port")
     }
