@@ -59,6 +59,18 @@ const Preset = {
   CHROME_155_MACOS: "chrome-155-macos",
   CHROME_155_IOS: "chrome-155-ios",
   CHROME_155_ANDROID: "chrome-155-android",
+  // Chrome 156 (headers only over 155)
+  CHROME_156: "chrome-156",
+  CHROME_156_WINDOWS: "chrome-156-windows",
+  CHROME_156_LINUX: "chrome-156-linux",
+  CHROME_156_MACOS: "chrome-156-macos",
+  CHROME_156_ANDROID: "chrome-156-android",
+  // Chrome 157 (headers only over 156)
+  CHROME_157: "chrome-157",
+  CHROME_157_WINDOWS: "chrome-157-windows",
+  CHROME_157_LINUX: "chrome-157-linux",
+  CHROME_157_MACOS: "chrome-157-macos",
+  CHROME_157_ANDROID: "chrome-157-android",
 
   // Chrome 152 (trust anchors, plus a greased signature algorithm on TCP)
   CHROME_152: "chrome-152",

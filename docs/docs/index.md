@@ -127,15 +127,15 @@ Console.WriteLine(resp.StatusCode);
 
 ### Presets
 
-- **Chrome**: 133, 141, 143 through 155, with per-OS variants
+- **Chrome**: 133, 141, 143 through 157, with per-OS variants
   (Windows / Linux / macOS / Android / iOS) where they differ. iOS
-  goes up to 152.
+  goes up to 155.
 - **Firefox**: 133, 148.
 - **Safari**: 18 (desktop), 17 / 18 / 26 (iOS). Safari 26 iOS currently covers HTTP/2; no QUIC capture is included.
 - **`chrome-latest` aliases**: `chrome-latest`, `chrome-latest-windows`,
   `chrome-latest-linux`, `chrome-latest-macos`, `chrome-latest-android`,
   `chrome-latest-ios`. Auto-track the newest shipped Chrome major
-  (155).
+  (157; iOS 155).
 
 ### Bindings
 

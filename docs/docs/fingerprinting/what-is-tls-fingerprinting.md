@@ -145,7 +145,7 @@ Console.WriteLine(r.Text);
 </TabItem>
 </Tabs>
 
-What comes back (`chrome-latest`, which is Chrome 155, re-measured 2026-10-13 over HTTP/2):
+What comes back (`chrome-latest`, which is Chrome 157, measured 2026-11-11 over HTTP/2):
 
 ```text
 ja4:                     t13d1517h2_8daaf6152771_cb7bf5808d99
@@ -153,7 +153,7 @@ peetprint_hash:          fc97c1cdfb1409c9a9326c1b726d1dee
 akamai_fingerprint_hash: 52d84b11737d980aef856699f885ca86
 ```
 
-Those three are the desktop Chrome fingerprint, shared by the desktop and Android presets from 152 to 155. Run the same code through `net/http` and you'd see something like `t13d1517h2_acb858a92679_eb4d4c4c4f4f` for JA4, which matches no browser that ever shipped.
+Those three are the desktop Chrome fingerprint, shared by the desktop and Android presets from 152 to 157. Run the same code through `net/http` and you'd see something like `t13d1517h2_acb858a92679_eb4d4c4c4f4f` for JA4, which matches no browser that ever shipped.
 
 Heads up: `ja3_hash` won't be stable across runs because of Chrome's extension shuffle. `ja4` and `peetprint_hash` are stable. Verify against those two.
 
