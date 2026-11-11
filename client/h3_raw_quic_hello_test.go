@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sardanioss/httpcloak/fingerprint"
 	fhttp "github.com/sardanioss/http"
+	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/quic-go"
 	"github.com/sardanioss/quic-go/http3"
 	utls "github.com/sardanioss/utls"
