@@ -275,3 +275,29 @@ func idBytes(ids []uint16) []byte {
 	}
 	return out
 }
+
+// A child that adds a TCP capture without stating allow_blunt_mimicry keeps
+// the parent's, which its inherited QUIC capture may need to parse.
+func TestChildTCPCaptureKeepsInheritedBluntMimicry(t *testing.T) {
+	parent := loadRawQUICPreset(t, "blunt-parent",
+		`"raw_quic_client_hello":"`+b64(buildRawQUICHelloBytes(t))+`","allow_blunt_mimicry":true`)
+	Register(parent.Name, parent)
+	defer Unregister(parent.Name)
+
+	child, err := LoadAndBuildPresetFromJSON([]byte(`{"preset":{"name":"blunt-child",` +
+		`"based_on":"blunt-parent","tls":{"raw_client_hello":"` + b64(buildRawHelloBytes(t)) + `"}}}`))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !child.RawBluntMimicry {
+		t.Error("the child's TCP capture turned off the allow_blunt_mimicry its parent declared")
+	}
+	off, err := LoadAndBuildPresetFromJSON([]byte(`{"preset":{"name":"blunt-child-off",` +
+		`"based_on":"blunt-parent","tls":{"raw_client_hello":"` + b64(buildRawHelloBytes(t)) + `","allow_blunt_mimicry":false}}}`))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if off.RawBluntMimicry {
+		t.Error("a child that states allow_blunt_mimicry false still has it on")
+	}
+}

@@ -759,7 +759,13 @@ func applyTLS(p *Preset, spec *TLSSpec) error {
 			return err
 		}
 		p.RawClientHello = raw
-		p.RawBluntMimicry = blunt
+		// Only a preset that states the flag changes it, as in applyRawQUIC.
+		// Assigning it always turned it off under a raw_quic_client_hello
+		// inherited from a parent that needed it, and that preset loaded and
+		// then failed on every HTTP/3 dial.
+		if spec.AllowBluntMimicry != nil {
+			p.RawBluntMimicry = blunt
+		}
 		applyRawPermute(p, spec)
 		if spec.RawPSKClientHello != "" {
 			pskRaw, err := DecodeRawClientHello("tls.raw_psk_client_hello", spec.RawPSKClientHello, blunt)
