@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      publish_nuget:
+        description: "Publish the NuGet package from this ref (for a tag whose NuGet push failed)"
+        type: boolean
+        default: false
 
 jobs:
   # Every package must say the same version, and on a tag, the tag's. A tag
@@ -592,8 +597,12 @@ jobs:
     name: Publish to NuGet
     needs: [build-nuget, verify-packages, smoke-test-wheels]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish_nuget
     environment: nuget
+    # Trusted publishing: NuGet/login trades this job's OIDC token for a
+    # short-lived API key, so no long-lived key is stored in the repo.
+    permissions:
+      id-token: write
 
     steps:
       - name: Setup .NET
@@ -607,5 +616,11 @@ jobs:
           name: nuget-package
           path: nupkg/
 
+      - name: Log in to NuGet
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: sardanioss
+
       - name: Publish to NuGet
-        run: dotnet nuget push nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push nupkg/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
