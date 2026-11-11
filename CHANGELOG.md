@@ -69,6 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`DigestAuth` can be shared by requests that run at once**: a client's `Auth` goes on every request it sends, and `DigestAuth` counted its nonce up on every answer and replaced its stored challenge on every 401 with nothing guarding either. Concurrent requests through one client raced on that state, and two answers could go out with the same `nc`. A lock now guards it.
 
+- **A LocalProxy, and .NET's `HttpCloakHandler`, can skip certificate verification** (#149): a Session has `verify=False`, but the local proxy had no such setting, so a site with a self-signed certificate couldn't be reached through it at all. `LocalProxy` takes `verify=False` in Python, `verify: false` in Node.js and .NET, and `WithProxyInsecureSkipVerify()` in Go; `HttpCloakHandler` takes `verify: false` too. Verification stays on by default.
+
 ### Security
 
 - **HTTP/1.1 requests with a line break in a header, the method, the path or the Host are refused**: the HTTP/1.1 writer printed them verbatim, so a CR or LF in a value let whoever controlled it add headers of their own, or a second request, on the same connection. HTTP/2 and HTTP/3 already refused these, as Chrome and Go's client do. A request carrying a CR, LF or NUL byte in any of those now fails before anything is sent. Nothing else is refused, so requests 1.7.3 sent, such as a raw space in the query or a header dict copied from DevTools, still go out as before.

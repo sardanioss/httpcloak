@@ -3359,6 +3359,7 @@ type LocalProxyConfig struct {
 	TCPProxy       string `json:"tcp_proxy,omitempty"`       // Upstream TCP proxy
 	UDPProxy       string `json:"udp_proxy,omitempty"`       // Upstream UDP proxy
 	TLSOnly        bool   `json:"tls_only,omitempty"`        // TLS-only mode (skip preset HTTP headers)
+	Verify         *bool  `json:"verify,omitempty"`          // Certificate verification (default: true)
 }
 
 //export httpcloak_local_proxy_start
@@ -3393,6 +3394,9 @@ func httpcloak_local_proxy_start(configJSON *C.char) (hcRet C.int64_t) {
 	}
 	if config.TLSOnly {
 		opts = append(opts, httpcloak.WithProxyTLSOnly())
+	}
+	if config.Verify != nil && !*config.Verify {
+		opts = append(opts, httpcloak.WithProxyInsecureSkipVerify())
 	}
 
 	// Handle session cache if configured globally

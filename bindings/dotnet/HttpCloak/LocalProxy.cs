@@ -37,6 +37,7 @@ public sealed class LocalProxy : IDisposable
     /// <param name="tcpProxy">Upstream TCP proxy URL (optional)</param>
     /// <param name="udpProxy">Upstream UDP proxy URL (optional)</param>
     /// <param name="tlsOnly">TLS-only mode: skip preset HTTP headers, only apply TLS fingerprint (default: false)</param>
+    /// <param name="verify">Verify the certificates of the sites the proxy connects to (default: true). false is for testing.</param>
     public LocalProxy(
         int port = 0,
         string preset = "chrome-latest",
@@ -44,7 +45,8 @@ public sealed class LocalProxy : IDisposable
         int maxConnections = 1000,
         string? tcpProxy = null,
         string? udpProxy = null,
-        bool tlsOnly = false)
+        bool tlsOnly = false,
+        bool verify = true)
     {
         var config = new LocalProxyConfig
         {
@@ -54,7 +56,8 @@ public sealed class LocalProxy : IDisposable
             MaxConnections = maxConnections,
             TcpProxy = tcpProxy,
             UdpProxy = udpProxy,
-            TlsOnly = tlsOnly
+            TlsOnly = tlsOnly,
+            Verify = verify ? null : false
         };
 
         string configJson = JsonSerializer.Serialize(config, LocalProxyJsonContext.Default.LocalProxyConfig);
@@ -356,6 +359,13 @@ public sealed class LocalProxy : IDisposable
     {
         Dispose();
     }
+
+    // The 1.7.3 constructor, from before verify. Kept so binaries compiled
+    // against it still resolve; see the forwarders at the end of Session.cs.
+    public LocalProxy(int port, string preset, int timeout, int maxConnections, string? tcpProxy, string? udpProxy, bool tlsOnly)
+        : this(port, preset, timeout, maxConnections, tcpProxy, udpProxy, tlsOnly, verify: true)
+    {
+    }
 }
 
 /// <summary>
@@ -386,6 +396,10 @@ internal class LocalProxyConfig
     [JsonPropertyName("tls_only")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool TlsOnly { get; set; }
+
+    [JsonPropertyName("verify")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Verify { get; set; }
 }
 
 /// <summary>

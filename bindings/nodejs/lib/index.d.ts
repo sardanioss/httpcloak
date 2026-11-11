@@ -957,6 +957,8 @@ export interface LocalProxyOptions {
   udpProxy?: string;
   /** TLS-only mode: skip preset HTTP headers, only apply TLS fingerprint (default: false) */
   tlsOnly?: boolean;
+  /** Verify the certificates of the sites the proxy connects to (default: true). false is for testing. */
+  verify?: boolean;
 }
 
 export interface LocalProxyStats {

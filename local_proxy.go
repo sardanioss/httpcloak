@@ -121,6 +121,10 @@ type LocalProxyConfig struct {
 	// Useful when the client (e.g., Playwright) already provides authentic browser headers.
 	TLSOnly bool
 
+	// InsecureSkipVerify turns off certificate verification for the sites the
+	// proxy connects to, as WithInsecureSkipVerify does for a Session.
+	InsecureSkipVerify bool
+
 	// SessionCacheBackend is an optional distributed cache for TLS sessions.
 	// Enables session sharing across multiple LocalProxy instances.
 	SessionCacheBackend transport.SessionCacheBackend
@@ -167,6 +171,16 @@ func WithProxyUpstream(tcpProxy, udpProxy string) LocalProxyOption {
 func WithProxyTLSOnly() LocalProxyOption {
 	return func(c *LocalProxyConfig) {
 		c.TLSOnly = true
+	}
+}
+
+// WithProxyInsecureSkipVerify turns off certificate verification for the
+// sites the proxy connects to, for a server with a self-signed or otherwise
+// untrusted certificate. Only for testing; it removes TLS's protection
+// against a machine in the middle.
+func WithProxyInsecureSkipVerify() LocalProxyOption {
+	return func(c *LocalProxyConfig) {
+		c.InsecureSkipVerify = true
 	}
 }
 
@@ -229,6 +243,9 @@ func StartLocalProxy(port int, opts ...LocalProxyOption) (*LocalProxy, error) {
 	}
 	if config.TLSOnly {
 		sessionOpts = append(sessionOpts, WithTLSOnly())
+	}
+	if config.InsecureSkipVerify {
+		sessionOpts = append(sessionOpts, WithInsecureSkipVerify())
 	}
 	if config.SessionCacheBackend != nil {
 		sessionOpts = append(sessionOpts, WithSessionCache(config.SessionCacheBackend, config.SessionCacheErrorCallback))

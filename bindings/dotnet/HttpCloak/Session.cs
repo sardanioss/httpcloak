@@ -4325,13 +4325,15 @@ public sealed class HttpCloakHandler : DelegatingHandler
     /// <param name="udpProxy">Upstream proxy URL for UDP protocols (HTTP/3 via MASQUE)</param>
     /// <param name="timeout">Request timeout in seconds (default: 30)</param>
     /// <param name="maxConnections">Maximum concurrent connections (default: 1000)</param>
+    /// <param name="verify">Verify the certificates of the sites requests go to (default: true). false is for testing against a self-signed certificate.</param>
     public HttpCloakHandler(
         string preset = "chrome-latest",
         string? proxy = null,
         string? tcpProxy = null,
         string? udpProxy = null,
         int timeout = 30,
-        int maxConnections = 1000)
+        int maxConnections = 1000,
+        bool verify = true)
     {
         _proxy = new LocalProxy(
             port: 0,
@@ -4339,15 +4341,26 @@ public sealed class HttpCloakHandler : DelegatingHandler
             timeout: timeout,
             maxConnections: maxConnections,
             tcpProxy: tcpProxy ?? proxy,
-            udpProxy: udpProxy ?? proxy);
+            udpProxy: udpProxy ?? proxy,
+            verify: verify);
         _ownsProxy = true;
 
         // Set up inner handler to use the local proxy
-        InnerHandler = new HttpClientHandler
+        var inner = new HttpClientHandler
         {
             Proxy = _proxy.CreateWebProxy(),
             UseProxy = true
         };
+        if (!verify)
+            inner.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+        InnerHandler = inner;
+    }
+
+    // The 1.7.3 constructor, from before verify. Kept so binaries compiled
+    // against it still resolve; see the forwarders at the end of Session.cs.
+    public HttpCloakHandler(string preset, string? proxy, string? tcpProxy, string? udpProxy, int timeout, int maxConnections)
+        : this(preset, proxy, tcpProxy, udpProxy, timeout, maxConnections, verify: true)
+    {
     }
 
     /// <summary>

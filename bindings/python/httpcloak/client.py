@@ -4870,6 +4870,7 @@ class LocalProxy:
         tcp_proxy: Optional[str] = None,
         udp_proxy: Optional[str] = None,
         tls_only: bool = False,
+        verify: bool = True,
     ):
         """
         Create and start a local HTTP proxy server.
@@ -4883,6 +4884,8 @@ class LocalProxy:
             udp_proxy: Default upstream UDP proxy URL (can be overridden per-request)
             tls_only: TLS-only mode - skip preset HTTP headers, only apply TLS fingerprint.
                       Use this when your client already provides authentic browser headers.
+            verify: Verify the certificates of the sites the proxy connects to (default: True).
+                    False is for testing against a self-signed certificate.
         """
         self._lib = _get_lib()
         self._handle: int = -1
@@ -4899,6 +4902,8 @@ class LocalProxy:
             config["udp_proxy"] = udp_proxy
         if tls_only:
             config["tls_only"] = True
+        if not verify:
+            config["verify"] = False
 
         config_json = json.dumps(config).encode("utf-8")
         self._handle = self._lib.httpcloak_local_proxy_start(config_json)

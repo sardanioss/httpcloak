@@ -3826,6 +3826,7 @@ class LocalProxy {
    * @param {string} [options.tcpProxy] - Default upstream TCP proxy URL
    * @param {string} [options.udpProxy] - Default upstream UDP proxy URL
    * @param {boolean} [options.tlsOnly=false] - TLS-only mode: skip preset HTTP headers, only apply TLS fingerprint
+   * @param {boolean} [options.verify=true] - Verify the certificates of the sites the proxy connects to (false is for testing)
    */
   constructor(options = {}) {
     const {
@@ -3836,6 +3837,7 @@ class LocalProxy {
       tcpProxy = null,
       udpProxy = null,
       tlsOnly = false,
+      verify = true,
     } = options;
 
     this._lib = getLib();
@@ -3849,6 +3851,7 @@ class LocalProxy {
     if (tcpProxy) config.tcp_proxy = tcpProxy;
     if (udpProxy) config.udp_proxy = udpProxy;
     if (tlsOnly) config.tls_only = true;
+    if (verify === false) config.verify = false;
 
     const configJson = JSON.stringify(config);
     this._handle = this._lib.httpcloak_local_proxy_start(configJson);

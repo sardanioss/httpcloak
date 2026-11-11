@@ -8,7 +8,7 @@
 # shipped shape is missing, add a forwarding overload for it instead: see the
 # forwarders at the end of Session.cs, which carry the 1.6.8 and 1.7.0 shapes.
 #
-# 447 members.
+# 449 members.
 
 HttpCloak.Cookie.Domain : System.String
 HttpCloak.Cookie.Expires : System.String
@@ -56,6 +56,7 @@ HttpCloak.HttpCloakContentStream.Write(System.Byte[], System.Int32, System.Int32
 HttpCloak.HttpCloakException..ctor(System.String)
 HttpCloak.HttpCloakHandler..ctor(HttpCloak.LocalProxy)
 HttpCloak.HttpCloakHandler..ctor(System.String, System.String, System.String, System.String, System.Int32, System.Int32)
+HttpCloak.HttpCloakHandler..ctor(System.String, System.String, System.String, System.String, System.Int32, System.Int32, System.Boolean)
 HttpCloak.HttpCloakHandler.GetStats() : HttpCloak.LocalProxyStats
 HttpCloak.HttpCloakHandler.Proxy : HttpCloak.LocalProxy
 HttpCloak.HttpCloakHandler.ProxyUrl : System.String
@@ -71,6 +72,7 @@ HttpCloak.ISessionCache.OnError(System.String, System.String, System.String) : S
 HttpCloak.ISessionCache.Put(System.String, System.String, System.Int64) : System.Int32
 HttpCloak.ISessionCache.PutEch(System.String, System.String, System.Int64) : System.Int32
 HttpCloak.LocalProxy..ctor(System.Int32, System.String, System.Int32, System.Int32, System.String, System.String, System.Boolean)
+HttpCloak.LocalProxy..ctor(System.Int32, System.String, System.Int32, System.Int32, System.String, System.String, System.Boolean, System.Boolean)
 HttpCloak.LocalProxy.CreateClient(System.Net.Http.HttpClientHandler) : System.Net.Http.HttpClient
 HttpCloak.LocalProxy.CreateFingerprintHandler(System.Net.Http.HttpClientHandler) : System.Net.Http.HttpMessageHandler
 HttpCloak.LocalProxy.CreateHandler() : System.Net.Http.HttpClientHandler
