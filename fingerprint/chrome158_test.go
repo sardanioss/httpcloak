@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-// Chrome 156 and 157 are headers-only bumps over 155: the User-Agent and
-// sec-ch-ua move, nothing else. Measured on 155.0.8059.84, 156.0.8078.80 and
-// 157.0.8103.50 through one local recorder: the ClientHello, the HTTP/2
+// Chrome 156, 157 and 158 are headers-only bumps over 155: the User-Agent and
+// sec-ch-ua move, nothing else. Measured on 155.0.8059.84, 156.0.8078.80,
+// 157.0.8103.50 and 158.0.8127.18 through one local recorder: the ClientHello, the HTTP/2
 // SETTINGS, WINDOW_UPDATE and HEADERS frames, the header order and the Accept
-// values were identical across all three, and chrome-155-linux matched 155 on
+// values were identical across all four, and chrome-155-linux matched 155 on
 // every one of them. Both sec-ch-ua values were derived first and then matched
 // the greased brand of the real binaries.
 //
@@ -20,13 +20,14 @@ import (
 const (
 	chrome156SecCHUA = `"Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"`
 	chrome157SecCHUA = `"Not-A.Brand";v="99", "Google Chrome";v="157", "Chromium";v="157"`
+	chrome158SecCHUA = `"Chromium";v="158", "Not.A/Brand";v="24", "Google Chrome";v="158"`
 )
 
-func TestChrome156And157Presets(t *testing.T) {
+func TestChrome156To158Presets(t *testing.T) {
 	for _, tc := range []struct {
 		major   int
 		secCHUA string
-	}{{156, chrome156SecCHUA}, {157, chrome157SecCHUA}} {
+	}{{156, chrome156SecCHUA}, {157, chrome157SecCHUA}, {158, chrome158SecCHUA}} {
 		if got := greasedBrandList(tc.major); got != tc.secCHUA {
 			t.Errorf("chrome-%d: derivation gives %q, want %q", tc.major, got, tc.secCHUA)
 		}
@@ -48,12 +49,12 @@ func TestChrome156And157Presets(t *testing.T) {
 	}
 }
 
-// Everything but the two headers reaches 156 and 157 through based_on: same
+// Everything but the two headers reaches 156, 157 and 158 through based_on: same
 // ClientHello, signature algorithms, trust anchors in the same order, and the
 // same Accept values.
-func TestChrome156And157InheritEverythingElse(t *testing.T) {
+func TestChrome156To158InheritEverythingElse(t *testing.T) {
 	for _, plat := range []string{"windows", "linux", "macos", "android"} {
-		for _, step := range [][2]int{{155, 156}, {156, 157}} {
+		for _, step := range [][2]int{{155, 156}, {156, 157}, {157, 158}} {
 			old := Get(fmt.Sprintf("chrome-%d-%s", step[0], plat))
 			new := Get(fmt.Sprintf("chrome-%d-%s", step[1], plat))
 			label := fmt.Sprintf("chrome-%d-%s", step[1], plat)
@@ -78,8 +79,8 @@ func TestChrome156And157InheritEverythingElse(t *testing.T) {
 	}
 }
 
-func TestChromeBrandListFollowsChromiumThrough157(t *testing.T) {
-	for major := 146; major <= 157; major++ {
+func TestChromeBrandListFollowsChromiumThrough158(t *testing.T) {
+	for major := 146; major <= 158; major++ {
 		p := GetStrict(fmt.Sprintf("chrome-%d-windows", major))
 		if p == nil {
 			continue
@@ -90,10 +91,10 @@ func TestChromeBrandListFollowsChromiumThrough157(t *testing.T) {
 	}
 }
 
-// No iOS preset for 156 or 157 until a capture gives the CriOS build number;
+// No iOS preset for 156, 157 or 158 until a capture gives the CriOS build number;
 // see TestChrome153HasNoIOSPresetYet.
-func TestChrome156And157HaveNoIOSPresetYet(t *testing.T) {
-	for _, name := range []string{"chrome-156-ios", "chrome-157-ios"} {
+func TestChrome156To158HaveNoIOSPresetYet(t *testing.T) {
+	for _, name := range []string{"chrome-156-ios", "chrome-157-ios", "chrome-158-ios"} {
 		if p := GetStrict(name); p != nil {
 			t.Errorf("%s is registered with UA %q; only add it from a capture", name, p.UserAgent)
 		}
@@ -103,14 +104,14 @@ func TestChrome156And157HaveNoIOSPresetYet(t *testing.T) {
 // The -latest aliases move as a set. This is the single home
 // for the assertion; move it to the next version's file rather than copying it.
 // iOS stays on the newest captured build.
-func TestChrome157LatestAliases(t *testing.T) {
+func TestChrome158LatestAliases(t *testing.T) {
 	for _, tc := range []struct{ alias, wantUA string }{
-		{"chrome-latest", "Chrome/157.0.0.0"},
-		{"chrome-latest-windows", "Chrome/157.0.0.0"},
-		{"chrome-latest-linux", "Chrome/157.0.0.0"},
-		{"chrome-latest-macos", "Chrome/157.0.0.0"},
-		{"chrome-latest-android", "Chrome/157.0.0.0"},
-		{"android-chrome-latest", "Chrome/157.0.0.0"},
+		{"chrome-latest", "Chrome/158.0.0.0"},
+		{"chrome-latest-windows", "Chrome/158.0.0.0"},
+		{"chrome-latest-linux", "Chrome/158.0.0.0"},
+		{"chrome-latest-macos", "Chrome/158.0.0.0"},
+		{"chrome-latest-android", "Chrome/158.0.0.0"},
+		{"android-chrome-latest", "Chrome/158.0.0.0"},
 		{"chrome-latest-ios", "CriOS/155.0.8059.37"},
 		{"ios-chrome-latest", "CriOS/155.0.8059.37"},
 	} {

@@ -7,7 +7,7 @@ sidebar_position: 2
 
 Every fingerprint preset that ships with httpcloak. Use this as the lookup when you need to know which preset produces which JA3, JA4, Akamai H2 hash, and User-Agent.
 
-The data comes from the registry in `fingerprint/presets.go`. Newer Chrome versions (147 through 157) live in the embedded JSON registry at `fingerprint/embedded/*.json` and inherit from older presets via `based_on`.
+The data comes from the registry in `fingerprint/presets.go`. Newer Chrome versions (147 through 158) live in the embedded JSON registry at `fingerprint/embedded/*.json` and inherit from older presets via `based_on`.
 
 :::tip
 Want to see what a real browser sends right now? Hit [tls.peet.ws/api/all](https://tls.peet.ws/api/all). DevTools won't show you header order, so peet is your only source of truth there.
@@ -21,12 +21,12 @@ The `-latest` aliases point to the newest tracked version. They're not separate 
 
 | Alias | Resolves to |
 |---|---|
-| `chrome-latest` | `chrome-157` (auto-detects host OS) |
-| `chrome-latest-windows` | `chrome-157-windows` |
-| `chrome-latest-linux` | `chrome-157-linux` |
-| `chrome-latest-macos` | `chrome-157-macos` |
+| `chrome-latest` | `chrome-158` (auto-detects host OS) |
+| `chrome-latest-windows` | `chrome-158-windows` |
+| `chrome-latest-linux` | `chrome-158-linux` |
+| `chrome-latest-macos` | `chrome-158-macos` |
 | `chrome-latest-ios` | `chrome-155-ios` |
-| `chrome-latest-android` | `chrome-157-android` |
+| `chrome-latest-android` | `chrome-158-android` |
 | `firefox-latest` | `firefox-148` |
 | `firefox-latest-windows` | `firefox-148-windows` |
 | `firefox-latest-linux` | `firefox-148-linux` |
@@ -36,9 +36,9 @@ The `-latest` aliases point to the newest tracked version. They're not separate 
 
 iOS Chrome spells its version out in full, including a build number that cannot be
 derived from the major version, so each iOS preset is built from a real capture rather
-than generated. That is why there is no `chrome-153-ios`, `chrome-154-ios`, `chrome-156-ios` or
-`chrome-157-ios`: no capture of those was made. `chrome-155-ios` comes from one, so
-`chrome-latest-ios` stays on it while desktop and Android move to 157.
+than generated. That is why there is no `chrome-153-ios`, `chrome-154-ios`, `chrome-156-ios`,
+`chrome-157-ios` or `chrome-158-ios`: no capture of those was made. `chrome-155-ios` comes from one, so
+`chrome-latest-ios` stays on it while desktop and Android move to 158.
 
 The old-style names are kept for back-compat and follow the same targets:
 
@@ -46,21 +46,22 @@ The old-style names are kept for back-compat and follow the same targets:
 |---|---|
 | `ios-chrome-latest` | `chrome-155-ios` |
 | `ios-safari-latest` | `safari-26-ios` |
-| `android-chrome-latest` | `chrome-157-android` |
+| `android-chrome-latest` | `chrome-158-android` |
 
 Version-pinned old-style names (`ios-chrome-NNN`, `android-chrome-NNN`) only exist for 143 through 148. For anything newer, use the `chrome-NNN-ios` / `chrome-NNN-android` spelling.
 
-`chrome-157` with no platform suffix sniffs the running OS and dispatches to `chrome-157-windows`, `chrome-157-macos`, or `chrome-157-linux`. Pick this when the binary should match its host. Pick the explicit suffix when you want, say, a Windows fingerprint from a Linux scraper, which is the common case.
+`chrome-158` with no platform suffix sniffs the running OS and dispatches to `chrome-158-windows`, `chrome-158-macos`, or `chrome-158-linux`. Pick this when the binary should match its host. Pick the explicit suffix when you want, say, a Windows fingerprint from a Linux scraper, which is the common case.
 
 ---
 
 ## Captured hashes (verified against tls.peet.ws)
 
-Measured `2026-11-11` from the Linux build host for the Chrome 156, 157 and `chrome-latest` rows, `2026-10-13` for the 152 to 155 rows; the older rows are from `2026-08-31`. The Safari 26 iOS row was verified against a phone capture and the Go build on `2026-10-19`. Everything shows H2 because the endpoint used does not advertise H3.
+Measured `2026-11-11` from the Linux build host for the Chrome 156 to 158 and `chrome-latest` rows, `2026-10-13` for the 152 to 155 rows; the older rows are from `2026-08-31`. The Safari 26 iOS row was verified against a phone capture and the Go build on `2026-10-19`. Everything shows H2 because the endpoint used does not advertise H3.
 
 | Preset | Protocol | JA3 hash | JA4 | Akamai HTTP/2 hash | PeetPrint |
 |---|---|---|---|---|---|
-| `chrome-latest` (resolves to `chrome-157-linux`) | h2 | rotates | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `52d84b11737d980aef856699f885ca86` | `fc97c1cdfb1409c9a9326c1b726d1dee` |
+| `chrome-latest` (resolves to `chrome-158-linux`) | h2 | rotates | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `52d84b11737d980aef856699f885ca86` | `fc97c1cdfb1409c9a9326c1b726d1dee` |
+| `chrome-158-windows` | h2 | rotates | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `52d84b11737d980aef856699f885ca86` | `fc97c1cdfb1409c9a9326c1b726d1dee` |
 | `chrome-157-windows` | h2 | rotates | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `52d84b11737d980aef856699f885ca86` | `fc97c1cdfb1409c9a9326c1b726d1dee` |
 | `chrome-157-android` | h2 | rotates | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `52d84b11737d980aef856699f885ca86` | `fc97c1cdfb1409c9a9326c1b726d1dee` |
 | `chrome-156-windows` | h2 | rotates | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `52d84b11737d980aef856699f885ca86` | `fc97c1cdfb1409c9a9326c1b726d1dee` |
@@ -79,7 +80,7 @@ Measured `2026-11-11` from the Linux build host for the Chrome 156, 157 and `chr
 Notes:
 
 - Every Chromium preset shows `rotates` for JA3 rather than a value, because it has no single value to show. Chrome permutes its ClientHello extensions on every handshake, so its JA3 differs connection to connection, and the presets reproduce that. Pinning one hash here would document a client that does not exist. JA4 is stable across those connections because it sorts the extension list before hashing, which is why it is the one worth comparing.
-- Chrome 152 moved its JA4 to `t13d1517h2_...` because it added an extension, taking the count from 16 to 17. Versions 143 through 149 shared a single JA4; 150 changed the tail by adding signature algorithms, and 151 kept it. 153 to 157 measure the same as 152 on every hash above; 155 and 157 were also checked on Linux, macOS and Android and matched.
+- Chrome 152 moved its JA4 to `t13d1517h2_...` because it added an extension, taking the count from 16 to 17. Versions 143 through 149 shared a single JA4; 150 changed the tail by adding signature algorithms, and 151 kept it. 153 to 158 measure the same as 152 on every hash above; 155 and 157 were also checked on Linux, macOS and Android and matched.
 - The Chrome 152 JA4 tail is only stable against a tool that discards greased values inside `signature_algorithms`, which the specification asks for but not every implementation does. Chrome 152 puts one at the head of that list per handshake, so an implementation that keeps it reports a different tail every connection, sixteen in all. Real Chrome does the same, so a moving tail is the profile working. The value above was measured against one that strips.
 - `safari-18` and `safari-18-ios` share JA4 + Akamai because the H2 stack is identical. The JA3 differs because of platform-specific ClientHello extensions.
 

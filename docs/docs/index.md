@@ -127,7 +127,7 @@ Console.WriteLine(resp.StatusCode);
 
 ### Presets
 
-- **Chrome**: 133, 141, 143 through 157, with per-OS variants
+- **Chrome**: 133, 141, 143 through 158, with per-OS variants
   (Windows / Linux / macOS / Android / iOS) where they differ. iOS
   goes up to 155.
 - **Firefox**: 133, 148.
@@ -135,7 +135,7 @@ Console.WriteLine(resp.StatusCode);
 - **`chrome-latest` aliases**: `chrome-latest`, `chrome-latest-windows`,
   `chrome-latest-linux`, `chrome-latest-macos`, `chrome-latest-android`,
   `chrome-latest-ios`. Auto-track the newest shipped Chrome major
-  (157; iOS 155).
+  (158; iOS 155).
 
 ### Bindings
 

@@ -120,10 +120,10 @@ Coherence is the thing to keep in mind. A `chrome-152-windows` preset claiming `
 
 How to stay coherent depends on which preset you pick:
 
-- `*-windows` presets (`chrome-157-windows`, `chrome-152-windows`, etc) pair with `WindowsTCPFingerprint()`.
+- `*-windows` presets (`chrome-158-windows`, `chrome-152-windows`, etc) pair with `WindowsTCPFingerprint()`.
 - `*-macos` presets pair with `MacOSTCPFingerprint()`.
 - `*-linux` presets pair with `LinuxTCPFingerprint()`.
-- Bare `chrome-latest` and `chrome-157` (no platform suffix) auto-detect the running OS at runtime via `GetPlatformInfo`, so on a Linux build host `chrome-latest` resolves to `chrome-157-linux`. Pair these with `PlatformTCPFingerprint(fingerprint.GetPlatformInfo().Platform)` to track whichever variant the registry hands you.
+- Bare `chrome-latest` and `chrome-158` (no platform suffix) auto-detect the running OS at runtime via `GetPlatformInfo`, so on a Linux build host `chrome-latest` resolves to `chrome-158-linux`. Pair these with `PlatformTCPFingerprint(fingerprint.GetPlatformInfo().Platform)` to track whichever variant the registry hands you.
 - Custom presets need the call to match whatever User-Agent string you set on the preset.
 
 For session pools that span multiple personas, pre-build the fingerprint once and reuse it:

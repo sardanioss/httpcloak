@@ -384,9 +384,9 @@ const session = new Session({
 const { availablePresets } = require("httpcloak");
 
 console.log(availablePresets());
-// ['chrome-latest', 'chrome-157', 'chrome-157-windows', 'chrome-157-android', 'chrome-156',
+// ['chrome-latest', 'chrome-158', 'chrome-158-windows', 'chrome-158-android', 'chrome-157',
 //  ..., 'chrome-155-ios', 'firefox-148', 'safari-18', ...]
-// Desktop and Android Chrome go up to 157 (Android has no 149); iOS Chrome has 143 to 148, 150 to 152, and 155.
+// Desktop and Android Chrome go up to 158 (Android has no 149); iOS Chrome has 143 to 148, 150 to 152, and 155.
 ```
 
 ## Response Object

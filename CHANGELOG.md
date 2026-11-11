@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Chrome 156 and 157 presets**: `chrome-156` and `chrome-157`, each for windows, linux, macos and android, with `chrome-latest` and the other desktop and Android `-latest` aliases moved onto 157. Both are headers-only over 155: the User-Agent and `sec-ch-ua` move, and the TLS handshake, the HTTP/2 settings, the header order and the `Accept` values stay as they were, which we checked against the real 156 and 157 builds. `chrome-latest-ios` stays on `chrome-155-ios` until there's an iOS capture to build 157 from. Exposed as constants in Python, Node.js and .NET.
+- **Chrome 156, 157 and 158 presets**: `chrome-156`, `chrome-157` and `chrome-158`, each for windows, linux, macos and android, with `chrome-latest` and the other desktop and Android `-latest` aliases moved onto 158. All three are headers-only over 155: the User-Agent and `sec-ch-ua` move, and the TLS handshake, the HTTP/2 settings, the header order and the `Accept` values stay as they were, which we checked against the real 156, 157 and 158 builds. `chrome-latest-ios` stays on `chrome-155-ios` until there's an iOS capture to build a newer one from. Exposed as constants in Python, Node.js and .NET.
 
 - **Safari 26 on iOS** (#135): `safari-26-ios` and `ios-safari-26`, from a real Safari 26.6.1 iPhone capture, and `safari-latest-ios` / `ios-safari-latest` now point at it. The HTTP/2 settings, window and header order follow the capture. The capture had no QUIC, so HTTP/3 is off by default for these names, where `safari-18-ios` had it on. Forcing HTTP/3 still sends Safari's QUIC settings.
 

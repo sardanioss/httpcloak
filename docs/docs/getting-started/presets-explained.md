@@ -72,9 +72,9 @@ using var old     = new Session(preset: "chrome-144-windows");
 
 Each preset family ships per-OS variants where the underlying browser differs by OS. Chrome differs across Windows, Linux, macOS, Android, and iOS (iOS Chrome is WebKit underneath, a different stack entirely). Firefox barely differs across desktop OSes, so there's a single desktop build.
 
-**Chrome desktop**: 133, 141, and 143 through 157. The 143-157 line ships per-OS variants (`chrome-157-windows`, `chrome-157-linux`, `chrome-157-macos`); bare `chrome-157` aliases to whatever OS the library defaults to. The older 133 and 141 builds are desktop-only single presets without per-OS suffixes.
+**Chrome desktop**: 133, 141, and 143 through 158. The 143-158 line ships per-OS variants (`chrome-158-windows`, `chrome-158-linux`, `chrome-158-macos`); bare `chrome-158` aliases to whatever OS the library defaults to. The older 133 and 141 builds are desktop-only single presets without per-OS suffixes.
 
-**Chrome mobile**: `chrome-143-android` through `chrome-157-android`, and `chrome-143-ios` through `chrome-152-ios` plus `chrome-155-ios` (neither has a 149). iOS skips 153, 154, 156 and 157 because the iOS User-Agent carries a full build number that can't be derived from the major version, so each iOS preset needs a real capture, and there was none for those. Mobile Chrome has its own UA, its own sec-ch-ua values, and on iOS a completely different TLS stack (WebKit, again).
+**Chrome mobile**: `chrome-143-android` through `chrome-158-android`, and `chrome-143-ios` through `chrome-152-ios` plus `chrome-155-ios` (neither has a 149). iOS skips 153, 154 and 156 to 158 because the iOS User-Agent carries a full build number that can't be derived from the major version, so each iOS preset needs a real capture, and there was none for those. Mobile Chrome has its own UA, its own sec-ch-ua values, and on iOS a completely different TLS stack (WebKit, again).
 
 **Firefox**: 133 and 148 desktop. No per-OS split.
 

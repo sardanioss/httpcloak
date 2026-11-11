@@ -1225,6 +1225,12 @@ export const Preset: {
   CHROME_157_LINUX: string;
   CHROME_157_MACOS: string;
   CHROME_157_ANDROID: string;
+  // Chrome 158 (headers only over 157)
+  CHROME_158: string;
+  CHROME_158_WINDOWS: string;
+  CHROME_158_LINUX: string;
+  CHROME_158_MACOS: string;
+  CHROME_158_ANDROID: string;
 
   // Chrome 152 (trust anchors, plus a greased signature algorithm on TCP)
   CHROME_152: string;
