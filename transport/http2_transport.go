@@ -663,16 +663,23 @@ func (t *HTTP2Transport) isConnUsable(conn *persistentConn) bool {
 	usable := !conn.closeRequested &&
 		(t.maxConnAge <= 0 || time.Since(conn.createdAt) <= t.maxConnAge) &&
 		(conn.inFlight > 0 || time.Since(conn.lastUsedAt) <= t.maxIdleTime)
-	hasH2 := conn.h2Conn != nil
+	h2Conn := conn.h2Conn
 	conn.mu.Unlock()
+	if !usable || h2Conn == nil {
+		return false
+	}
 
-	// Don't ask the HTTP/2 layer whether the connection is closing here.
-	// ClientConn.State takes the write mutex, which a stalled upload on the
-	// same connection holds for as long as it is stuck, so every new request
-	// to the host would wait on it here, before RoundTrip, where its own
-	// deadline and cancel can't reach it. A connection that has gone away is
-	// caught when the request fails on it and is retried on a new one.
-	return usable && hasH2
+	// A connection the server has sent GOAWAY on, or that has died, can open
+	// no more streams. Handing it out only fails the request and leans on the
+	// retry to recover, which a request whose body can't be replayed doesn't
+	// get, and servers send GOAWAY on idle connections routinely (#141).
+	//
+	// This must not be State(): that takes the HTTP/2 write lock, which a
+	// stalled upload on the same connection holds for as long as it is stuck,
+	// and every new request to the host would wait on it here, before
+	// RoundTrip, where its own deadline can't reach it. Closing takes only
+	// the connection's state lock.
+	return !h2Conn.Closing()
 }
 
 // isConnDestroyable reports whether a connection can be closed right now.
