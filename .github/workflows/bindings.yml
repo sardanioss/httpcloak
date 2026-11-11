@@ -38,7 +38,7 @@ jobs:
             manylinux: quay.io/pypa/manylinux2014_aarch64
           - os: darwin
             arch: arm64
-            runner: macos-14
+            runner: macos-15
             lib_ext: .dylib
           - os: windows
             arch: amd64
@@ -134,7 +134,7 @@ jobs:
   build-darwin-amd64:
     name: Build native library (darwin-amd64)
     needs: check-version
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -382,11 +382,11 @@ jobs:
             runner: ubuntu-24.04-arm
             image: quay.io/pypa/manylinux2014_aarch64
           - wheel: macosx_12_0_arm64
-            runner: macos-14
+            runner: macos-15
             pyarch: arm64
-          # The Intel wheel, on an x64 Python running under Rosetta.
+          # The Intel wheel, on an Intel runner.
           - wheel: macosx_12_0_x86_64
-            runner: macos-14
+            runner: macos-15-intel
             pyarch: x64
           - wheel: win_amd64
             runner: windows-latest
