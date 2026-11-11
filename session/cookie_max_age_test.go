@@ -239,3 +239,33 @@ func TestCookieMaxAgeCopyKeepsDeadline(t *testing.T) {
 		t.Fatalf("copied cookie expires = %v, want %v", got, want)
 	}
 }
+
+// The 400-day cap applies however a cookie reaches the jar, not only to a
+// Set-Cookie header: SetCookie and saved state from 1.7.3, which stored
+// Max-Age as received, hand it a raw value. A value past 32 bits reached the
+// bindings, which read max_age as a 32-bit int on Android.
+func TestCookieMaxAgeCappedFromEverySource(t *testing.T) {
+	const huge = 99999999999
+	j := NewCookieJar()
+	j.SetSimple("set", "1", "example.test", "/", true, false, "", huge, nil)
+	j.Import(map[string][]CookieState{"example.test": {{Name: "imported", Value: "1", Domain: "example.test", Path: "/", MaxAge: huge}}})
+	j.ImportV4([]CookieState{{Name: "imported4", Value: "1", Domain: "example.test", Path: "/", MaxAge: huge}})
+	seen := 0
+	for _, cs := range j.Export() {
+		for _, c := range cs {
+			seen++
+			if c.MaxAge != maxCookieAgeSeconds {
+				t.Errorf("%s: MaxAge = %d, want %d", c.Name, c.MaxAge, maxCookieAgeSeconds)
+			}
+		}
+	}
+	if seen != 3 {
+		t.Fatalf("exported %d cookies, want 3", seen)
+	}
+	got := j.Get("example.test", "/", true)
+	for _, c := range got {
+		if c.Name == "set" && (c.Expires == nil || c.Expires.After(time.Now().Add(401*24*time.Hour))) {
+			t.Errorf("SetCookie deadline %v is past 400 days", c.Expires)
+		}
+	}
+}

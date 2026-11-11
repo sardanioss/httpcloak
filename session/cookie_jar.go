@@ -121,12 +121,19 @@ func (j *CookieJar) receive(cookie *CookieData, now time.Time) {
 // resolveMaxAge turns a positive Max-Age into an absolute deadline. Do it
 // once, on receipt: a copy carries that deadline and must not restart it.
 func resolveMaxAge(cookie *CookieData, now time.Time) {
+	cookie.MaxAge = capMaxAge(cookie.MaxAge)
 	if cookie.MaxAge > 0 {
-		// A valid int may still overflow when converted from seconds to Duration.
-		seconds := min(int64(cookie.MaxAge), int64((1<<63-1)/time.Second))
-		expires := now.Add(time.Duration(seconds) * time.Second)
+		expires := now.Add(time.Duration(cookie.MaxAge) * time.Second)
 		cookie.Expires = &expires
 	}
+}
+
+// capMaxAge applies Chromium's 400-day cap to a Max-Age from any source:
+// parseMaxAge caps a Set-Cookie header's, but SetCookie and saved state from
+// older releases hand the jar theirs directly. The cap also keeps the value
+// inside 32 bits, which the bindings read it as.
+func capMaxAge(maxAge int) int {
+	return min(maxAge, maxCookieAgeSeconds)
 }
 
 // store inserts an already scoped cookie. The caller must hold j.mu.
@@ -241,7 +248,7 @@ func (j *CookieJar) GetAll() []CookieState {
 				Domain:    c.Domain,
 				Path:      c.Path,
 				Expires:   c.Expires,
-				MaxAge:    c.MaxAge,
+				MaxAge:    capMaxAge(c.MaxAge),
 				Secure:    c.Secure,
 				HttpOnly:  c.HttpOnly,
 				SameSite:  c.SameSite,
@@ -294,7 +301,7 @@ func (j *CookieJar) SetSimple(name, value, domain, path string, secure, httpOnly
 		HostOnly: hostOnly,
 		Path:     path,
 		Expires:  expires,
-		MaxAge:   maxAge,
+		MaxAge:   capMaxAge(maxAge),
 		Secure:   secure,
 		HttpOnly: httpOnly,
 		SameSite: sameSite,
@@ -405,7 +412,7 @@ func (j *CookieJar) Export() map[string][]CookieState {
 				Domain:    c.Domain,
 				Path:      c.Path,
 				Expires:   c.Expires,
-				MaxAge:    c.MaxAge,
+				MaxAge:    capMaxAge(c.MaxAge),
 				Secure:    c.Secure,
 				HttpOnly:  c.HttpOnly,
 				SameSite:  c.SameSite,
@@ -459,7 +466,7 @@ func (j *CookieJar) Import(cookies map[string][]CookieState) {
 				HostOnly:  hostOnly,
 				Path:      path,
 				Expires:   c.Expires,
-				MaxAge:    c.MaxAge,
+				MaxAge:    capMaxAge(c.MaxAge),
 				Secure:    c.Secure,
 				HttpOnly:  c.HttpOnly,
 				SameSite:  c.SameSite,
@@ -514,7 +521,7 @@ func (j *CookieJar) ImportV4(cookies []CookieState) {
 			HostOnly:  hostOnly,
 			Path:      path,
 			Expires:   c.Expires,
-			MaxAge:    c.MaxAge,
+			MaxAge:    capMaxAge(c.MaxAge),
 			Secure:    c.Secure,
 			HttpOnly:  c.HttpOnly,
 			SameSite:  c.SameSite,
