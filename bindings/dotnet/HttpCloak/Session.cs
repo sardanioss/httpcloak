@@ -329,7 +329,11 @@ public sealed class Session : IDisposable
     private Dictionary<string, string> ApplyAuth(Dictionary<string, string>? headers, (string Username, string Password)? auth)
     {
         var effectiveAuth = auth ?? Auth;
-        headers ??= new Dictionary<string, string>();
+        // A copy, as the Python and Node.js bindings take: auth, cookies= and
+        // the body defaults that follow all write into what this returns, and
+        // writing into the caller's own dictionary carried them into the next
+        // request that reused it.
+        headers = CopyHeaders(headers);
 
         if (effectiveAuth != null)
         {
@@ -411,16 +415,29 @@ public sealed class Session : IDisposable
             return headers;
 
         var cookieStr = string.Join("; ", cookies.Select(c => $"{c.Key}={c.Value}"));
-        if (headers.TryGetValue("Cookie", out var existing) && !string.IsNullOrEmpty(existing))
+        // Add to a Cookie header in whatever spelling the caller gave it, so a
+        // "cookie" and these don't go out as two Cookie headers.
+        var key = headers.Keys.FirstOrDefault(k => k.Equals("Cookie", StringComparison.OrdinalIgnoreCase)) ?? "Cookie";
+        if (headers.TryGetValue(key, out var existing) && !string.IsNullOrEmpty(existing))
         {
-            headers["Cookie"] = $"{existing}; {cookieStr}";
+            headers[key] = $"{existing}; {cookieStr}";
         }
         else
         {
-            headers["Cookie"] = cookieStr;
+            headers[key] = cookieStr;
         }
         return headers;
     }
+
+    /// <summary>
+    /// A copy of the caller's headers, keeping their comparer, for the body
+    /// helpers to add a Content-Type to without writing into the caller's own
+    /// dictionary.
+    /// </summary>
+    private static Dictionary<string, string> CopyHeaders(Dictionary<string, string>? headers) =>
+        headers == null
+            ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(headers, headers.Comparer);
 
     /// <summary>
     /// Auto-detect Content-Type from body when not explicitly set.
@@ -571,7 +588,7 @@ public sealed class Session : IDisposable
     /// <param name="timeout">Request timeout in seconds</param>
     public Response PostJson<T>(string url, T data, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false, bool disableRedirectReferer = false, IEnumerable<KeyValuePair<string, string>>? exactHeaders = null, IEnumerable<string>? headerOrder = null)
     {
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         SetDefaultHeader(headers, "Content-Type", "application/json");
 
         string body = JsonSerializer.Serialize(data, _relaxedJsonOptions);
@@ -590,7 +607,7 @@ public sealed class Session : IDisposable
     /// <param name="timeout">Request timeout in seconds</param>
     public Response PostForm(string url, Dictionary<string, string> formData, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, string? fetchMode = null)
     {
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         SetDefaultHeader(headers, "Content-Type", "application/x-www-form-urlencoded");
 
         string body = string.Join("&", formData.Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
@@ -629,7 +646,7 @@ public sealed class Session : IDisposable
 
         WriteStr($"--{boundary}--\r\n");
 
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         headers["Content-Type"] = $"multipart/form-data; boundary={boundary}";
         return Post(url, ms.ToArray(), headers, parameters, cookies, auth, timeout, fetchMode);
     }
@@ -720,7 +737,7 @@ public sealed class Session : IDisposable
     /// </summary>
     public Response PutJson<T>(string url, T data, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false, bool disableRedirectReferer = false, IEnumerable<KeyValuePair<string, string>>? exactHeaders = null, IEnumerable<string>? headerOrder = null)
     {
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         SetDefaultHeader(headers, "Content-Type", "application/json");
 
         string body = JsonSerializer.Serialize(data, _relaxedJsonOptions);
@@ -757,7 +774,7 @@ public sealed class Session : IDisposable
     /// </summary>
     public Response PatchJson<T>(string url, T data, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false, bool disableRedirectReferer = false, IEnumerable<KeyValuePair<string, string>>? exactHeaders = null, IEnumerable<string>? headerOrder = null)
     {
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         SetDefaultHeader(headers, "Content-Type", "application/json");
 
         string body = JsonSerializer.Serialize(data, _relaxedJsonOptions);
@@ -1033,7 +1050,7 @@ public sealed class Session : IDisposable
     /// </summary>
     public Task<Response> PostJsonAsync<T>(string url, T data, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false, bool disableRedirectReferer = false, IEnumerable<KeyValuePair<string, string>>? exactHeaders = null, IEnumerable<string>? headerOrder = null)
     {
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         SetDefaultHeader(headers, "Content-Type", "application/json");
 
         string body = JsonSerializer.Serialize(data, _relaxedJsonOptions);
@@ -1045,7 +1062,7 @@ public sealed class Session : IDisposable
     /// </summary>
     public Task<Response> PostFormAsync(string url, Dictionary<string, string> formData, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null)
     {
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         SetDefaultHeader(headers, "Content-Type", "application/x-www-form-urlencoded");
 
         string body = string.Join("&", formData.Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
@@ -1111,7 +1128,7 @@ public sealed class Session : IDisposable
     /// </summary>
     public Task<Response> PutJsonAsync<T>(string url, T data, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false, bool disableRedirectReferer = false, IEnumerable<KeyValuePair<string, string>>? exactHeaders = null, IEnumerable<string>? headerOrder = null)
     {
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         SetDefaultHeader(headers, "Content-Type", "application/json");
 
         string body = JsonSerializer.Serialize(data, _relaxedJsonOptions);
@@ -1135,7 +1152,7 @@ public sealed class Session : IDisposable
     /// </summary>
     public Task<Response> PatchJsonAsync<T>(string url, T data, Dictionary<string, string>? headers = null, IEnumerable<KeyValuePair<string, string>>? parameters = null, Dictionary<string, string>? cookies = null, (string, string)? auth = null, int? timeout = null, CancellationToken cancellationToken = default, string? fetchMode = null, bool? allowRedirects = null, bool disableConditionalCache = false, bool disableClientHints = false, bool disableHighEntropyClientHints = false, bool disableRedirectReferer = false, IEnumerable<KeyValuePair<string, string>>? exactHeaders = null, IEnumerable<string>? headerOrder = null)
     {
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         SetDefaultHeader(headers, "Content-Type", "application/json");
 
         string body = JsonSerializer.Serialize(data, _relaxedJsonOptions);
@@ -1277,7 +1294,7 @@ public sealed class Session : IDisposable
 
         WriteStr($"--{boundary}--\r\n");
 
-        headers ??= new Dictionary<string, string>();
+        headers = CopyHeaders(headers);
         headers["Content-Type"] = $"multipart/form-data; boundary={boundary}";
 
         (string, string)? authTuple = auth.HasValue ? (auth.Value.Username, auth.Value.Password) : ((string, string)?)null;

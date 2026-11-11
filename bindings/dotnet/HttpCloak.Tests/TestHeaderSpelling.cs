@@ -63,6 +63,19 @@ public static class TestHeaderSpelling
             var a = s.Get(url, auth: ("u", "p"), headers: new Dictionary<string, string> { { "authorization", "Bearer mine" } });
             var au = Vals(a, "authorization");
             Expect(au == "Basic dTpw", "auth replaces any authorization spelling", au);
+
+            // auth=, cookies= and json= work on a copy: the caller's own
+            // dictionary comes back as it went in.
+            var mine = new Dictionary<string, string> { { "authorization", "Bearer mine" }, { "cookie", "mine=1" } };
+            s.Get(url, auth: ("u", "p"), headers: mine, cookies: new Dictionary<string, string> { { "c", "3" } });
+            s.PostJson(url, new { a = 1 }, headers: mine);
+            var left = string.Join(", ", mine.Select(kv => $"{kv.Key}={kv.Value}"));
+            Expect(left == "authorization=Bearer mine, cookie=mine=1", "the caller's headers are left alone", left);
+
+            // cookies= joins the caller's lowercase cookie, after it.
+            var c = s.Get(url, headers: new Dictionary<string, string> { { "cookie", "mine=1" } }, cookies: new Dictionary<string, string> { { "c", "3" } });
+            var cv = Vals(c, "cookie");
+            Expect(cv.StartsWith("mine=1; c=3"), "cookies= follows a lowercase cookie", cv);
         }
 
         listener.Stop();
