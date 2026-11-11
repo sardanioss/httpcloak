@@ -1023,7 +1023,11 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		bodyReader = bytes.NewReader([]byte{})
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
+	// Tell the Auth whether this request is the answer to a challenge this
+	// hop just got, rather than one sent up front. DigestAuth needs that to
+	// tell a refused answer from a stale one; see HandleChallenge.
+	reqCtx := context.WithValue(ctx, answersChallengeKey{}, authResendsSoFar(ctx, len(redirectHistory)) > 0)
+	httpReq, err := http.NewRequestWithContext(reqCtx, method, reqURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -1101,6 +1105,11 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 			break
 		}
 	}
+	// The Digest retry below starts from the caller's request, not from this
+	// copy: the copy holds the jar's Cookie as it was, and a retry starting
+	// from it took that for the caller's own, so a cookie the 401 or a later
+	// redirect deleted went out again.
+	callerReq := req
 	sent := *req
 	sent.Headers = make(map[string][]string, len(req.Headers)+len(httpReq.Header))
 	for key, values := range req.Headers {
@@ -1440,14 +1449,15 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 		if shouldRetry && resends < maxAuthResends {
 			// Reset request body for retry
 			resetRequestBody(httpReq, bodyBytes)
+			retry := *callerReq
 			if len(bodyBytes) > 0 {
-				req.Body = bytes.NewReader(bodyBytes)
+				retry.Body = bytes.NewReader(bodyBytes)
 			}
 			// Retry request. The retry applies the answer itself. Applying it
 			// here as well, to a request about to be dropped, used up a nonce
 			// count, so the first answer went out as nc=00000002.
 			ctx = context.WithValue(ctx, authResendsKey{}, authResends{hop: len(redirectHistory), n: resends + 1})
-			return c.doOnce(ctx, req, redirectHistory)
+			return c.doOnce(ctx, &retry, redirectHistory)
 		}
 	}
 

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	http "github.com/sardanioss/http"
 	"github.com/sardanioss/httpcloak/internal/respheader"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -39,6 +38,17 @@ type authResendsKey struct{}
 type authResends struct {
 	hop int // len(redirectHistory) for the hop being resent
 	n   int
+}
+
+// answersChallengeKey marks, on a request's context, whether that request is
+// doOnce's resend answering a challenge the same hop just got (true), or the
+// hop's first request, which may carry an answer sent up front (false).
+type answersChallengeKey struct{}
+
+// answersChallenge reports whether req is a resend answering a challenge.
+func answersChallenge(req *http.Request) bool {
+	v, _ := req.Context().Value(answersChallengeKey{}).(bool)
+	return v
 }
 
 // authResendsSoFar returns how many times doOnce has resent the hop's request.
@@ -147,33 +157,17 @@ func (a *DigestAuth) HandleChallenge(resp *http.Response, req *http.Request) (bo
 	// An answer sent up front, to the challenge an earlier request got, is
 	// answered once more instead: the server may have moved to a new nonce
 	// without saying stale=true. That is what Chrome sends when the user gives
-	// the same credentials again. Such an answer reuses its nonce, so its
-	// nonce count is above 00000001, where the first answer to a challenge is
-	// at 00000001; if that one is refused in turn, the 401 goes back.
-	if req != nil && !stale {
+	// the same credentials again. If that answer is refused in turn, the 401
+	// goes back. Which of the two a request was comes from the client, not
+	// from the nonce count: a challenge without qop has no count at all.
+	if req != nil && !stale && answersChallenge(req) {
 		if sent := req.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(sent), "digest ") {
-			if nc, ok := sentNonceCount(sent); !ok || nc <= 1 {
-				a.nonce = ""
-				return false, nil
-			}
+			a.nonce = ""
+			return false, nil
 		}
 	}
 
 	return true, nil
-}
-
-// sentNonceCount returns the nonce count of the Digest answer in an
-// Authorization header. An answer carries one only when its challenge named a
-// qop; without one, ok is false.
-func sentNonceCount(authorization string) (nc uint64, ok bool) {
-	for _, part := range strings.Split(authorization[len("digest "):], ",") {
-		key, value, found := strings.Cut(strings.TrimSpace(part), "=")
-		if found && strings.EqualFold(strings.TrimSpace(key), "nc") {
-			n, err := strconv.ParseUint(strings.Trim(strings.TrimSpace(value), `"`), 16, 64)
-			return n, err == nil
-		}
-	}
-	return 0, false
 }
 
 // parseChallenge parses the WWW-Authenticate header, and reports whether it
