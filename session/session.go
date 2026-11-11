@@ -1844,16 +1844,28 @@ func (s *Session) RequestStream(ctx context.Context, req *transport.Request) (*S
 		req.Headers = make(map[string][]string)
 	}
 
+	// Every spelling of the caller's Cookie is folded into one first, as the
+	// buffered path does. Folding only when the jar had something to add left
+	// a fresh session (or one WithoutCookieJar) sending two spellings, and the
+	// transport keeps only the canonical one, so the caller's lowercase
+	// cookie was dropped.
+	callerCookie := takeCookieHeader(req.Headers)
+	if callerCookie != "" {
+		req.Headers["Cookie"] = []string{callerCookie}
+	}
 	// Add session cookies to request headers using proper domain/path matching.
-	// Skip when WithoutCookieJar — caller-provided Cookie headers still pass through.
+	// Skip when WithoutCookieJar; caller-provided Cookie headers still pass through.
 	if !s.Config.WithoutCookieJar {
 		requestHost := extractHost(req.URL)
 		requestPath := extractPath(req.URL)
 		requestSecure := isSecureURL(req.URL)
 		sessionCookies := s.cookies.BuildCookieHeader(requestHost, requestPath, requestSecure)
 		if sessionCookies != "" {
-			if existing := takeCookieHeader(req.Headers); existing != "" {
-				req.Headers["Cookie"] = []string{existing + "; " + sessionCookies}
+			if req.Headers == nil {
+				req.Headers = map[string][]string{}
+			}
+			if callerCookie != "" {
+				req.Headers["Cookie"] = []string{callerCookie + "; " + sessionCookies}
 			} else {
 				req.Headers["Cookie"] = []string{sessionCookies}
 			}

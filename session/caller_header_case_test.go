@@ -83,3 +83,53 @@ func TestCallerLowercaseHeadersSurviveSessionHeaders(t *testing.T) {
 		})
 	}
 }
+
+// RequestStream folds every spelling of the caller's Cookie into one even
+// when the jar has nothing to add, as the buffered path does. It used to fold
+// only when it was adding the jar's, so a fresh session, or one without a
+// jar, sent two spellings and the transport kept only the canonical one.
+func TestStreamFoldsCallerCookieSpellingsWithAnEmptyJar(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got = append(got, strings.Join(r.Header.Values("Cookie"), " | "))
+		mu.Unlock()
+		io.WriteString(w, "ok")
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+
+	for _, tc := range []struct {
+		name string
+		cfg  protocol.SessionConfig
+	}{
+		{"h1 empty jar", protocol.SessionConfig{Preset: "chrome-latest", ForceHTTP1: true, InsecureSkipVerify: true}},
+		{"h2 empty jar", protocol.SessionConfig{Preset: "chrome-latest", ForceHTTP2: true, InsecureSkipVerify: true}},
+		{"h2 without jar", protocol.SessionConfig{Preset: "chrome-latest", ForceHTTP2: true, InsecureSkipVerify: true, WithoutCookieJar: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mu.Lock()
+			got = nil
+			mu.Unlock()
+			cfg := tc.cfg
+			s := NewSession("", &cfg)
+			defer s.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			headers := map[string][]string{"cookie": {"a=1"}, "Cookie": {"b=2"}}
+			stream, err := s.RequestStream(ctx, &transport.Request{Method: "GET", URL: srv.URL + "/", Headers: headers})
+			if err != nil {
+				t.Fatal(err)
+			}
+			io.Copy(io.Discard, stream)
+			stream.Close()
+			mu.Lock()
+			defer mu.Unlock()
+			if len(got) != 1 || !strings.Contains(got[0], "a=1") || !strings.Contains(got[0], "b=2") {
+				t.Errorf("server saw Cookie %q, want both a=1 and b=2", got)
+			}
+		})
+	}
+}
