@@ -82,8 +82,9 @@ def version_tuple(s):
 
 
 def check_windows(path):
-    out = objdump(["-p"], path)
-    dlls = re.findall(r"DLL Name:\s*(\S+)", out)
+    # Read from the file, like the exports below, so the check needs no
+    # objdump on the Windows runner.
+    dlls = pe_imports(path)
     if not dlls:
         fail("%s: no import table found" % path)
     bad = [d for d in dlls if not WINDOWS_SYSTEM_DLLS.match(d)]
@@ -92,13 +93,9 @@ def check_windows(path):
     return dlls, pe_exports(path)
 
 
-def pe_exports(path):
-    """Exported names of a PE file, read from its export directory.
-
-    Read from the file rather than parsed out of objdump -p, whose export
-    table layout changed between binutils releases: 2.44 prints an ordinal
-    column the 2.42 on ubuntu-latest does not, and a pattern written for one
-    found nothing in the other and failed a good DLL."""
+def _pe(path):
+    """Opens a PE file: its bytes, an RVA-to-offset mapper and the offset of
+    its data directory."""
     with open(path, "rb") as f:
         b = f.read()
     if b[:2] != b"MZ":
@@ -111,9 +108,6 @@ def pe_exports(path):
     opt = pe + 24
     magic = struct.unpack_from("<H", b, opt)[0]
     ddir = opt + (112 if magic == 0x20B else 96)  # PE32+ or PE32
-    export_rva = struct.unpack_from("<I", b, ddir)[0]
-    if export_rva == 0:
-        return set()
     sections = []
     for i in range(nsections):
         sh = opt + opt_size + 40 * i
@@ -126,14 +120,47 @@ def pe_exports(path):
                 return rva - vaddr + raddr
         fail("%s: RVA 0x%x is outside every section" % (path, rva))
 
+    return b, off, ddir
+
+
+def _cstr(b, start):
+    return b[start:b.index(b"\0", start)].decode("ascii", "replace")
+
+
+def pe_imports(path):
+    """Names of the DLLs a PE file imports, read from its import directory."""
+    b, off, ddir = _pe(path)
+    import_rva = struct.unpack_from("<I", b, ddir + 8)[0]
+    if import_rva == 0:
+        return []
+    dlls = []
+    d = off(import_rva)
+    while True:
+        orig_thunk, _, _, name_rva, first_thunk = struct.unpack_from("<IIIII", b, d)
+        if name_rva == 0 and first_thunk == 0 and orig_thunk == 0:
+            break
+        dlls.append(_cstr(b, off(name_rva)))
+        d += 20
+    return dlls
+
+
+def pe_exports(path):
+    """Exported names of a PE file, read from its export directory.
+
+    Read from the file rather than parsed out of objdump -p, whose export
+    table layout changed between binutils releases: 2.44 prints an ordinal
+    column the 2.42 on ubuntu-latest does not, and a pattern written for one
+    found nothing in the other and failed a good DLL."""
+    b, off, ddir = _pe(path)
+    export_rva = struct.unpack_from("<I", b, ddir)[0]
+    if export_rva == 0:
+        return set()
     ed = off(export_rva)
     nnames, _, names_rva = struct.unpack_from("<III", b, ed + 24)
     names = set()
     table = off(names_rva)
     for i in range(nnames):
-        start = off(struct.unpack_from("<I", b, table + 4 * i)[0])
-        end = b.index(b"\0", start)
-        names.add(b[start:end].decode("ascii", "replace"))
+        names.add(_cstr(b, off(struct.unpack_from("<I", b, table + 4 * i)[0])))
     return {n for n in names if n.startswith("httpcloak_")}
 
 
