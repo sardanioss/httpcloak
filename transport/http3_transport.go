@@ -986,7 +986,7 @@ func (t *HTTP3Transport) dialQUICWithMASQUE(ctx context.Context, addr string, tl
 	// - TransportParameterOrder: WORKS - Chrome transport param ordering
 
 	// Switch to PSK ClientHelloSpec for resumed connections
-	// If there's a cached session, use PSK spec (includes early_data + pre_shared_key extensions)
+	// With a cached session, use the PSK spec: pre_shared_key, plus early_data when the ticket allows it
 	// This tells utls to actually load and use the cached session for 0-RTT
 	innerSpec := t.getInnerSpecForHost(host)
 
@@ -1614,7 +1614,7 @@ func (t *HTTP3Transport) dialQUIC(ctx context.Context, addr string, tlsCfg *tls.
 	}
 
 	// Switch to PSK ClientHelloSpec for resumed connections
-	// If there's a cached session, use PSK spec (includes early_data + pre_shared_key extensions)
+	// With a cached session, use the PSK spec: pre_shared_key, plus early_data when the ticket allows it
 	// This matches real Chrome's behavior for 0-RTT resumption
 	// Note: The PSK spec (HelloChrome_143_QUIC_PSK) has the pre_shared_key extension which
 	// tells utls to actually load and use the cached session for 0-RTT
