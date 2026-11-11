@@ -1398,11 +1398,34 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					carriedHeaders[ownCookieKey] = ownCookie
 				}
 
-				// The hop's Referer follows Chrome's default policy,
-				// strict-origin-when-cross-origin, as Session's does: the full
-				// URL on the same origin, only the origin across origins, and
-				// none on a downgrade to http.
-				carriedReferer := redirectRefererClient(reqURL, schemeDowngrade, crossOrigin)
+				// Referer and Sec-Fetch-Site follow the chain as Chrome 158
+				// keeps them, measured on a redirect chain: every hop sends
+				// the first request's referrer, not the URL that redirected,
+				// under strict-origin-when-cross-origin for the hop's own URL,
+				// so a typed navigation sends none on any hop. Sec-Fetch-Site
+				// stays "none" for a navigation that started with it, and
+				// otherwise only grows less trusting along the chain: a hop
+				// that leaves the referrer's site makes it cross-site for the
+				// rest of the chain.
+				chain, inChain := ctx.Value(redirectChainKey{}).(redirectChain)
+				if !inChain {
+					if v, ok := getHeaderCaseInsensitive(req.Headers, "Referer"); ok && len(v) > 0 {
+						chain.referer = v[0]
+					}
+					if v, ok := getHeaderCaseInsensitive(req.Headers, "Sec-Fetch-Site"); ok && len(v) > 0 {
+						chain.site = strings.ToLower(v[0])
+					}
+				}
+				if chain.site != "" && chain.site != "none" && chain.referer != "" {
+					if to, err := url.Parse(redirectURL); err == nil {
+						rel := detectSecFetchSiteForMode(FetchSiteAuto, to, chain.referer, FetchModeNavigate)
+						if fetchSiteRank(rel) > fetchSiteRank(chain.site) {
+							chain.site = rel
+						}
+					}
+				}
+				ctx = context.WithValue(ctx, redirectChainKey{}, chain)
+				carriedReferer := redirectRefererClient(chain.referer, redirectURL)
 				// The mode this request went out in, sniffed or not, is the
 				// chain's: a fetch() POST answered with 303 is still a fetch()
 				// on the GET, though the GET has no body left to sniff.
@@ -1424,7 +1447,7 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 					UserAgent:       req.UserAgent,
 					ForceProtocol:   req.ForceProtocol,
 					FetchMode:       hopMode,
-					FetchSite:       FetchSiteCrossSite, // Redirects are usually cross-site
+					FetchSite:       fetchSiteFromValue(chain.site),
 					Referer:         carriedReferer,
 					Auth:            carriedAuth,
 					FollowRedirects: req.FollowRedirects,
@@ -2556,15 +2579,52 @@ func sameOriginClient(a, b string) bool {
 	return as == bs && ah == bh && ap == bp
 }
 
-// redirectRefererClient returns the Referer for a redirect hop from prevURL,
-// the URL that answered with the 3xx, under strict-origin-when-cross-origin:
-// "" on an https to http downgrade, the URL without fragment or userinfo on
-// the same origin, and the origin with a trailing slash across origins.
-func redirectRefererClient(prevURL string, schemeDowngrade, crossOrigin bool) string {
-	if schemeDowngrade {
+// redirectChainKey carries a redirect chain's referrer and Sec-Fetch-Site
+// from one hop to the next, on the context doOnce passes down.
+type redirectChainKey struct{}
+
+type redirectChain struct {
+	referer string // the first request's Referer, as it went out
+	site    string // the Sec-Fetch-Site of the hop before
+}
+
+// fetchSiteRank orders Sec-Fetch-Site values from most to least trusting.
+func fetchSiteRank(v string) int {
+	switch v {
+	case "same-origin":
+		return 1
+	case "same-site":
+		return 2
+	case "cross-site":
+		return 3
+	}
+	return 0
+}
+
+func fetchSiteFromValue(v string) FetchSite {
+	switch v {
+	case "none":
+		return FetchSiteNone
+	case "same-origin":
+		return FetchSiteSameOrigin
+	case "same-site":
+		return FetchSiteSameSite
+	case "cross-site":
+		return FetchSiteCrossSite
+	}
+	return FetchSiteAuto
+}
+
+// redirectRefererClient returns the Referer a redirect hop to target sends
+// for a chain that started with referrer, under strict-origin-when-cross-origin:
+// "" with no referrer or from https to http, the referrer without fragment or
+// userinfo when it shares target's origin, and its origin with a trailing
+// slash when it doesn't.
+func redirectRefererClient(referrer, target string) string {
+	if referrer == "" || isSchemeDowngradeClient(referrer, target) {
 		return ""
 	}
-	u, err := url.Parse(prevURL)
+	u, err := url.Parse(referrer)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return ""
 	}
@@ -2577,7 +2637,7 @@ func redirectRefererClient(prevURL string, schemeDowngrade, crossOrigin bool) st
 	if p := u.Port(); p != "" && !((scheme == "https" && p == "443") || (scheme == "http" && p == "80")) {
 		host += ":" + p
 	}
-	if crossOrigin {
+	if !sameOriginClient(referrer, target) {
 		return scheme + "://" + strings.ToLower(host) + "/"
 	}
 	u.Host = host

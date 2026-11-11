@@ -155,16 +155,23 @@ func JoinURL(base, path string) string {
 	if path == "" {
 		return base
 	}
-	ref, err := url.Parse(path)
-	if err != nil {
-		return path
-	}
 	parsed, err := url.Parse(base)
 	if err != nil {
-		if ref.IsAbs() {
+		return base + "/" + strings.TrimPrefix(path, "/")
+	}
+	ref, err := url.Parse(path)
+	if err != nil {
+		// Not a valid reference, such as one with a stray "%". Take it as a
+		// path on base's origin, as before, rather than hand back something
+		// relative that cannot be dialled.
+		if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 			return path
 		}
-		return base + "/" + strings.TrimPrefix(path, "/")
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		parsed.Path, parsed.RawPath, parsed.RawQuery, parsed.Fragment = path, "", "", ""
+		return parsed.String()
 	}
 	return parsed.ResolveReference(ref).String()
 }
