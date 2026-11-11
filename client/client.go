@@ -1099,10 +1099,13 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 	// The Cookie the caller set is kept aside first, because the copy mixes in
 	// the jar's, and only the caller's may follow a redirect hop (see below).
 	ownCookieKey, ownCookie := "", []string(nil)
+	ownAuthorization := false
 	for key, values := range req.Headers {
-		if strings.EqualFold(key, "Cookie") {
+		switch {
+		case strings.EqualFold(key, "Cookie"):
 			ownCookieKey, ownCookie = key, values
-			break
+		case strings.EqualFold(key, "Authorization"):
+			ownAuthorization = true
 		}
 	}
 	// The Digest retry below starts from the caller's request, not from this
@@ -1346,6 +1349,14 @@ func (c *Client) doOnce(ctx context.Context, req *Request, redirectHistory []*Re
 							continue
 						}
 						if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
+							continue
+						}
+						// An Authorization the client's Auth wrote is not the
+						// caller's: it answered this request (a Digest answer
+						// names this URI and nonce count), and the hop gets its
+						// own from Auth. Carrying it sent a stale answer
+						// whenever Auth had nothing to apply to the hop.
+						if lk == "authorization" && !ownAuthorization {
 							continue
 						}
 						// The hop's cookies come from the jar, for its own URL.
