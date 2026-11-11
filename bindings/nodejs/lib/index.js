@@ -1650,7 +1650,7 @@ class Session {
    * @param {string} [options.echConfigDomain] - Domain to fetch ECH config from (e.g., "cloudflare-ech.com")
    * @param {boolean} [options.tlsOnly=false] - TLS-only mode: skip preset HTTP headers, only apply TLS fingerprint
    * @param {number} [options.quicIdleTimeout=0] - QUIC idle timeout in seconds (default: 30, 0 uses default)
-   * @param {number} [options.http2MaxConnAge=0] - Seconds after which an HTTP/2 connection takes no new requests (default: 0, no limit, as in Chrome)
+   * @param {number} [options.http2MaxConnAge] - Seconds after which an HTTP/2 connection takes no new requests (default: five minutes; 0 turns the limit off)
    */
   constructor(options = {}) {
     const {
@@ -1673,7 +1673,7 @@ class Session {
       echConfigDomain = null,
       tlsOnly = false,
       quicIdleTimeout = 0,
-      http2MaxConnAge = 0,
+      http2MaxConnAge = null,
       localAddress = null,
       keyLogFile = null,
       enableSpeculativeTls = false,
@@ -1746,7 +1746,7 @@ class Session {
     if (quicIdleTimeout > 0) {
       config.quic_idle_timeout = quicIdleTimeout;
     }
-    if (http2MaxConnAge > 0) {
+    if (http2MaxConnAge !== null && http2MaxConnAge !== undefined) {
       config.http2_max_conn_age = http2MaxConnAge;
     }
     if (localAddress) {

@@ -75,7 +75,8 @@ public data class SessionConfig @JvmOverloads constructor(
     public val tcpDf: Boolean? = null,
     /**
      * Seconds after which an HTTP/2 connection takes no new requests and a
-     * fresh one is opened. Null means no limit, as in Chrome.
+     * fresh one is opened. Null keeps the default of five minutes; 0 turns
+     * the limit off.
      */
     public val http2MaxConnAge: Int? = null,
 ) {

@@ -17,11 +17,11 @@ func TestSessionHTTP2MaxConnAgeOption(t *testing.T) {
 		opts []SessionOption
 		want int // seconds
 	}{
-		{name: "omitted"},
-		{name: "zero", opts: []SessionOption{WithHTTP2MaxConnAge(0)}},
+		{name: "omitted keeps the default"},
+		{name: "zero turns it off", opts: []SessionOption{WithHTTP2MaxConnAge(0)}, want: -1},
+		{name: "negative turns it off", opts: []SessionOption{WithHTTP2MaxConnAge(-1)}, want: -1},
 		{name: "minutes", opts: []SessionOption{WithHTTP2MaxConnAge(15 * time.Minute)}, want: 900},
 		{name: "rounds up", opts: []SessionOption{WithHTTP2MaxConnAge(1500 * time.Millisecond)}, want: 2},
-		{name: "negative", opts: []SessionOption{WithHTTP2MaxConnAge(-1)}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := NewSession("chrome-latest", tt.opts...)
@@ -53,7 +53,7 @@ func TestSessionHTTP2MaxConnAgeControlsReuse(t *testing.T) {
 	}{
 		{name: "default", wantConns: 1},
 		{name: "expired", age: time.Second, wantConns: 2},
-		{name: "negative", age: -1, wantConns: 1},
+		{name: "turned off", age: -1, wantConns: 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var connections atomic.Int32

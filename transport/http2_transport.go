@@ -300,10 +300,10 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 		shuffleSeed:  shuffleSeed,
 		hasPSKSpec:   hasPSKSpec,
 		maxIdleTime:  90 * time.Second,
-		// No age limit by default: Chrome keeps an HTTP/2 connection for as
-		// long as it stays healthy and in use. Idle, GOAWAY and abandoned-body
-		// checks still retire it.
-		maxConnAge: 0,
+		// A connection older than this takes no new requests; zero means no
+		// limit. Five minutes unless TransportConfig.HTTP2MaxConnAge says
+		// otherwise.
+		maxConnAge: defaultHTTP2MaxConnAge,
 		// A response body that has not produced a single byte for this long is
 		// treated as abandoned by its caller, so the connection can be
 		// reclaimed. Without a bound here, a caller that never closes a body
@@ -314,6 +314,8 @@ func NewHTTP2TransportWithConfig(preset *fingerprint.Preset, dnsCache *dns.Cache
 	}
 	if config != nil && config.HTTP2MaxConnAge > 0 {
 		t.maxConnAge = config.HTTP2MaxConnAge
+	} else if config != nil && config.HTTP2MaxConnAge < 0 {
+		t.maxConnAge = 0 // turned off
 	}
 
 	// Apply localAddr from config
@@ -645,6 +647,11 @@ func (t *HTTP2Transport) getOrCreateConn(ctx context.Context, host, port, key st
 	}
 	return v.(*persistentConn), nil
 }
+
+// defaultHTTP2MaxConnAge is how old an HTTP/2 connection may get before new
+// requests go out on a fresh one, unless the caller sets a limit or turns it
+// off.
+const defaultHTTP2MaxConnAge = 5 * time.Minute
 
 // isConnUsable reports whether a connection may be handed out for a NEW request.
 //

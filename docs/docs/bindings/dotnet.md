@@ -72,7 +72,7 @@ public Session(
     int? tcpWindowSize = null,
     int? tcpWindowScale = null,
     bool? tcpDf = null,
-    int http2MaxConnAge = 0          // seconds, 0 = no limit
+    int? http2MaxConnAge = null      // seconds; null = 5 min, 0 = off
 )
 ```
 

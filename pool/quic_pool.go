@@ -316,7 +316,7 @@ func NewQUICHostPoolWithCachedSpec(host, sniHost, port string, preset *fingerpri
 		connections:           make([]*QUICConn, 0),
 		maxConns:              0, // 0 = unlimited
 		maxIdleTime:           90 * time.Second,
-		maxConnAge:            0, // no age limit, as in Chrome
+		maxConnAge:            5 * time.Minute,
 		abandonedBodyTimeout:  10 * time.Minute,
 		connectTimeout:        30 * time.Second,
 		cachedClientHelloSpec: cachedSpec,                       // Use manager's cached spec for consistent TLS shuffle

@@ -11,14 +11,15 @@ import (
 	"github.com/sardanioss/httpcloak/transport"
 )
 
-// requireHTTP2MaxConnAge checks the configured seconds and the limit the
-// transport ends up with, which is none for zero or less.
+// requireHTTP2MaxConnAge checks the configured seconds and what the
+// transport is told: zero leaves it on its default, a negative turns the
+// limit off.
 func requireHTTP2MaxConnAge(t *testing.T, s *Session, seconds int) {
 	t.Helper()
 	if got := s.Config.HTTP2MaxConnAge; got != seconds {
 		t.Fatalf("session maximum age = %d, want %d", got, seconds)
 	}
-	want := time.Duration(max(seconds, 0)) * time.Second
+	want := time.Duration(seconds) * time.Second
 	cfg := s.transport.GetConfig()
 	if cfg == nil {
 		if want != 0 {

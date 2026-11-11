@@ -227,7 +227,7 @@ public sealed class Session : IDisposable
     /// <param name="withoutHighEntropyClientHints">Keep the always-on sec-ch-ua trio but drop only the high-entropy Client Hints advertised via Accept-CH, for the lifetime of the session (default: false)</param>
     /// <param name="disableEch">Skip the ECH (Encrypted Client Hello) HTTPS RR lookup. Saves ~15-20ms on first connect at the cost of the privacy bump ECH gives you (default: false)</param>
     /// <param name="disableHttp3">Disable HTTP/3 racing while keeping H1/H2 auto-negotiation. Use when QUIC is unreliable on the network or you need to bind to an address that can't UDP. Reachable indirectly via httpVersion="h2" too (default: false)</param>
-    /// <param name="http2MaxConnAge">Seconds after which an HTTP/2 connection takes no new requests and a fresh one is opened (default: 0, no limit, as in Chrome). Requests already on it still finish.</param>
+    /// <param name="http2MaxConnAge">Seconds after which an HTTP/2 connection takes no new requests and a fresh one is opened (default: null, five minutes). 0 turns the limit off. Requests already on it still finish.</param>
     /// <param name="tcpTtl">TCP/IP TTL override: 128=Windows, 64=Linux/macOS (default: null, no spoofing)</param>
     /// <param name="tcpMss">TCP Maximum Segment Size override: typically 1460 (default: null)</param>
     /// <param name="tcpWindowSize">TCP Window Size override: 64240=Windows, 65535=Linux/macOS (default: null)</param>
@@ -271,7 +271,7 @@ public sealed class Session : IDisposable
         int? tcpWindowSize = null,
         int? tcpWindowScale = null,
         bool? tcpDf = null,
-        int http2MaxConnAge = 0)
+        int? http2MaxConnAge = null)
     {
         Auth = auth;
 
@@ -2703,7 +2703,7 @@ public sealed class Session : IDisposable
 
     // The 1.7.3 constructor, from before http2MaxConnAge.
     public Session(string preset, string? proxy, string? tcpProxy, string? udpProxy, int timeout, string httpVersion, bool verify, bool allowRedirects, int maxRedirects, int retry, int[]? retryOnStatus, int retryWaitMin, int retryWaitMax, bool preferIpv4, (string Username, string Password)? auth, Dictionary<string, string>? connectTo, string? echConfigDomain, bool tlsOnly, int quicIdleTimeout, string? localAddress, string? keyLogFile, bool enableSpeculativeTls, string? switchProtocol, bool withoutCookieJar, bool withoutConditionalCache, bool withoutClientHints, bool withoutHighEntropyClientHints, bool disableEch, bool disableHttp3, string? ja3, string? akamai, Dictionary<string, object>? extraFp, int? tcpTtl, int? tcpMss, int? tcpWindowSize, int? tcpWindowScale, bool? tcpDf)
-        : this(preset, proxy, tcpProxy, udpProxy, timeout, httpVersion, verify, allowRedirects, maxRedirects, retry, retryOnStatus, retryWaitMin, retryWaitMax, preferIpv4, auth, connectTo, echConfigDomain, tlsOnly, quicIdleTimeout, localAddress, keyLogFile, enableSpeculativeTls, switchProtocol, withoutCookieJar, withoutConditionalCache, withoutClientHints, withoutHighEntropyClientHints, disableEch, disableHttp3, ja3, akamai, extraFp, tcpTtl, tcpMss, tcpWindowSize, tcpWindowScale, tcpDf, http2MaxConnAge: 0)
+        : this(preset, proxy, tcpProxy, udpProxy, timeout, httpVersion, verify, allowRedirects, maxRedirects, retry, retryOnStatus, retryWaitMin, retryWaitMax, preferIpv4, auth, connectTo, echConfigDomain, tlsOnly, quicIdleTimeout, localAddress, keyLogFile, enableSpeculativeTls, switchProtocol, withoutCookieJar, withoutConditionalCache, withoutClientHints, withoutHighEntropyClientHints, disableEch, disableHttp3, ja3, akamai, extraFp, tcpTtl, tcpMss, tcpWindowSize, tcpWindowScale, tcpDf, http2MaxConnAge: null)
     {
     }
 
@@ -3863,8 +3863,8 @@ internal class SessionConfig
     public int QuicIdleTimeout { get; set; }
 
     [JsonPropertyName("http2_max_conn_age")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public int Http2MaxConnAge { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Http2MaxConnAge { get; set; }
 
     [JsonPropertyName("local_address")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

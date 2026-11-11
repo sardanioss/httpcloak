@@ -1825,7 +1825,8 @@ class Session:
         tls_only: TLS-only mode - skip preset HTTP headers, only apply TLS fingerprint (default: False)
         quic_idle_timeout: QUIC connection idle timeout in seconds (default: 30). Set higher for long-lived H3 connections.
         http2_max_conn_age: Seconds after which an HTTP/2 connection takes no new requests and a fresh
-            one is opened (default: 0, no limit, as in Chrome). Requests already on it still finish.
+            one is opened (default: None, five minutes). 0 turns the limit off, so a connection is
+            reused for as long as the server keeps it open. Requests already on it still finish.
         local_address: Local IP address to bind outgoing connections to (e.g., "192.168.1.100" or "::1")
         key_log_file: Path to write TLS key log (NSS format) for Wireshark decryption
         enable_speculative_tls: Enable speculative TLS optimization for proxy connections (default: False).
@@ -1898,7 +1899,7 @@ class Session:
         tcp_window_size: Optional[int] = None,
         tcp_window_scale: Optional[int] = None,
         tcp_df: Optional[bool] = None,
-        http2_max_conn_age: int = 0,
+        http2_max_conn_age: Optional[int] = None,
     ):
         self._lib = _get_lib()
         self._default_timeout = timeout
@@ -1936,7 +1937,7 @@ class Session:
             config["tls_only"] = True
         if quic_idle_timeout > 0:
             config["quic_idle_timeout"] = quic_idle_timeout
-        if http2_max_conn_age > 0:
+        if http2_max_conn_age is not None:
             config["http2_max_conn_age"] = http2_max_conn_age
         if local_address:
             config["local_address"] = local_address

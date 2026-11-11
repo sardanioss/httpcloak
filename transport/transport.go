@@ -136,7 +136,8 @@ type TransportConfig struct {
 	QuicIdleTimeout time.Duration
 
 	// HTTP2MaxConnAge stops new requests going out on an HTTP/2 connection
-	// older than this. Zero or less means no limit, the default, as in Chrome.
+	// older than this. Zero keeps the default of five minutes; a negative
+	// value turns the limit off.
 	// In-flight responses still drain, and idle/abandoned-body limits still apply.
 	HTTP2MaxConnAge time.Duration
 

@@ -613,7 +613,8 @@ type sessionConfig struct {
 	echConfigDomain               string            // Domain to fetch ECH config from
 	tlsOnly                       bool              // TLS-only mode: skip preset headers, set all manually
 	quicIdleTimeout               time.Duration     // QUIC idle timeout (default: 30s)
-	http2MaxConnAge               time.Duration     // HTTP/2 connection age limit (0: none)
+	http2MaxConnAge               time.Duration     // HTTP/2 connection age limit; see WithHTTP2MaxConnAge
+	http2MaxConnAgeSet            bool              // WithHTTP2MaxConnAge was given
 	localAddr                     string            // Local IP address to bind outgoing connections
 	keyLogFile                    string            // Path to write TLS key log for Wireshark decryption
 	disableECH                    bool              // Disable ECH lookup for faster first request
@@ -974,26 +975,31 @@ func WithQuicIdleTimeout(d time.Duration) SessionOption {
 	}
 }
 
-// WithHTTP2MaxConnAge stops new requests going out on a Session's HTTP/2
-// connection once it is older than d, and opens a fresh one instead. By
-// default there is no limit, as in Chrome, which keeps a connection for as
-// long as the server does. Zero or less keeps that default, and d is rounded
-// up to whole seconds. Responses already in flight on an old connection still
-// finish. Idle timeouts, a server's GOAWAY, and closing the session still
-// apply. This option does not configure Client, HTTP/1.1, or HTTP/3.
+// WithHTTP2MaxConnAge sets how old a Session's HTTP/2 connection may get
+// before new requests go out on a fresh one. The default is five minutes.
+// A positive d sets the limit, rounded up to whole seconds; zero or less
+// turns it off, so a connection is reused for as long as the server keeps it
+// open, as Chrome does. Responses already in flight on an old connection
+// still finish, and idle timeouts, a server's GOAWAY and closing the session
+// still apply. This option does not configure Client, HTTP/1.1 or HTTP/3.
 func WithHTTP2MaxConnAge(d time.Duration) SessionOption {
 	return func(c *sessionConfig) {
 		c.http2MaxConnAge = d
+		c.http2MaxConnAgeSet = true
 	}
 }
 
-// ceilSeconds rounds a positive duration up to whole seconds, so a limit under
-// a second still means a limit. Zero or less stays zero.
-func ceilSeconds(d time.Duration) int {
-	if d <= 0 {
+// http2MaxConnAgeSeconds turns the option into SessionConfig's form: 0 for
+// the default, whole seconds rounded up for a limit, -1 for none.
+func (c *sessionConfig) http2MaxConnAgeSeconds() int {
+	switch {
+	case !c.http2MaxConnAgeSet:
 		return 0
+	case c.http2MaxConnAge <= 0:
+		return -1
+	default:
+		return int((c.http2MaxConnAge + time.Second - 1) / time.Second)
 	}
-	return int((d + time.Second - 1) / time.Second)
 }
 
 // WithSessionCache sets a distributed TLS session cache backend.
@@ -1138,7 +1144,7 @@ func NewSession(preset string, opts ...SessionOption) *Session {
 		ECHConfigDomain:               cfg.echConfigDomain,
 		TLSOnly:                       cfg.tlsOnly,
 		QuicIdleTimeout:               int(cfg.quicIdleTimeout.Seconds()),
-		HTTP2MaxConnAge:               ceilSeconds(cfg.http2MaxConnAge),
+		HTTP2MaxConnAge:               cfg.http2MaxConnAgeSeconds(),
 		LocalAddress:                  cfg.localAddr,
 		KeyLogFile:                    cfg.keyLogFile,
 		DisableECH:                    cfg.disableECH,

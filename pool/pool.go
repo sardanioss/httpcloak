@@ -385,7 +385,7 @@ func NewHostPoolWithConfig(host, sniHost, port string, preset *fingerprint.Prese
 		sessionCache:         sessionCache, // Use shared session cache for persistence
 		maxConns:             0,            // 0 = unlimited connections
 		maxIdleTime:          90 * time.Second,
-		maxConnAge:           0, // no age limit, as in Chrome
+		maxConnAge:           5 * time.Minute,
 		abandonedBodyTimeout: 10 * time.Minute,
 		connectTimeout:       30 * time.Second,
 		insecureSkipVerify:   insecureSkipVerify,
@@ -406,8 +406,8 @@ func (p *HostPool) SetMaxConns(max int) {
 }
 
 // SetMaxConnAge stops new requests going out on a connection older than d.
-// Zero or less means no limit, the default. Requests already on an aged
-// connection still finish.
+// The default is five minutes; zero or less turns the limit off. Requests
+// already on an aged connection still finish.
 func (p *HostPool) SetMaxConnAge(d time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

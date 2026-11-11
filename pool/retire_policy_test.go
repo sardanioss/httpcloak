@@ -151,14 +151,18 @@ func TestMaxConnsAccountingCountsBusyButLiveConns(t *testing.T) {
 	}
 }
 
-// The pools have no age limit by default, as in Chrome, and a zero limit
-// never retires a connection on age alone.
-func TestDefaultPoolsHaveNoAgeLimit(t *testing.T) {
+// The pools keep their five-minute age limit by default, and SetMaxConnAge(0)
+// turns it off without making zero retire every connection.
+func TestPoolAgeLimitDefaultAndOff(t *testing.T) {
 	preset := fingerprint.Get("chrome-latest")
 	h2 := NewHostPool("example.com", "443", preset, nil)
 	h3 := NewQUICHostPool("example.com", "443", preset, nil)
-	if h2.maxConnAge != 0 || h3.maxConnAge != 0 {
-		t.Fatalf("default maxConnAge = %v (h2), %v (h3), want no limit", h2.maxConnAge, h3.maxConnAge)
+	if h2.maxConnAge != 5*time.Minute || h3.maxConnAge != 5*time.Minute {
+		t.Fatalf("default maxConnAge = %v (h2), %v (h3), want 5m", h2.maxConnAge, h3.maxConnAge)
+	}
+	h2.SetMaxConnAge(0)
+	if h2.maxConnAge != 0 {
+		t.Fatalf("SetMaxConnAge(0) left %v", h2.maxConnAge)
 	}
 	// Every age comparison must be guarded, or zero would retire everything.
 	for _, file := range []string{"pool.go", "quic_pool.go"} {

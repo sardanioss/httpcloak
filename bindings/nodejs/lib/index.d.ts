@@ -260,7 +260,7 @@ export interface SessionOptions {
   tlsOnly?: boolean;
   /** QUIC idle timeout in seconds (default: 30). Set higher for long-lived HTTP/3 connections. */
   quicIdleTimeout?: number;
-  /** Seconds after which an HTTP/2 connection takes no new requests and a fresh one is opened (default: 0, no limit, as in Chrome). Requests already on it still finish. */
+  /** Seconds after which an HTTP/2 connection takes no new requests and a fresh one is opened (default: five minutes). 0 turns the limit off. Requests already on it still finish. */
   http2MaxConnAge?: number;
   /** Local IP address to bind outgoing connections (for IPv6 rotation with IP_FREEBIND on Linux) */
   localAddress?: string;
