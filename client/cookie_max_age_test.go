@@ -119,9 +119,14 @@ func TestCookieMaxAgeHuge(t *testing.T) {
 	u := mustParseURL(t, "https://example.com/")
 	for _, v := range maxAgeHuge {
 		t.Run(v, func(t *testing.T) {
+			before := time.Now()
 			c := ParseSetCookie("sid=x; Path=/; Max-Age="+v, u)
-			if c.IsExpired() || c.Expires.Before(time.Now().AddDate(68, 0, 0)) {
-				t.Errorf("Expires = %v, want at least 68 years from now", c.Expires)
+			if c.MaxAge != maxCookieAgeSeconds {
+				t.Errorf("MaxAge = %d, want the 400-day cap %d", c.MaxAge, maxCookieAgeSeconds)
+			}
+			lo, hi := before.AddDate(0, 0, 400), time.Now().AddDate(0, 0, 400)
+			if c.IsExpired() || c.Expires.Before(lo) || c.Expires.After(hi) {
+				t.Errorf("Expires = %v, want 400 days from now", c.Expires)
 			}
 			jar := NewCookieJar()
 			jar.SetCookiesFromHeaderList(u, []string{"sid=x; Path=/; Max-Age=" + v})

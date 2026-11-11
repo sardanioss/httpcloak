@@ -197,16 +197,17 @@ func ParseSetCookie(header string, requestURL *url.URL) *Cookie {
 	// Max-Age takes precedence over Expires when both are present; a
 	// negative MaxAge does too, since every expiry check tests it first
 	if cookie.MaxAge > 0 {
-		// A Max-Age longer than a time.Duration can hold gets the longest one
-		lifetime := time.Duration(math.MaxInt64)
-		if int64(cookie.MaxAge) < int64(lifetime/time.Second) {
-			lifetime = time.Duration(cookie.MaxAge) * time.Second
-		}
-		cookie.Expires = time.Now().Add(lifetime)
+		// Chromium caps every cookie's lifetime at 400 days
+		// (CanonicalCookie::ValidateAndAdjustExpiryDate), as Session does.
+		cookie.MaxAge = min(cookie.MaxAge, maxCookieAgeSeconds)
+		cookie.Expires = time.Now().Add(time.Duration(cookie.MaxAge) * time.Second)
 	}
 
 	return cookie
 }
+
+// maxCookieAgeSeconds is Chromium's 400-day cap on a cookie's lifetime.
+const maxCookieAgeSeconds = 400 * 24 * 60 * 60
 
 // parseExpires parses various date formats used in cookies
 func parseExpires(s string) (time.Time, error) {
