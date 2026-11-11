@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"slices"
@@ -99,6 +100,67 @@ func TestHTTP3ResumptionOffersEarlyDataOnlyWhenTheTicketAllows(t *testing.T) {
 		t.Run(fmt.Sprintf("server allows 0-RTT %v", allow0RTT), func(t *testing.T) {
 			url, rec := startResumeOrigin(t, allow0RTT)
 			tr, err := NewHTTP3Transport(fingerprint.Get("chrome-155-windows"), dns.NewCache())
+			if err != nil {
+				t.Fatal(err)
+			}
+			tr.SetInsecureSkipVerify(true)
+			defer tr.Close()
+
+			if err := h3Fetch(tr, url); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(200 * time.Millisecond) // the ticket arrives after the response
+			tr.Refresh()
+			if err := h3Fetch(tr, url); err != nil {
+				t.Fatal(err)
+			}
+			checkResumption(t, rec, allow0RTT)
+		})
+	}
+}
+
+// appendPSKExtension adds a pre_shared_key extension, last as RFC 8446
+// requires, to a captured-shape hello. Nothing checks the binder when a
+// capture is parsed, so zeros of the right length do.
+func appendPSKExtension(raw []byte) []byte {
+	p := 5 + 4 + 2 + 32
+	p += 1 + int(raw[p])                             // session_id
+	p += 2 + int(uint16(raw[p])<<8|uint16(raw[p+1])) // cipher_suites
+	p += 1 + int(raw[p])                             // compression_methods
+	extLenAt := p
+	body := []byte{0, 38, 0, 32}
+	body = append(body, make([]byte, 32+4)...) // identity, obfuscated_ticket_age
+	body = append(body, 0, 33, 32)
+	body = append(body, make([]byte, 32)...) // binder
+	ext := append([]byte{0, 41, byte(len(body) >> 8), byte(len(body))}, body...)
+	out := append(append([]byte(nil), raw...), ext...)
+	add := len(ext)
+	put16 := func(at, v int) { out[at], out[at+1] = byte(v>>8), byte(v) }
+	put16(extLenAt, int(out[extLenAt])<<8|int(out[extLenAt+1])+add)
+	hs := int(out[6])<<16 | int(out[7])<<8 | int(out[8]) + add
+	out[6], out[7], out[8] = byte(hs>>16), byte(hs>>8), byte(hs)
+	put16(3, int(out[3])<<8|int(out[4])+add)
+	return out
+}
+
+// A captured QUIC resumption hello carries early_data as the parser's
+// generic extension, which utls does not know it offered. On a ticket that
+// allows 0-RTT the server then answered with early_data, and utls failed the
+// handshake with "unexpected early_data extension", which nothing retried.
+func TestHTTP3RawQUICResumptionWithEarlyData(t *testing.T) {
+	quic := rawHello(t, utls.HelloChrome_145_QUIC, nil)
+	psk := appendPSKExtension(rawHello(t, utls.HelloChrome_145_QUIC_PSK, nil))
+	b64 := base64.StdEncoding.EncodeToString
+	p, err := fingerprint.LoadAndBuildPresetFromJSON([]byte(`{"preset":{"name":"h3-raw-quic-0rtt",` +
+		`"based_on":"chrome-latest","tls":{"raw_quic_client_hello":"` + b64(quic) +
+		`","raw_quic_psk_client_hello":"` + b64(psk) + `","allow_blunt_mimicry":true}}}`))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, allow0RTT := range []bool{false, true} {
+		t.Run(fmt.Sprintf("server allows 0-RTT %v", allow0RTT), func(t *testing.T) {
+			url, rec := startResumeOrigin(t, allow0RTT)
+			tr, err := NewHTTP3Transport(p, dns.NewCache())
 			if err != nil {
 				t.Fatal(err)
 			}

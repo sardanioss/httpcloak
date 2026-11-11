@@ -23,8 +23,27 @@ const extensionEarlyData = 42
 //
 // A spec parsed from a captured hello carries early_data as a GenericExtension,
 // so the extension is matched by its ID as well as by type.
+//
+// When the ticket does allow it, a captured early_data is swapped for utls's
+// own extension in the same place. As a GenericExtension it went out on the
+// wire but utls did not know it had offered early data, so a server that
+// accepted the 0-RTT failed the handshake with "unexpected early_data
+// extension".
 func DropEarlyDataUnlessAllowed(spec *utls.ClientHelloSpec, p *fingerprint.Preset, ticket *utls.ClientSessionState) {
-	if spec == nil || TicketAllowsEarlyData(p, ticket) {
+	if spec == nil {
+		return
+	}
+	if TicketAllowsEarlyData(p, ticket) {
+		// A new slice, as below: the Extensions backing array may be shared
+		// with the spec this copy was made from.
+		exts := make([]utls.TLSExtension, len(spec.Extensions))
+		for i, e := range spec.Extensions {
+			if g, ok := e.(*utls.GenericExtension); ok && g.Id == extensionEarlyData {
+				e = &utls.FakeEarlyDataExtension{}
+			}
+			exts[i] = e
+		}
+		spec.Extensions = exts
 		return
 	}
 	exts := make([]utls.TLSExtension, 0, len(spec.Extensions))
