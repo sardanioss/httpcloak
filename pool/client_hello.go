@@ -21,3 +21,23 @@ func tcpClientHelloSpec(preset *fingerprint.Preset, id utls.ClientHelloID, seed 
 func quicClientHelloSpec(preset *fingerprint.Preset, id utls.ClientHelloID, seed int64) (*utls.ClientHelloSpec, error) {
 	return fingerprint.SpecForQUICWithAnchors(id, seed, preset.QUICSignatureAlgorithms, preset.TrustAnchors, preset.QUICTrustAnchorShuffle)
 }
+
+// referenceQUICSpecs builds the fresh and the resuming QUIC hello once, through
+// the shared resolver, so a dial can tell whether either is buildable. A nil
+// resuming spec means the preset cannot resume, and the pool then keeps no
+// session cache for it. The order they carry is not reused: each connection
+// draws its own.
+func referenceQUICSpecs(preset *fingerprint.Preset, seed int64) (fresh, resume *utls.ClientHelloSpec) {
+	if preset == nil {
+		return nil, nil
+	}
+	if spec, _, err := fingerprint.ResolveQUICClientHelloSpec(preset, false, seed); err == nil {
+		fresh = spec
+	}
+	if fingerprint.HasQUICPSKVariant(preset) {
+		if spec, _, err := fingerprint.ResolveQUICClientHelloSpec(preset, true, seed); err == nil {
+			resume = spec
+		}
+	}
+	return fresh, resume
+}

@@ -284,17 +284,7 @@ func NewQUICHostPool(host, port string, preset *fingerprint.Preset, dnsCache *dn
 	crand.Read(seedBytes[:])
 	shuffleSeed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
 
-	if preset != nil && preset.QUICClientHelloID.Client != "" {
-		if spec, err := quicClientHelloSpec(preset, preset.QUICClientHelloID, shuffleSeed); err == nil {
-			cachedSpec = spec
-		}
-	}
-	// Also generate PSK spec for session resumption
-	if preset != nil && preset.QUICPSKClientHelloID.Client != "" {
-		if spec, err := quicClientHelloSpec(preset, preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
-			cachedPSKSpec = spec
-		}
-	}
+	cachedSpec, cachedPSKSpec = referenceQUICSpecs(preset, shuffleSeed)
 	return NewQUICHostPoolWithCachedSpec(host, "", port, preset, dnsCache, cachedSpec, cachedPSKSpec, shuffleSeed)
 }
 
@@ -512,23 +502,39 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	// small enough that it rarely causes issues in practice.
 	session := p.sessionForHost()
 
-	// Use PSK spec ONLY when resuming a session (matches proxy path behavior)
-	if session != nil && p.cachedPSKSpec != nil && p.preset != nil && p.preset.QUICPSKClientHelloID.Client != "" {
-		// Generate fresh PSK spec for this connection
-		if spec, err := quicClientHelloSpec(p.preset, p.preset.QUICPSKClientHelloID, p.shuffleSeed); err == nil {
-			// early_data only on a ticket that allows it, as the transport does
-			h3build.DropEarlyDataUnlessAllowed(spec, p.preset, session)
+	// The hello comes from the same resolver the HTTP/3 transport uses, so a
+	// preset built from a captured QUIC hello (raw_quic_client_hello) or a QUIC
+	// ja3 sends that hello here too. Picking only by QUICClientHelloID, as this
+	// did, found nothing for such a preset, and quic-go then sent its own stock
+	// hello: the request worked and carried a fingerprint nobody chose.
+	// The resuming hello is used ONLY when resuming a session (matches proxy
+	// path behavior); offering it on a fresh connection fails on some servers.
+	var additionalParams map[uint64][]byte
+	if p.preset != nil {
+		wantPSK := session != nil && p.cachedPSKSpec != nil && fingerprint.HasQUICPSKVariant(p.preset)
+		spec, source, err := fingerprint.ResolveQUICClientHelloSpec(p.preset, wantPSK, p.shuffleSeed)
+		switch {
+		case err == nil:
+			if wantPSK {
+				// early_data only on a ticket that allows it, as the transport does
+				h3build.DropEarlyDataUnlessAllowed(spec, p.preset, session)
+			}
 			selectedSpec = spec
+			if source == fingerprint.SourceClientHelloID {
+				if wantPSK && p.preset.QUICPSKClientHelloID.Client != "" {
+					clientHelloID = &p.preset.QUICPSKClientHelloID
+				} else {
+					clientHelloID = &p.preset.QUICClientHelloID
+				}
+			} else {
+				// A captured hello brings its own transport parameters.
+				additionalParams = transport.AdditionalTransportParamsForPreset(p.preset, nil, "", 0)
+			}
+		case source != fingerprint.SourceClientHelloID:
+			// A capture or ja3 the preset names but that cannot be used must
+			// not quietly become quic-go's default hello.
+			return nil, fmt.Errorf("quic client hello: %w", err)
 		}
-		clientHelloID = &p.preset.QUICPSKClientHelloID
-	}
-	// Use regular spec for fresh connections
-	if selectedSpec == nil && p.cachedClientHelloSpec != nil && p.preset != nil && p.preset.QUICClientHelloID.Client != "" {
-		// Generate fresh regular spec
-		if spec, err := quicClientHelloSpec(p.preset, p.preset.QUICClientHelloID, p.shuffleSeed); err == nil {
-			selectedSpec = spec
-		}
-		clientHelloID = &p.preset.QUICClientHelloID
 	}
 
 	// Get ECH configuration - use custom config if set, otherwise fetch from DNS
@@ -554,9 +560,10 @@ func (p *QUICHostPool) createConn(ctx context.Context) (*QUICConn, error) {
 	// transport. Those two go on the wire as initial_max_stream_data_bidi_remote
 	// and initial_max_data, which the server reads straight off the handshake.
 	quicConfig := h3build.QUICConfig(h3build.QUICOptions{
-		Preset:        p.preset,
-		ClientHelloID: clientHelloID,
-		CachedSpec:    selectedSpec,
+		Preset:                        p.preset,
+		ClientHelloID:                 clientHelloID,
+		CachedSpec:                    selectedSpec,
+		AdditionalTransportParameters: additionalParams,
 	})
 
 	// Only set ECHConfigList if we have a config - matches proxy path behavior
@@ -814,18 +821,7 @@ func NewQUICManager(preset *fingerprint.Preset, dnsCache *dns.Cache) *QUICManage
 
 	// Build a reference spec so a dial can check one is buildable. The order
 	// it carries is not reused: each connection draws its own.
-	if preset != nil && preset.QUICClientHelloID.Client != "" {
-		if spec, err := quicClientHelloSpec(preset, preset.QUICClientHelloID, shuffleSeed); err == nil {
-			m.cachedSpec = spec
-		}
-	}
-
-	// Also cache PSK variant if available
-	if preset != nil && preset.QUICPSKClientHelloID.Client != "" {
-		if spec, err := quicClientHelloSpec(preset, preset.QUICPSKClientHelloID, shuffleSeed); err == nil {
-			m.cachedPSKSpec = spec
-		}
-	}
+	m.cachedSpec, m.cachedPSKSpec = referenceQUICSpecs(preset, shuffleSeed)
 
 	// Start background cleanup
 	go m.cleanupLoop()
