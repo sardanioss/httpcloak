@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"sort"
@@ -901,9 +902,8 @@ func (s *Session) extractCookies(headers map[string][]string, requestURL string)
 					cookie.Expires = &t
 				}
 			case "max-age":
-				if maxAge, ok := parseMaxAge(attrValue); ok {
-					cookie.MaxAge = maxAge
-				}
+				// The last Max-Age decides; an invalid one leaves none.
+				cookie.MaxAge, _ = parseMaxAge(attrValue)
 			case "samesite":
 				// Normalize to capitalized form
 				sameSiteLower := toLowerASCII(attrValue)
@@ -943,24 +943,28 @@ func splitBySemicolon(s string) []string {
 	return result
 }
 
-// parseMaxAge maps zero and negative values to the deletion sentinel (-1).
-// Invalid attributes (including integer overflow) are ignored.
+// parseMaxAge reads a Max-Age attribute as Chromium does
+// (CanonicalCookie::CreateExpiration): zero or less means delete now and
+// comes back as -1, a value too large for an int is clamped rather than
+// dropped, and anything that isn't an optional '-' and digits is invalid.
+// The caller stores the result whether or not it is valid: the last Max-Age
+// attribute decides, and an invalid one leaves the cookie with none.
 func parseMaxAge(s string) (int, bool) {
-	start := 0
-	if len(s) > 0 && s[0] == '-' {
-		start = 1
-	}
-	if start == len(s) {
+	digits := strings.TrimPrefix(s, "-")
+	if digits == "" {
 		return 0, false
 	}
-	for i := start; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
+	for i := 0; i < len(digits); i++ {
+		if digits[i] < '0' || digits[i] > '9' {
 			return 0, false
 		}
 	}
+	if len(digits) != len(s) {
+		return -1, true // a negative Max-Age, however long
+	}
 	seconds, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, false
+		return math.MaxInt, true // too large: clamped
 	}
 	if seconds <= 0 {
 		seconds = -1

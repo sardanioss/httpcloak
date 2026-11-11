@@ -24,8 +24,8 @@ func TestParseMaxAge(t *testing.T) {
 		{"60seconds", 0, false},
 		{"1.5", 0, false},
 		{" 60", 0, false},
-		{overflow, 0, false},
-		{"-" + overflow, 0, false},
+		{overflow, int(^uint(0) >> 1), true},
+		{"-" + overflow, -1, true},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
 			got, valid := parseMaxAge(tc.value)
@@ -145,10 +145,12 @@ func TestCookieMaxAgeExtractCookies(t *testing.T) {
 		{"Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=60", 60, false},
 		{"Max-Age=garbage", 0, false},
 		{"Max-Age=60bad", 0, false},
-		{"Max-Age=" + overflow, 0, false},
+		// Too large is clamped, as in Chromium, not dropped.
+		{"Max-Age=" + overflow, int(^uint(0) >> 1), false},
 		{"Max-Age=garbage; Expires=Thu, 01 Jan 1970 00:00:00 GMT", 0, true},
 		{"Max-Age=garbage; Expires=Fri, 31 Dec 9999 23:59:59 GMT", 0, false},
-		{"Max-Age=60; Max-Age=bad", 60, false},
+		// The last Max-Age decides, and an invalid one leaves none.
+		{"Max-Age=60; Max-Age=bad", 0, false},
 		{"Max-Age=60; Max-Age=0", -1, true},
 	} {
 		t.Run(tc.attributes, func(t *testing.T) {

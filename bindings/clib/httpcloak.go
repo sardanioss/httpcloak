@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -465,9 +466,8 @@ func parseSetCookieHeaders(headers map[string][]string) []Cookie {
 			case "expires":
 				cookie.Expires = attrValue
 			case "max-age":
-				if maxAge, ok := parseMaxAge(attrValue); ok {
-					cookie.MaxAge = maxAge
-				}
+				// The last Max-Age decides; an invalid one leaves none.
+				cookie.MaxAge, _ = parseMaxAge(attrValue)
 			case "samesite":
 				// Normalize to capitalized form
 				sameSiteLower := toLower(attrValue)
@@ -522,10 +522,12 @@ func toLower(s string) string {
 }
 
 // parseInt parses an integer from a string, returns 0 on error
-// parseMaxAge reads a Max-Age attribute the way the session's cookie jar
-// does, so the cookies listed on a response agree with what the jar did with
-// them: zero or less means delete now and is reported as -1, and a value that
-// is not entirely digits, or overflows, is ignored rather than read in part.
+// parseMaxAge reads a Max-Age attribute as the session's jar and Chromium do
+// (CanonicalCookie::CreateExpiration): zero or less means delete now and
+// comes back as -1, a value too large for an int is clamped rather than
+// dropped, and anything that isn't an optional '-' and digits is invalid.
+// The caller stores the result whether or not it is valid: the last Max-Age
+// attribute decides, and an invalid one leaves the cookie with none.
 func parseMaxAge(s string) (int, bool) {
 	digits := strings.TrimPrefix(s, "-")
 	if digits == "" {
@@ -536,14 +538,17 @@ func parseMaxAge(s string) (int, bool) {
 			return 0, false
 		}
 	}
-	n, err := strconv.Atoi(s)
+	if len(digits) != len(s) {
+		return -1, true // a negative Max-Age, however long
+	}
+	seconds, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, false
+		return math.MaxInt, true // too large: clamped
 	}
-	if n <= 0 {
-		n = -1
+	if seconds <= 0 {
+		seconds = -1
 	}
-	return n, true
+	return seconds, true
 }
 
 func parseInt(s string) int {
