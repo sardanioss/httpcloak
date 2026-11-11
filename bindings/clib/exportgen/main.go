@@ -214,7 +214,9 @@ func genSource(xs []cExport) []byte {
 // hcgo_ prefix. On Windows it does so through hc_export_hop, which runs the Go
 // function on a thread this library owns and waits for it, so Go never runs on
 // a thread the host runtime manages (#147). Elsewhere it calls straight
-// through. HC_FORCE_EXPORT_HOP turns the hop on anywhere, for tests.
+// through. HC_FORCE_EXPORT_HOP turns the hop on anywhere, for tests, and
+// HC_NO_EXPORT_HOP turns it off on Windows, to build a control library for
+// comparing against.
 
 #include <stdlib.h>
 #include "_cgo_export.h"
@@ -222,7 +224,7 @@ func genSource(xs []cExport) []byte {
 // Plain C: freeing needs neither Go nor another thread.
 HC_EXPORT void httpcloak_free_string(char* str) { free(str); }
 
-#if defined(_WIN32) || defined(HC_FORCE_EXPORT_HOP)
+#if (defined(_WIN32) && !defined(HC_NO_EXPORT_HOP)) || defined(HC_FORCE_EXPORT_HOP)
 `)
 	for _, x := range xs {
 		short := strings.TrimPrefix(x.public, "httpcloak_")
