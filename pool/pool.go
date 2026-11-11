@@ -776,9 +776,12 @@ func (p *HostPool) createConn(ctx context.Context) (*Conn, error) {
 	// drifted: this side set no HeaderPriorityFunc, so a Session never emitted
 	// the per-resource stream weights that Chrome 147+ desktop does.
 	h2Transport := h2build.Transport(h2build.Options{Preset: p.preset})
-	if p.canonicalHeadersForTest {
-		h2Transport.WireCaseResponseHeaders = false
-	}
+	// Wire-case response maps only for a Manager that asked for them (see
+	// Manager.wireCase). Conn.HTTP2Conn is exported, and code that calls its
+	// RoundTrip directly got canonical maps until 1.7.4-beta.1 made every pool
+	// connection wire-case, which broke Header.Get, Cookies and Location for
+	// it.
+	h2Transport.WireCaseResponseHeaders = p.wireCase && !p.canonicalHeadersForTest
 
 	h2Conn, err := h2Transport.NewClientConn(tlsConn)
 	if err != nil {

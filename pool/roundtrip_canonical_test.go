@@ -269,3 +269,46 @@ func TestKeepWireCaseReachesEveryConn(t *testing.T) {
 		}
 	}
 }
+
+// Conn.HTTP2Conn is exported too, and code that calls its RoundTrip directly
+// reads the map with net/http's canonical accessors, as it could in 1.7.3.
+// Only a Manager that asked for wire case gets its raw connections in wire
+// case.
+func TestRawHTTP2ConnIsCanonicalUnlessMarked(t *testing.T) {
+	srv := startServer(t)
+	for _, tc := range []struct {
+		mode     connMode
+		wantWire bool
+	}{{converted, false}, {marked, true}} {
+		m, _ := newManager(t, srv, tc.mode)
+		req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn, err := m.GetConn(t.Context(), req.URL.Hostname(), req.URL.Port())
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := conn.HTTP2Conn.RoundTrip(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		_, wire := resp.Header["content-type"]
+		if wire != tc.wantWire {
+			t.Errorf("mode %d: wire-case keys %v, want %v (%v)", tc.mode, wire, tc.wantWire, resp.Header)
+		}
+		if !tc.wantWire {
+			if got := resp.Header.Get("Content-Type"); got != "text/plain" {
+				t.Errorf("Header.Get(Content-Type) = %q, want text/plain", got)
+			}
+			if loc, err := resp.Location(); err != nil || loc.Path != "/next" {
+				t.Errorf("Location() = %v, %v, want /next", loc, err)
+			}
+			if c := resp.Cookies(); len(c) != 2 {
+				t.Errorf("Cookies() = %v, want two", c)
+			}
+		}
+	}
+}
