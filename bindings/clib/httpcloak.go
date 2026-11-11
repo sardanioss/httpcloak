@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -544,14 +543,23 @@ func parseMaxAge(s string) (int, bool) {
 		return -1, true // a negative Max-Age, however long
 	}
 	seconds, err := strconv.Atoi(s)
-	if err != nil {
-		return math.MaxInt, true // too large: clamped
+	if err != nil || seconds > maxCookieAgeSeconds {
+		// Chromium caps a cookie's lifetime at 400 days however it was
+		// set, so a longer Max-Age (or one too large to parse) means 400
+		// days. Capping here also keeps the value inside 32 bits, which the
+		// bindings rely on: a JS number cannot hold MaxInt64 exactly, and
+		// Android reads max_age as an int.
+		return maxCookieAgeSeconds, true
 	}
 	if seconds <= 0 {
 		seconds = -1
 	}
 	return seconds, true
 }
+
+// maxCookieAgeSeconds is Chromium's 400-day cap on a cookie's lifetime
+// (CanonicalCookie::ValidateAndAdjustExpiryDate).
+const maxCookieAgeSeconds = 400 * 24 * 60 * 60
 
 func parseInt(s string) int {
 	result := 0

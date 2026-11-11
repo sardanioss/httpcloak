@@ -12,7 +12,7 @@ func TestParseMaxAgeMatchesTheJar(t *testing.T) {
 	}{
 		"3600": {3600, true}, "0": {-1, true}, "-5": {-1, true},
 		"10abc": {0, false}, "": {0, false}, "-": {0, false},
-		"99999999999999999999999": {int(^uint(0) >> 1), true}, "-99999999999999999999999": {-1, true}, " 10": {0, false},
+		"99999999999999999999999": {maxCookieAgeSeconds, true}, "34560001": {maxCookieAgeSeconds, true}, "34560000": {34560000, true}, "-99999999999999999999999": {-1, true}, " 10": {0, false},
 	} {
 		n, ok := parseMaxAge(in)
 		if n != want.n || ok != want.ok {
