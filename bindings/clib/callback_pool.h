@@ -50,9 +50,17 @@ HC_INTERNAL void invoke_async_cache_delete(async_cache_delete_callback cb, int64
 HC_INTERNAL void invoke_async_ech_get(async_ech_get_callback cb, int64_t request_id, const char* key);
 HC_INTERNAL void invoke_async_ech_put(async_ech_put_callback cb, int64_t request_id, const char* key, const char* value_base64, int64_t ttl_seconds);
 
+// hc_export_hop runs thunk(args) on a library-owned thread and waits for it.
+// The generated public wrappers use it on Windows (#147).
+HC_INTERNAL void hc_export_hop(void (*thunk)(void*), void* args);
+
 #ifdef HC_TEST
-// hc_on_worker_thread reports whether the calling thread is one of the pool's.
+// hc_on_worker_thread reports whether the calling thread runs host callbacks,
+// hc_on_export_thread whether it runs the library's exports.
 HC_INTERNAL int hc_on_worker_thread(void);
+HC_INTERNAL int hc_on_export_thread(void);
+// hc_test_export_hops counts exports that ran on an export thread.
+HC_INTERNAL int hc_test_export_hops(void);
 #endif
 
 #endif

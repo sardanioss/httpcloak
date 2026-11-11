@@ -82,3 +82,91 @@ func TestReentrantCallbackDoesNotDeadlock(t *testing.T) {
 		t.Fatal("re-entrant callbacks deadlocked")
 	}
 }
+
+// Issue #147. The other direction: a .NET thread that calls into the library
+// ran Go on that thread, and the same APC ends the process. Every public
+// function is now a C wrapper that runs the Go code on a library thread. The
+// hctest build forces that hop on Linux too, so it is exercised here.
+
+func TestExportsRunOnExportThreads(t *testing.T) {
+	before := hcTestExportHops()
+	if v := hcTestPublicVersion(); v == "" {
+		t.Fatal("httpcloak_version through the wrapper returned nothing")
+	}
+	if got := hcTestExportHops() - before; got != 1 {
+		t.Fatalf("httpcloak_version ran on an export thread %d times; want 1", got)
+	}
+}
+
+// Many host threads at once, each blocked in a request: the export pool must
+// grow rather than queue them, or a slow request would hold up every caller.
+// The server answers only once all of them have arrived.
+func TestConcurrentExportCallsFromHostThreads(t *testing.T) {
+	const n = 32
+	var arrived sync.WaitGroup
+	arrived.Add(n)
+	release := make(chan struct{})
+	go func() { arrived.Wait(); close(release) }()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		arrived.Done()
+		select {
+		case <-release:
+		case <-time.After(20 * time.Second):
+		}
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	before := hcTestExportHops()
+	done := make(chan int, 1)
+	go func() { done <- hcTestGetFromThreads(`{"preset":"chrome-155-windows","timeout":30}`, srv.URL, n) }()
+	select {
+	case ok := <-done:
+		if ok != n {
+			t.Fatalf("%d of %d threads got a 200", ok, n)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("concurrent export calls from host threads did not finish")
+	}
+	// session_new, get and session_free per thread.
+	if got := hcTestExportHops() - before; got < 3*n {
+		t.Errorf("%d exports ran on export threads; want at least %d", got, 3*n)
+	}
+}
+
+// A host callback that calls the library while Go waits on it: the call hops
+// from a callback thread to an export thread and must not deadlock.
+func TestExportCalledFromHostCallback(t *testing.T) {
+	done := make(chan int, 1)
+	go func() {
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() { defer wg.Done(); hcTestExportFromCallback() }()
+		}
+		wg.Wait()
+		done <- hcTestExportFromCallback()
+	}()
+	select {
+	case ok := <-done:
+		if ok != 9 {
+			t.Fatalf("%d of 9 exports called from a callback succeeded", ok)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("export called from a host callback deadlocked")
+	}
+}
+
+// What the hop costs per call: a public wrapper against the Go function.
+func BenchmarkExportHop(b *testing.B) {
+	b.Run("hop", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			hcTestPublicVersion()
+		}
+	})
+	b.Run("direct", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			hcTestDirectVersion()
+		}
+	})
+}

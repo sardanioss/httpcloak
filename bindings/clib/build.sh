@@ -49,6 +49,10 @@ build_for_platform() {
 
     echo "Building for $os/$arch -> $output"
 
+    # The public symbols are generated C wrappers; refuse to build stale ones.
+    # GOOS/GOARCH cleared: the checker runs here, whatever the target is.
+    GOOS= GOARCH= go run ./exportgen -check
+
     if [ -n "$cc" ]; then
         CGO_ENABLED=1 GOOS="$os" GOARCH="$arch" CC="$cc" go build \
             -buildmode=c-shared \
@@ -67,8 +71,8 @@ build_for_platform() {
     local header_basename="libhttpcloak-${os}-${arch}.h"
     if [ -f "$DIST_DIR/$header_basename" ]; then
         mv "$DIST_DIR/$header_basename" "$DIST_DIR/httpcloak.h"
-        # The generated header includes the callback typedefs from here.
-        cp "$SCRIPT_DIR/callback_pool.h" "$DIST_DIR/"
+        # The generated header includes the API and callback headers.
+        cp "$SCRIPT_DIR/httpcloak_api.h" "$SCRIPT_DIR/callback_pool.h" "$DIST_DIR/"
     fi
 
     echo "  Built: $output"

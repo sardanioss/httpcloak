@@ -1,0 +1,2 @@
+bindings/clib/exports_gen.c text eol=lf
+bindings/clib/httpcloak_api.h text eol=lf

@@ -4,8 +4,10 @@ clib/dist/
 *.dylib
 *.dll
 *.h
-# ...except the hand-written callback header the C shim builds from.
+# ...except the headers the C shim builds from: the hand-written callback one
+# and the generated API one (bindings/clib/exportgen).
 !clib/callback_pool.h
+!clib/httpcloak_api.h
 
 # Python
 __pycache__/

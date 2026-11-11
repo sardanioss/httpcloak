@@ -116,12 +116,15 @@ val goBuildTasks = abis.map { abi ->
             "-ldflags=-s -w -extldflags=-Wl,-soname,libhttpcloak.so,-z,max-page-size=16384",
             "-o", outDir.get().file("libhttpcloak.so").asFile.path, ".",
         )
-        // The generated libhttpcloak.h includes callback_pool.h from the cgo
-        // preamble, and the JNI bridge sees only this folder, so the header
-        // goes next to it, as build.sh does for dist/.
+        // The generated libhttpcloak.h includes httpcloak_api.h, which declares
+        // the public functions, and callback_pool.h from the cgo preamble. The
+        // JNI bridge sees only this folder, so both headers go next to it, as
+        // build.sh does for dist/.
         doLast {
-            repoRoot.resolve("bindings/clib/callback_pool.h")
-                .copyTo(outDir.get().file("callback_pool.h").asFile, overwrite = true)
+            for (h in listOf("httpcloak_api.h", "callback_pool.h")) {
+                repoRoot.resolve("bindings/clib/$h")
+                    .copyTo(outDir.get().file(h).asFile, overwrite = true)
+            }
         }
     }
 }

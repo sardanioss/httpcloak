@@ -93,6 +93,7 @@ jobs:
         run: |
           cd bindings/clib
           mkdir -p dist
+          go run ./exportgen -check
           CGO_ENABLED=1 go build -buildmode=c-shared -ldflags="-s -w" -o dist/libhttpcloak-windows-amd64.dll .
 
       # Nothing is uploaded until the library has passed: no dependency a stock
@@ -155,6 +156,7 @@ jobs:
         run: |
           cd bindings/clib
           mkdir -p dist
+          go run ./exportgen -check
           CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -buildmode=c-shared -ldflags="-s -w" -o dist/libhttpcloak-darwin-amd64.dylib .
         env:
           CGO_ENABLED: 1

@@ -4,16 +4,7 @@ package main
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-
-// Pre-allocated response structure to avoid JSON serialization
-typedef struct {
-    int32_t status_code;
-    int32_t body_len;
-    int32_t headers_len;
-    int32_t protocol;  // 1=h1, 2=h2, 3=h3
-    char final_url[2048];
-} FastResponseMeta;
-
+#include "httpcloak_api.h" // FastResponseMeta
 */
 import "C"
 import (
@@ -39,8 +30,8 @@ func init() {
 	_, _ = x509.SystemCertPool()
 }
 
-//export httpcloak_init
-func httpcloak_init() {
+//export hcgo_httpcloak_init
+func hcgo_httpcloak_init() {
 	defer guardVoid("httpcloak_init")
 	// Force Go runtime initialization and warm up the scheduler
 	runtime.GC()
@@ -54,33 +45,33 @@ func httpcloak_init() {
 	runtime.GC()
 }
 
-//export httpcloak_warmup
-func httpcloak_warmup(configJSON *C.char) {
+//export hcgo_httpcloak_warmup
+func hcgo_httpcloak_warmup(configJSON *C.char) {
 	defer guardVoid("httpcloak_warmup")
 	// Create and immediately close a session to warm up all internals
 	// This triggers DNS resolver init, ECH cache init, etc.
-	handle := httpcloak_session_new(configJSON)
+	handle := hcgo_httpcloak_session_new(configJSON)
 	if handle > 0 {
-		httpcloak_session_free(handle)
+		hcgo_httpcloak_session_free(handle)
 	}
 }
 
-//export httpcloak_warmup_full
-func httpcloak_warmup_full(configJSON *C.char, warmupURL *C.char, warmupURLLen C.int) {
+//export hcgo_httpcloak_warmup_full
+func hcgo_httpcloak_warmup_full(configJSON *C.char, warmupURL *C.char, warmupURLLen C.int) {
 	defer guardVoid("httpcloak_warmup_full")
 	// Full warmup: create session and make a real request to warm all code paths
 	// This warms up QUIC handshake, TLS, HTTP/3 framing, etc.
-	handle := httpcloak_session_new(configJSON)
+	handle := hcgo_httpcloak_session_new(configJSON)
 	if handle <= 0 {
 		return
 	}
-	defer httpcloak_session_free(handle)
+	defer hcgo_httpcloak_session_free(handle)
 
 	// Make actual request if URL provided
 	if warmupURL != nil && warmupURLLen > 0 {
-		rh := httpcloak_get_fast(handle, warmupURL, warmupURLLen)
+		rh := hcgo_httpcloak_get_fast(handle, warmupURL, warmupURLLen)
 		if rh > 0 {
-			httpcloak_fast_free(rh)
+			hcgo_httpcloak_fast_free(rh)
 		}
 	}
 }
@@ -119,8 +110,8 @@ func protocolToInt(p string) int32 {
 	}
 }
 
-//export httpcloak_get_fast_timed
-func httpcloak_get_fast_timed(handle C.int64_t, url *C.char, urlLen C.int, timings *C.int64_t) (hcRet C.int64_t) {
+//export hcgo_httpcloak_get_fast_timed
+func hcgo_httpcloak_get_fast_timed(handle C.int64_t, url *C.char, urlLen C.int, timings *C.int64_t) (hcRet C.int64_t) {
 	defer guardInt64("httpcloak_get_fast_timed", &hcRet)
 	t0 := time.Now()
 
@@ -227,8 +218,8 @@ func httpcloak_get_fast_finish(resp *httpcloak.Response, bodyBytes []byte) C.int
 	return C.int64_t(id)
 }
 
-//export httpcloak_get_fast
-func httpcloak_get_fast(handle C.int64_t, url *C.char, urlLen C.int) (hcRet C.int64_t) {
+//export hcgo_httpcloak_get_fast
+func hcgo_httpcloak_get_fast(handle C.int64_t, url *C.char, urlLen C.int) (hcRet C.int64_t) {
 	defer guardInt64("httpcloak_get_fast", &hcRet)
 	session := getSession(handle)
 	if session == nil {
@@ -309,8 +300,8 @@ func httpcloak_get_fast(handle C.int64_t, url *C.char, urlLen C.int) (hcRet C.in
 	return C.int64_t(id)
 }
 
-//export httpcloak_fast_get_meta
-func httpcloak_fast_get_meta(handle C.int64_t) (hcRet *C.FastResponseMeta) {
+//export hcgo_httpcloak_fast_get_meta
+func hcgo_httpcloak_fast_get_meta(handle C.int64_t) (hcRet *C.FastResponseMeta) {
 	defer guardVoid("httpcloak_fast_get_meta")
 	fastResponsesMu.RLock()
 	resp, exists := fastResponses[int64(handle)]
@@ -323,8 +314,8 @@ func httpcloak_fast_get_meta(handle C.int64_t) (hcRet *C.FastResponseMeta) {
 	return resp.meta
 }
 
-//export httpcloak_fast_get_body_ptr
-func httpcloak_fast_get_body_ptr(handle C.int64_t) (hcRet unsafe.Pointer) {
+//export hcgo_httpcloak_fast_get_body_ptr
+func hcgo_httpcloak_fast_get_body_ptr(handle C.int64_t) (hcRet unsafe.Pointer) {
 	defer guardPtr("httpcloak_fast_get_body_ptr", &hcRet)
 	fastResponsesMu.RLock()
 	resp, exists := fastResponses[int64(handle)]
@@ -337,8 +328,8 @@ func httpcloak_fast_get_body_ptr(handle C.int64_t) (hcRet unsafe.Pointer) {
 	return resp.body
 }
 
-//export httpcloak_fast_get_body_len
-func httpcloak_fast_get_body_len(handle C.int64_t) (hcRet C.int) {
+//export hcgo_httpcloak_fast_get_body_len
+func hcgo_httpcloak_fast_get_body_len(handle C.int64_t) (hcRet C.int) {
 	defer guardInt("httpcloak_fast_get_body_len", &hcRet)
 	fastResponsesMu.RLock()
 	resp, exists := fastResponses[int64(handle)]
@@ -351,8 +342,8 @@ func httpcloak_fast_get_body_len(handle C.int64_t) (hcRet C.int) {
 	return C.int(resp.bodyLen)
 }
 
-//export httpcloak_fast_free
-func httpcloak_fast_free(handle C.int64_t) {
+//export hcgo_httpcloak_fast_free
+func hcgo_httpcloak_fast_free(handle C.int64_t) {
 	defer guardVoid("httpcloak_fast_free")
 	fastResponsesMu.Lock()
 	resp, exists := fastResponses[int64(handle)]

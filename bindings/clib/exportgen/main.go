@@ -1,0 +1,353 @@
+// Command exportgen writes httpcloak_api.h and exports_gen.c from the Go
+// exports of the C shim, or with -check fails when they are out of date.
+//
+// The library's C entry points are not the Go functions themselves. Every Go
+// export is named hcgo_<name>, and the generated files put the public
+// httpcloak_<name> in front of each one. On Windows that wrapper runs the Go
+// function on a thread the library owns rather than on the caller's (see
+// hc_export_hop in callback_pool.c, #147). build.sh and CI run -check before
+// building, so a new or changed export cannot ship without its wrapper.
+//
+// Run from bindings/clib:
+//
+//	go run ./exportgen          # rewrite the generated files
+//	go run ./exportgen -check   # fail if they are stale
+package main
+
+import (
+	"bytes"
+	"flag"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+)
+
+// exportSources are the files whose exports make up the public API. The
+// hctest-only helpers are not part of it.
+var exportSources = []string{"httpcloak.go", "httpcloak_fast.go"}
+
+const goExportPrefix = "hcgo_"
+
+type cParam struct{ name, typ string }
+
+type cExport struct {
+	public string // httpcloak_...
+	goName string // hcgo_httpcloak_...
+	params []cParam
+	ret    string // "void" when there is no result
+}
+
+var cKeywords = map[string]bool{
+	"auto": true, "break": true, "case": true, "char": true, "const": true, "continue": true,
+	"default": true, "do": true, "double": true, "else": true, "enum": true, "extern": true,
+	"float": true, "for": true, "goto": true, "if": true, "inline": true, "int": true,
+	"long": true, "register": true, "restrict": true, "return": true, "short": true,
+	"signed": true, "sizeof": true, "static": true, "struct": true, "switch": true,
+	"typedef": true, "union": true, "unsigned": true, "void": true, "volatile": true, "while": true,
+	"a": true, "r": true, // used by the generated thunks
+}
+
+// cType maps a Go parameter or result type to the C type cgo writes for it in
+// _cgo_export.h. Anything else is refused rather than guessed.
+func cType(e ast.Expr) (string, error) {
+	switch t := e.(type) {
+	case *ast.SelectorExpr:
+		if x, ok := t.X.(*ast.Ident); ok {
+			switch {
+			case x.Name == "C":
+				return t.Sel.Name, nil
+			case x.Name == "unsafe" && t.Sel.Name == "Pointer":
+				return "void*", nil
+			}
+		}
+	case *ast.StarExpr:
+		if s, ok := t.X.(*ast.SelectorExpr); ok {
+			if x, ok := s.X.(*ast.Ident); ok && x.Name == "C" {
+				return s.Sel.Name + "*", nil
+			}
+		}
+	}
+	return "", fmt.Errorf("unsupported export type %T", e)
+}
+
+func collectExports(dir string) ([]cExport, error) {
+	var out []cExport
+	fset := token.NewFileSet()
+	for _, file := range exportSources {
+		f, err := parser.ParseFile(fset, filepath.Join(dir, file), nil, parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Doc == nil {
+				continue
+			}
+			var exported string
+			for _, c := range fn.Doc.List {
+				if name, ok := strings.CutPrefix(c.Text, "//export "); ok {
+					exported = strings.TrimSpace(name)
+				}
+			}
+			if exported == "" {
+				continue
+			}
+			if !strings.HasPrefix(exported, goExportPrefix+"httpcloak_") {
+				return nil, fmt.Errorf("%s: //export %s must be named %shttpcloak_<name>; the public symbol is a generated wrapper",
+					file, exported, goExportPrefix)
+			}
+			if exported != fn.Name.Name {
+				return nil, fmt.Errorf("%s: //export %s on func %s", file, exported, fn.Name.Name)
+			}
+			x := cExport{goName: exported, public: strings.TrimPrefix(exported, goExportPrefix), ret: "void"}
+			for _, p := range fn.Type.Params.List {
+				typ, err := cType(p.Type)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %s: %v", file, exported, err)
+				}
+				for _, n := range p.Names {
+					name := n.Name
+					if cKeywords[name] {
+						name += "_"
+					}
+					x.params = append(x.params, cParam{name, typ})
+				}
+			}
+			if fn.Type.Results != nil {
+				if n := fn.Type.Results.NumFields(); n != 1 {
+					return nil, fmt.Errorf("%s: %s returns %d values; a C export returns at most one", file, exported, n)
+				}
+				typ, err := cType(fn.Type.Results.List[0].Type)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %s: %v", file, exported, err)
+				}
+				x.ret = typ
+			}
+			out = append(out, x)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].public < out[j].public })
+	return out, nil
+}
+
+func (x cExport) signature() string {
+	if len(x.params) == 0 {
+		return x.public + "(void)"
+	}
+	ps := make([]string, len(x.params))
+	for i, p := range x.params {
+		ps[i] = p.typ + " " + p.name
+	}
+	return x.public + "(" + strings.Join(ps, ", ") + ")"
+}
+
+func (x cExport) call(prefix string) string {
+	as := make([]string, len(x.params))
+	for i, p := range x.params {
+		as[i] = prefix + p.name
+	}
+	return x.goName + "(" + strings.Join(as, ", ") + ")"
+}
+
+const generatedNote = "// Code generated by bindings/clib/exportgen. DO NOT EDIT.\n" +
+	"// Regenerate from bindings/clib: go run ./exportgen\n"
+
+func genHeader(xs []cExport) []byte {
+	var b bytes.Buffer
+	b.WriteString(generatedNote)
+	b.WriteString(`
+// The httpcloak C API. Every function here is a thin C wrapper around the Go
+// function of the same name with an hcgo_ prefix; see exports_gen.c.
+#ifndef HTTPCLOAK_API_H
+#define HTTPCLOAK_API_H
+
+#include <stdint.h>
+#include "callback_pool.h"
+
+#if defined(HC_BUILDING_LIB) && defined(_WIN32)
+#define HC_EXPORT __declspec(dllexport)
+#elif defined(HC_BUILDING_LIB) && defined(__GNUC__)
+#define HC_EXPORT __attribute__((visibility("default")))
+#else
+#define HC_EXPORT
+#endif
+
+// Pre-allocated response structure to avoid JSON serialization
+typedef struct {
+    int32_t status_code;
+    int32_t body_len;
+    int32_t headers_len;
+    int32_t protocol;  // 1=h1, 2=h2, 3=h3
+    char final_url[2048];
+} FastResponseMeta;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+HC_EXPORT void httpcloak_free_string(char* str);
+`)
+	for _, x := range xs {
+		fmt.Fprintf(&b, "HC_EXPORT %s %s;\n", x.ret, x.signature())
+	}
+	b.WriteString(`
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+`)
+	return b.Bytes()
+}
+
+func genSource(xs []cExport) []byte {
+	var b bytes.Buffer
+	b.WriteString(generatedNote)
+	b.WriteString(`
+// The public entry points. Each calls the Go export of the same name with an
+// hcgo_ prefix. On Windows it does so through hc_export_hop, which runs the Go
+// function on a thread this library owns and waits for it, so Go never runs on
+// a thread the host runtime manages (#147). Elsewhere it calls straight
+// through. HC_FORCE_EXPORT_HOP turns the hop on anywhere, for tests.
+
+#include <stdlib.h>
+#include "_cgo_export.h"
+
+// Plain C: freeing needs neither Go nor another thread.
+HC_EXPORT void httpcloak_free_string(char* str) { free(str); }
+
+#if defined(_WIN32) || defined(HC_FORCE_EXPORT_HOP)
+`)
+	for _, x := range xs {
+		short := strings.TrimPrefix(x.public, "httpcloak_")
+		fields := make([]string, 0, len(x.params)+1)
+		for _, p := range x.params {
+			fields = append(fields, p.typ+" "+p.name+";")
+		}
+		if x.ret != "void" {
+			fields = append(fields, x.ret+" r;")
+		}
+		if len(fields) == 0 {
+			fields = append(fields, "char unused;")
+		}
+		fmt.Fprintf(&b, "\ntypedef struct { %s } hc_a_%s;\n", strings.Join(fields, " "), short)
+		assign := ""
+		if x.ret != "void" {
+			assign = "a->r = "
+		}
+		fmt.Fprintf(&b, "static void hc_t_%s(void* p) { hc_a_%s* a = (hc_a_%s*)p; %s%s; }\n",
+			short, short, short, assign, x.call("a->"))
+		fmt.Fprintf(&b, "HC_EXPORT %s %s {\n    hc_a_%s a;\n", x.ret, x.signature(), short)
+		for _, p := range x.params {
+			fmt.Fprintf(&b, "    a.%s = %s;\n", p.name, p.name)
+		}
+		fmt.Fprintf(&b, "    hc_export_hop(hc_t_%s, &a);\n", short)
+		if x.ret != "void" {
+			b.WriteString("    return a.r;\n")
+		}
+		b.WriteString("}\n")
+	}
+	b.WriteString("\n#else\n\n")
+	for _, x := range xs {
+		ret := "return "
+		if x.ret == "void" {
+			ret = ""
+		}
+		fmt.Fprintf(&b, "HC_EXPORT %s %s { %s%s; }\n", x.ret, x.signature(), ret, x.call(""))
+	}
+	b.WriteString("\n#endif\n")
+	return b.Bytes()
+}
+
+// generate returns the files exportgen owns, keyed by name.
+func generate(dir string) (map[string][]byte, error) {
+	xs, err := collectExports(dir)
+	if err != nil {
+		return nil, err
+	}
+	if len(xs) < 100 {
+		return nil, fmt.Errorf("found only %d exports; the parser is missing some", len(xs))
+	}
+	if err := checkStrayExports(dir); err != nil {
+		return nil, err
+	}
+	return map[string][]byte{
+		"httpcloak_api.h": genHeader(xs),
+		"exports_gen.c":   genSource(xs),
+	}, nil
+}
+
+// stale lists the generated files in dir that differ from what generate makes.
+func stale(dir string, files map[string][]byte) []string {
+	var out []string
+	for name, want := range files {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		// A Windows checkout may turn LF into CRLF; that is not staleness.
+		got = bytes.ReplaceAll(got, []byte("\r\n"), []byte("\n"))
+		if err != nil || !bytes.Equal(got, want) {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// checkStrayExports catches an //export in any other file of the package that
+// skips the wrapper, which would put Go straight on the caller's thread.
+// hcTest* helpers exist only in hctest builds.
+func checkStrayExports(dir string) error {
+	re := regexp.MustCompile(`(?m)^//export (\w+)`)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return err
+		}
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			name := m[1]
+			if strings.HasPrefix(name, goExportPrefix+"httpcloak_") || strings.HasPrefix(name, "hcTest") {
+				continue
+			}
+			return fmt.Errorf("%s: //export %s is not behind a generated wrapper; name it %shttpcloak_<name>",
+				e.Name(), name, goExportPrefix)
+		}
+	}
+	return nil
+}
+
+func main() {
+	check := flag.Bool("check", false, "fail if the generated files are out of date instead of writing them")
+	dir := flag.String("dir", ".", "the bindings/clib directory")
+	flag.Parse()
+	files, err := generate(*dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "exportgen:", err)
+		os.Exit(1)
+	}
+	if *check {
+		if names := stale(*dir, files); len(names) > 0 {
+			fmt.Fprintf(os.Stderr, "exportgen: %s out of date; run: go run ./exportgen (in bindings/clib)\n",
+				strings.Join(names, ", "))
+			os.Exit(1)
+		}
+		return
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(*dir, name), data, 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, "exportgen:", err)
+			os.Exit(1)
+		}
+	}
+}

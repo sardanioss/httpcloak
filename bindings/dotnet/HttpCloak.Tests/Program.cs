@@ -32,6 +32,11 @@ if (testArg == "cache")
     Environment.Exit(await TestSessionCache.RunAsync() ? 0 : 1);
 }
 
+if (testArg == "gcstress")
+{
+    Environment.Exit(await TestGcStress.RunAsync(cmdArgs) ? 0 : 1);
+}
+
 Console.WriteLine(new string('=', 70));
 Console.WriteLine("C#: Comprehensive Session Test (H3 + 0-RTT)");
 Console.WriteLine(new string('=', 70));
