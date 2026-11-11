@@ -49,6 +49,7 @@ export const request = cjs.request;
 
 // Utility
 export const version = cjs.version;
+export const trimMemory = cjs.trimMemory;
 export const availablePresets = cjs.availablePresets;
 
 // DNS configuration

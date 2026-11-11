@@ -20,6 +20,7 @@ Example:
 import asyncio
 import base64
 import json
+import math
 import warnings
 
 # The request methods take a parameter called json, which shadows the module
@@ -1920,7 +1921,7 @@ class Session:
         tcp_window_size: Optional[int] = None,
         tcp_window_scale: Optional[int] = None,
         tcp_df: Optional[bool] = None,
-        http2_max_conn_age: Optional[int] = None,
+        http2_max_conn_age: Optional[float] = None,
     ):
         self._lib = _get_lib()
         self._default_timeout = timeout
@@ -1959,7 +1960,13 @@ class Session:
         if quic_idle_timeout > 0:
             config["quic_idle_timeout"] = quic_idle_timeout
         if http2_max_conn_age is not None:
-            config["http2_max_conn_age"] = http2_max_conn_age
+            # The library takes whole seconds. A float went over as 90.0,
+            # which it could not read, and that turned the limit off.
+            if isinstance(http2_max_conn_age, bool) or not isinstance(http2_max_conn_age, (int, float)):
+                raise TypeError("http2_max_conn_age must be a number of seconds")
+            if not math.isfinite(http2_max_conn_age):
+                raise ValueError("http2_max_conn_age must be finite; 0 turns the limit off")
+            config["http2_max_conn_age"] = int(math.ceil(http2_max_conn_age))
         if local_address:
             config["local_address"] = local_address
         if key_log_file:
@@ -2281,7 +2288,10 @@ class Session:
             effective_auth = auth if auth is not None else self.auth
             merged_headers = _apply_auth(merged_headers, effective_auth)
             merged_headers = self._apply_cookies(merged_headers, cookies)
-            content_type = (merged_headers or {}).get("Content-Type", "application/octet-stream")
+            content_type = next(
+                (v for k, v in (merged_headers or {}).items() if k.lower() == "content-type"),
+                "application/octet-stream",
+            )
             return self._streaming_upload(
                 "POST",
                 url,
@@ -3663,14 +3673,15 @@ class Session:
             # body with no headers could not be sent at all. The sync methods
             # already guard the same way.
             merged_headers = merged_headers or {}
-            merged_headers["content-type"] = "application/json"
+            _default_header(merged_headers, "Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
                 # Form data
                 from urllib.parse import urlencode
                 body_bytes = urlencode(data).encode("utf-8")
                 body_len = len(body_bytes)
-                merged_headers["content-type"] = "application/x-www-form-urlencoded"
+                merged_headers = merged_headers or {}
+                _default_header(merged_headers, "Content-Type", "application/x-www-form-urlencoded")
             elif isinstance(data, str):
                 body_bytes = data.encode("utf-8")
                 body_len = len(body_bytes)
@@ -3768,12 +3779,13 @@ class Session:
             # body with no headers could not be sent at all. The sync methods
             # already guard the same way.
             merged_headers = merged_headers or {}
-            merged_headers["content-type"] = "application/json"
+            _default_header(merged_headers, "Content-Type", "application/json")
         elif data is not None:
             if isinstance(data, dict):
                 body_bytes = urlencode(data).encode("utf-8")
                 body_len = len(body_bytes)
-                merged_headers["content-type"] = "application/x-www-form-urlencoded"
+                merged_headers = merged_headers or {}
+                _default_header(merged_headers, "Content-Type", "application/x-www-form-urlencoded")
             elif isinstance(data, str):
                 body_bytes = data.encode("utf-8")
                 body_len = len(body_bytes)

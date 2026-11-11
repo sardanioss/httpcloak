@@ -1765,7 +1765,12 @@ class Session {
       config.quic_idle_timeout = quicIdleTimeout;
     }
     if (http2MaxConnAge !== null && http2MaxConnAge !== undefined) {
-      config.http2_max_conn_age = http2MaxConnAge;
+      // The library takes whole seconds; a fraction went over as one it could
+      // not read, and that turned the limit off.
+      if (typeof http2MaxConnAge !== "number" || !Number.isFinite(http2MaxConnAge)) {
+        throw new TypeError("http2MaxConnAge must be a number of seconds");
+      }
+      config.http2_max_conn_age = Math.ceil(http2MaxConnAge);
     }
     if (localAddress) {
       config.local_address = localAddress;
@@ -1922,7 +1927,9 @@ class Session {
    */
   _mergeHeaders(headers) {
     if (!this.headers || Object.keys(this.headers).length === 0) {
-      return headers;
+      // A copy: json/data/files write their Content-Type into what this
+      // returns, and that used to land in the caller's own object.
+      return headers ? { ...headers } : headers;
     }
     // Header names are case-insensitive: a request's "authorization" replaces
     // the session's "Authorization" instead of going out beside it as a second
@@ -3046,17 +3053,11 @@ class Session {
       url = addParamsToUrl(url, params);
     }
 
-    // Merge headers
-    let mergedHeaders = { ...this.headers };
-    if (headers) {
-      mergedHeaders = { ...mergedHeaders, ...headers };
-    }
-    if (cookies) {
-      const cookieStr = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ");
-      mergedHeaders["Cookie"] = mergedHeaders["Cookie"]
-        ? `${mergedHeaders["Cookie"]}; ${cookieStr}`
-        : cookieStr;
-    }
+    // Merge headers in any spelling, as the buffered methods do: a spread
+    // kept the session's "Authorization" beside a request's "authorization",
+    // and the transport sends the canonical one.
+    let mergedHeaders = this._mergeHeaders(headers) || {};
+    mergedHeaders = this._applyCookies(mergedHeaders, cookies) || {};
 
     // Build options JSON
     const reqOptions = {};
@@ -3128,11 +3129,10 @@ class Session {
       url = addParamsToUrl(url, params);
     }
 
-    // Merge headers
-    let mergedHeaders = { ...this.headers };
-    if (headers) {
-      mergedHeaders = { ...mergedHeaders, ...headers };
-    }
+    // Merge headers in any spelling, as the buffered methods do: a spread
+    // kept the session's "Authorization" beside a request's "authorization",
+    // and the transport sends the canonical one.
+    let mergedHeaders = this._mergeHeaders(headers) || {};
 
     // Process body
     let body = null;
@@ -3146,12 +3146,7 @@ class Session {
       body = typeof bodyOpt === "string" ? bodyOpt : bodyOpt.toString();
     }
 
-    if (cookies) {
-      const cookieStr = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ");
-      mergedHeaders["Cookie"] = mergedHeaders["Cookie"]
-        ? `${mergedHeaders["Cookie"]}; ${cookieStr}`
-        : cookieStr;
-    }
+    mergedHeaders = this._applyCookies(mergedHeaders, cookies) || {};
 
     // Build options JSON
     const reqOptions = {};
@@ -3225,17 +3220,11 @@ class Session {
       url = addParamsToUrl(url, params);
     }
 
-    // Merge headers
-    let mergedHeaders = { ...this.headers };
-    if (headers) {
-      mergedHeaders = { ...mergedHeaders, ...headers };
-    }
-    if (cookies) {
-      const cookieStr = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ");
-      mergedHeaders["Cookie"] = mergedHeaders["Cookie"]
-        ? `${mergedHeaders["Cookie"]}; ${cookieStr}`
-        : cookieStr;
-    }
+    // Merge headers in any spelling, as the buffered methods do: a spread
+    // kept the session's "Authorization" beside a request's "authorization",
+    // and the transport sends the canonical one.
+    let mergedHeaders = this._mergeHeaders(headers) || {};
+    mergedHeaders = this._applyCookies(mergedHeaders, cookies) || {};
 
     // Build request config
     const requestConfig = {

@@ -24,6 +24,12 @@ class _Echo(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         if length:
             self.rfile.read(length)
+        elif "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            while True:
+                size = int(self.rfile.readline().split(b";")[0], 16)
+                self.rfile.read(size + 2)
+                if size == 0:
+                    break
         body = json.dumps({
             "cookie": self.headers.get_all("Cookie") or [],
             "content_type": self.headers.get_all("Content-Type") or [],
@@ -87,3 +93,42 @@ def test_headers_as_pairs(session, url):
         assert sorted(got["x"]) == ["2", "s"], got
     finally:
         session.headers = {}
+
+
+@pytest.mark.parametrize("call", ["post_fast", "request_fast"])
+@pytest.mark.parametrize("kw", [{"json": {"a": 1}}, {"data": {"a": "1"}}])
+def test_fast_paths_keep_a_lowercase_content_type(session, url, call, kw):
+    send = getattr(session, call)
+    args = (url,) if call == "post_fast" else ("POST", url)
+    got = send(*args, headers={"content-type": "text/x-mine"}, **kw).json()
+    assert got["content_type"] == ["text/x-mine"], got
+
+
+@pytest.mark.parametrize("call", ["post_fast", "request_fast"])
+def test_fast_form_body_needs_no_headers(session, url, call):
+    send = getattr(session, call)
+    args = (url,) if call == "post_fast" else ("POST", url)
+    got = send(*args, data={"a": "1"}).json()
+    assert got["content_type"] == ["application/x-www-form-urlencoded"], got
+
+
+def test_streaming_upload_keeps_a_lowercase_content_type(session, url):
+    got = session.post(url, data=iter([b"ab", b"cd"]), headers={"content-type": "text/plain"}).json()
+    assert got["content_type"] == ["text/plain"], got
+
+
+@pytest.mark.parametrize("bad", [True, "90", [90]])
+def test_http2_max_conn_age_rejects_non_numbers(bad):
+    with pytest.raises(TypeError):
+        httpcloak.Session(http2_max_conn_age=bad)
+
+
+def test_http2_max_conn_age_takes_a_float():
+    s = httpcloak.Session(http2_max_conn_age=1.5)
+    s.close()
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("nan")])
+def test_http2_max_conn_age_rejects_non_finite(bad):
+    with pytest.raises(ValueError):
+        httpcloak.Session(http2_max_conn_age=bad)
