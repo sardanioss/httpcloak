@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -287,7 +288,7 @@ type SessionConfig struct {
 	UDPProxy                      string                 `json:"udp_proxy,omitempty"`                         // Proxy for UDP (HTTP/3 via MASQUE)
 	Timeout                       int                    `json:"timeout,omitempty"`                           // seconds
 	HTTPVersion                   string                 `json:"http_version,omitempty"`                      // "auto", "h1", "h2", "h3"
-	Verify                        *bool                  `json:"verify,omitempty"`                            // SSL verification (default: true)
+	Verify                        verifyFlag             `json:"verify,omitempty"`                            // SSL verification (default: true)
 	AllowRedirects                *bool                  `json:"allow_redirects,omitempty"`                   // Follow redirects (default: true)
 	MaxRedirects                  int                    `json:"max_redirects,omitempty"`                     // Max redirects (default: 10)
 	Retry                         int                    `json:"retry,omitempty"`                             // Retry count (default: 0)
@@ -299,7 +300,7 @@ type SessionConfig struct {
 	ECHConfigDomain               string                 `json:"ech_config_domain,omitempty"`                 // Domain to fetch ECH config from
 	TLSOnly                       bool                   `json:"tls_only,omitempty"`                          // TLS-only mode: skip preset headers, set all manually
 	QuicIdleTimeout               int                    `json:"quic_idle_timeout,omitempty"`                 // QUIC idle timeout in seconds (default: 30)
-	HTTP2MaxConnAge               *int                   `json:"http2_max_conn_age,omitempty"`                // Seconds before an HTTP/2 connection takes no new requests; absent: 5 minutes, 0 or less: no limit
+	HTTP2MaxConnAge               json.RawMessage        `json:"http2_max_conn_age,omitempty"`                // Seconds before an HTTP/2 connection takes no new requests; absent: 5 minutes, 0 or less: no limit
 	LocalAddress                  string                 `json:"local_address,omitempty"`                     // Local IP to bind outgoing connections (IPv6 rotation)
 	KeyLogFile                    string                 `json:"key_log_file,omitempty"`                      // Path to write TLS key log for Wireshark decryption
 	DisableECH                    bool                   `json:"disable_ech,omitempty"`                       // Disable ECH lookup for faster first request
@@ -1167,7 +1168,7 @@ func hcgo_httpcloak_session_new(configJSON *C.char) (hcRet C.int64_t) {
 	}
 
 	// Handle SSL verification
-	if config.Verify != nil && !*config.Verify {
+	if verifyOff(config.Verify) {
 		opts = append(opts, httpcloak.WithInsecureSkipVerify())
 	}
 
@@ -1232,8 +1233,8 @@ func hcgo_httpcloak_session_new(configJSON *C.char) (hcRet C.int64_t) {
 	}
 
 	// Handle the HTTP/2 connection age limit
-	if config.HTTP2MaxConnAge != nil {
-		opts = append(opts, httpcloak.WithHTTP2MaxConnAge(time.Duration(*config.HTTP2MaxConnAge)*time.Second))
+	if age, ok := connAgeSeconds(config.HTTP2MaxConnAge); ok {
+		opts = append(opts, httpcloak.WithHTTP2MaxConnAge(time.Duration(age)*time.Second))
 	}
 
 	// Handle local address binding (for IPv6 rotation)
@@ -3357,14 +3358,14 @@ var (
 
 // LocalProxyConfig holds configuration for starting a local proxy
 type LocalProxyConfig struct {
-	Port           int    `json:"port,omitempty"`            // Port to listen on (0 = auto)
-	Preset         string `json:"preset,omitempty"`          // Browser fingerprint preset
-	Timeout        int    `json:"timeout,omitempty"`         // Request timeout in seconds
-	MaxConnections int    `json:"max_connections,omitempty"` // Max concurrent connections
-	TCPProxy       string `json:"tcp_proxy,omitempty"`       // Upstream TCP proxy
-	UDPProxy       string `json:"udp_proxy,omitempty"`       // Upstream UDP proxy
-	TLSOnly        bool   `json:"tls_only,omitempty"`        // TLS-only mode (skip preset HTTP headers)
-	Verify         *bool  `json:"verify,omitempty"`          // Certificate verification (default: true)
+	Port           int        `json:"port,omitempty"`            // Port to listen on (0 = auto)
+	Preset         string     `json:"preset,omitempty"`          // Browser fingerprint preset
+	Timeout        int        `json:"timeout,omitempty"`         // Request timeout in seconds
+	MaxConnections int        `json:"max_connections,omitempty"` // Max concurrent connections
+	TCPProxy       string     `json:"tcp_proxy,omitempty"`       // Upstream TCP proxy
+	UDPProxy       string     `json:"udp_proxy,omitempty"`       // Upstream UDP proxy
+	TLSOnly        bool       `json:"tls_only,omitempty"`        // TLS-only mode (skip preset HTTP headers)
+	Verify         verifyFlag `json:"verify,omitempty"`          // Certificate verification (default: true)
 }
 
 //export hcgo_httpcloak_local_proxy_start
@@ -3400,7 +3401,7 @@ func hcgo_httpcloak_local_proxy_start(configJSON *C.char) (hcRet C.int64_t) {
 	if config.TLSOnly {
 		opts = append(opts, httpcloak.WithProxyTLSOnly())
 	}
-	if config.Verify != nil && !*config.Verify {
+	if verifyOff(config.Verify) {
 		opts = append(opts, httpcloak.WithProxyInsecureSkipVerify())
 	}
 
@@ -4143,12 +4144,23 @@ func hcgo_httpcloak_upload_start(sessionHandle C.int64_t, url *C.char, optionsJS
 		finished:   false,
 	}
 
-	// Set Content-Type if specified
+	// Set Content-Type if specified, unless the caller's headers already
+	// carry one in any spelling: the transport keeps the canonical spelling,
+	// so a default added beside a lowercase content-type replaced it.
 	if options.ContentType != "" {
 		if upload.headers == nil {
 			upload.headers = make(map[string]string)
 		}
-		upload.headers["Content-Type"] = options.ContentType
+		has := false
+		for k := range upload.headers {
+			if strings.EqualFold(k, "Content-Type") {
+				has = true
+				break
+			}
+		}
+		if !has {
+			upload.headers["Content-Type"] = options.ContentType
+		}
 	}
 
 	// Store upload and return handle
@@ -4660,4 +4672,34 @@ func buildExactHeaders(pairs [][]string) []fingerprint.HeaderPair {
 		return nil
 	}
 	return out
+}
+
+// verifyFlag is a config's verify field. Only a JSON false turns certificate
+// checks off. As a *bool it failed open: the config's Unmarshal error is not
+// checked, and encoding/json leaves the pointer at false when the value has
+// the wrong type, so "true" or 1 turned verification off.
+type verifyFlag struct{ off bool }
+
+func (v *verifyFlag) UnmarshalJSON(b []byte) error {
+	v.off = string(bytes.TrimSpace(b)) == "false"
+	return nil
+}
+
+func verifyOff(v verifyFlag) bool { return v.off }
+
+// connAgeSeconds reads http2_max_conn_age as a number of seconds, rounding a
+// fraction up. A value that is not a number is treated as absent, which keeps
+// the default limit; as an *int it decoded to 0, which means no limit.
+func connAgeSeconds(raw json.RawMessage) (int64, bool) {
+	if len(raw) == 0 || string(bytes.TrimSpace(raw)) == "null" {
+		return 0, false
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, false
+	}
+	if f > float64(math.MaxInt64/int64(time.Second)) {
+		f = float64(math.MaxInt64 / int64(time.Second))
+	}
+	return int64(math.Ceil(f)), true
 }
