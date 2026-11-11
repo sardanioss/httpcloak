@@ -99,11 +99,14 @@ With redirects off, a 301 or 302 comes back as the response, body and all, with 
 
 ### The Referer on a redirect hop
 
-Each hop carries a `Referer` built the way a browser builds one, following Chrome's
-default policy: the full previous URL when the hop stays on the same origin, the
-origin alone when it crosses to another, and nothing at all on an https to http
-downgrade. That is what a browser sends, so leave it alone unless you have a
-reason not to.
+Each hop carries the `Referer` your first request carried, re-applied for the hop's
+URL under Chrome's default policy: the full URL when the hop is on that URL's
+origin, the origin alone when it isn't, and nothing at all on an https to http
+downgrade. A request with no `Referer`, like a typed navigation, sends none on any
+hop. That is what Chrome sends (it never names the URL that redirected), so leave
+it alone unless you have a reason not to. A `Sec-Fetch-Site` you set moves along
+the chain too: `none` stays `none`, and otherwise it only gets less trusting, so a
+hop to another site turns it `cross-site`.
 
 `disable_redirect_referer` turns it off, for reproducing a client that sends no
 `Referer` at all, or replaying a captured chain verbatim.

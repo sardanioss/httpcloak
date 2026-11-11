@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/sardanioss/httpcloak/fingerprint"
@@ -10,15 +9,17 @@ import (
 	"github.com/sardanioss/httpcloak/transport"
 )
 
-// By default a redirect hop carries a Referer, because that is what Chrome does.
-// This is the control for the two tests below: without it, a knob that silently
-// did nothing and a knob that worked would look identical.
+// By default a redirect hop carries the chain's Referer: the one the first
+// request carried, as Chrome sends it. This is the control for the two tests
+// below: without it, a knob that silently did nothing and a knob that worked
+// would look identical.
 func TestRedirectRefererOnByDefault(t *testing.T) {
 	srv := newBodyCapture(t, 302, 200)
 	s := newBodyTestSession(t, &protocol.SessionConfig{FollowRedirects: true})
 
 	if _, err := s.Request(context.Background(), &transport.Request{
 		Method: "GET", URL: srv.url + "hop0",
+		Headers: map[string][]string{"Referer": {srv.url + "page"}},
 	}); err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -28,12 +29,8 @@ func TestRedirectRefererOnByDefault(t *testing.T) {
 	if len(srv.hops) != 2 {
 		t.Fatalf("server saw %d hops, want 2", len(srv.hops))
 	}
-	if !hasHeader(srv.hops[1], "referer") {
-		t.Fatal("hop 2 carried no Referer by default; Chrome sends one on every " +
-			"hop except an https->http downgrade")
-	}
-	if got := srv.hops[1].values["referer"]; !strings.Contains(got, "hop0") {
-		t.Errorf("hop 2 Referer = %q, want it to name the URL that issued the 302", got)
+	if got := srv.hops[1].values["referer"]; got != srv.url+"page" {
+		t.Errorf("hop 2 Referer = %q, want the first request's %q", got, srv.url+"page")
 	}
 }
 
@@ -44,6 +41,7 @@ func TestDisableRedirectRefererSuppressesIt(t *testing.T) {
 
 	if _, err := s.Request(context.Background(), &transport.Request{
 		Method: "GET", URL: srv.url + "hop0",
+		Headers:                map[string][]string{"Referer": {srv.url + "page"}},
 		DisableRedirectReferer: true,
 	}); err != nil {
 		t.Fatalf("request: %v", err)

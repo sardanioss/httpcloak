@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"sort"
@@ -711,25 +712,50 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 				newReq.Headers[k] = v
 			}
 
-			// Synthesize the next-hop Referer to match Chrome's default
-			// strict-origin-when-cross-origin policy. A browser sends a Referer
-			// on every redirect hop except an https->http downgrade; httpcloak
-			// previously carried a stale copied value (or none at all), which a
-			// server inspecting the redirect chain can use to fingerprint it.
-			// Drop any copied Referer (either casing) first so we don't emit a
-			// duplicate, then set the policy-correct value.
+			// Referer and Sec-Fetch-Site follow the chain as Chrome 158 sent
+			// them, recorded on a typed navigation and on one a page started,
+			// each redirected same-origin and then to another site. Every hop
+			// sends the FIRST request's referrer, not the URL that redirected,
+			// under strict-origin-when-cross-origin for the hop's own URL, as
+			// Fetch keeps a request's referrer across redirects. So a typed
+			// navigation sends no Referer on any hop. Until this, each hop sent
+			// the URL that redirected (#70 asked for that, but Chrome doesn't).
 			//
-			// DisableRedirectReferer suppresses the synthesis but NOT the two
-			// deletes: a Referer the caller put on the original request names the
-			// pre-redirect URL, and carrying it to the new host would leak exactly
-			// what the caller asked us not to send.
+			// A Sec-Fetch-Site the caller set starts the chain, and from there
+			// only grows less trusting: "none" stays "none", and a hop that
+			// leaves the referrer's site makes it cross-site for the rest of the
+			// chain. Without one the transport picks the value on each hop as
+			// on the first request.
+			//
+			// The copied Referer (either casing) is dropped first so none goes
+			// out twice. DisableRedirectReferer suppresses the hop's Referer but
+			// not that delete: the caller's own names the page the chain
+			// started from, which is what they asked not to send.
+			chain, inChain := ctx.Value(redirectChainKey{}).(redirectChain)
+			if !inChain {
+				chain.referer = headerValueFold(req.Headers, "Referer")
+				chain.site = strings.ToLower(headerValueFold(req.Headers, "Sec-Fetch-Site"))
+			}
 			for k := range newReq.Headers {
 				if strings.EqualFold(k, "Referer") {
 					delete(newReq.Headers, k)
 				}
 			}
+			if chain.site != "" {
+				if chain.site != "none" && chain.referer != "" {
+					if rel := fetchSiteRelation(chain.referer, redirectURL); fetchSiteRank(rel) > fetchSiteRank(chain.site) {
+						chain.site = rel
+					}
+				}
+				for k := range newReq.Headers {
+					if strings.EqualFold(k, "Sec-Fetch-Site") {
+						newReq.Headers[k] = []string{chain.site}
+					}
+				}
+			}
+			ctx = context.WithValue(ctx, redirectChainKey{}, chain)
 			if !req.DisableRedirectReferer {
-				if ref := redirectReferer(req.URL, schemeDowngrade, crossOrigin); ref != "" {
+				if ref := chainReferer(chain.referer, redirectURL); ref != "" {
 					newReq.Headers["Referer"] = []string{ref}
 				}
 			}
@@ -1960,6 +1986,77 @@ func parseOrigin(urlStr string) (scheme, host, port string) {
 		}
 	}
 	return scheme, host, port
+}
+
+// redirectChainKey carries a redirect chain's referrer and Sec-Fetch-Site
+// from one hop to the next, on the context requestWithRedirects passes down.
+type redirectChainKey struct{}
+
+type redirectChain struct {
+	referer string // the Referer the chain's first request carried
+	site    string // the caller's Sec-Fetch-Site, as it stands for the hop before
+}
+
+// headerValueFold returns the first value of name in h, in any spelling.
+func headerValueFold(h map[string][]string, name string) string {
+	for k, v := range h {
+		if strings.EqualFold(k, name) && len(v) > 0 {
+			return v[0]
+		}
+	}
+	return ""
+}
+
+// fetchSiteRank orders Sec-Fetch-Site values from most to least trusting.
+func fetchSiteRank(v string) int {
+	switch v {
+	case "same-origin":
+		return 1
+	case "same-site":
+		return 2
+	case "cross-site":
+		return 3
+	}
+	return 0
+}
+
+// fetchSiteRelation is the Sec-Fetch-Site a request to target gets from a page
+// at referrer: same-origin, same-site (same scheme and registrable domain,
+// any port), or cross-site.
+func fetchSiteRelation(referrer, target string) string {
+	if sameOrigin(referrer, target) {
+		return "same-origin"
+	}
+	rs, rh, _ := parseOrigin(referrer)
+	ts, th, _ := parseOrigin(target)
+	if rs != "" && rs == ts && rh != "" && registrableDomain(rh) == registrableDomain(th) {
+		return "same-site"
+	}
+	return "cross-site"
+}
+
+// registrableDomain approximates eTLD+1 with the last two labels, as the
+// client package's Sec-Fetch-Site detection does. An IP literal is its own site.
+func registrableDomain(host string) string {
+	if net.ParseIP(strings.Trim(host, "[]")) != nil {
+		return host
+	}
+	parts := strings.Split(host, ".")
+	if len(parts) <= 2 {
+		return host
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
+}
+
+// chainReferer returns the Referer a redirect hop to target sends for a chain
+// whose first request carried referrer: "" with none, or from https to http,
+// and otherwise redirectReferer's strict-origin-when-cross-origin form of it
+// for target.
+func chainReferer(referrer, target string) string {
+	if referrer == "" {
+		return ""
+	}
+	return redirectReferer(referrer, isSchemeDowngrade(referrer, target), !sameOrigin(referrer, target))
 }
 
 // redirectReferer returns the Referer value to send on the next redirect hop,

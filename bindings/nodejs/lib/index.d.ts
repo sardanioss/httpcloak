@@ -365,9 +365,9 @@ export interface RequestOptions {
   disableHighEntropyClientHints?: boolean;
 
   /**
-   * Per-request opt-out of the Referer httpcloak adds when it follows a
-   * redirect. When true no Referer is synthesised for the next hop; a Referer
-   * the caller set themselves still goes out.
+   * Per-request opt-out of the Referer a redirect hop carries, which is the
+   * first request's own Referer re-applied for the hop's URL. When true no
+   * Referer goes out on any hop, including one the caller set.
    */
   disableRedirectReferer?: boolean;
 
