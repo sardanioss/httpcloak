@@ -559,7 +559,8 @@ proxy = LocalProxy(
     max_connections=1000,# Max concurrent connections
     tcp_proxy=None,      # Default upstream TCP proxy
     udp_proxy=None,      # Default upstream UDP proxy
-    tls_only=False       # TLS-only mode
+    tls_only=False,      # TLS-only mode
+    verify=True          # Check the certificates of the sites it connects to (False for self-signed test servers)
 )
 
 proxy.port           # Actual port number

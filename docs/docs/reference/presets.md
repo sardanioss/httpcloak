@@ -90,10 +90,22 @@ For any preset not listed, run the same capture yourself. The static parts (UA, 
 
 ## Chrome desktop
 
-The Chrome desktop family. Versions 143 through 146 are Go-defined in `fingerprint/presets.go`. Versions 147 through 155 ship as JSON in `fingerprint/embedded/`, each inheriting from the one before it. Most bump only the User-Agent and the `sec-ch-ua` brand list; 150 and 152 also change the TLS layer, 150 by adding signature algorithms and 152 by adding the trust anchors extension and a greased signature algorithm. 154 keeps the same extensions but sends the trust anchor list sorted, on TCP and QUIC alike, where 152 and 153 send a fixed unsorted order on TCP and reshuffle it per connection on QUIC. 155 adds `image/jxl` to the `Accept` header, ahead of `image/avif`, on both document and image loads.
+The Chrome desktop family. Versions 143 through 146 are Go-defined in `fingerprint/presets.go`. Versions 147 through 158 ship as JSON in `fingerprint/embedded/`, each inheriting from the one before it. Most bump only the User-Agent and the `sec-ch-ua` brand list; 150 and 152 also change the TLS layer, 150 by adding signature algorithms and 152 by adding the trust anchors extension and a greased signature algorithm. 154 keeps the same extensions but sends the trust anchor list sorted, on TCP and QUIC alike, where 152 and 153 send a fixed unsorted order on TCP and reshuffle it per connection on QUIC. 155 adds `image/jxl` to the `Accept` header, ahead of `image/avif`, on both document and image loads. 156, 157 and 158 are headers-only over 155: only the User-Agent and the brand list move.
 
 | Preset | UA | `sec-ch-ua` | Notes |
 |---|---|---|---|
+| `chrome-158-windows` | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36` | `"Chromium";v="158", "Not.A/Brand";v="24", "Google Chrome";v="158"` | Headers only: UA and brand list. TLS, HTTP/2 and `Accept` inherited from 157. |
+| `chrome-158-linux` | `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36` | `"Chromium";v="158", "Not.A/Brand";v="24", "Google Chrome";v="158"` | As above. |
+| `chrome-158-macos` | `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36` | `"Chromium";v="158", "Not.A/Brand";v="24", "Google Chrome";v="158"` | As above. |
+| `chrome-158-android` | `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Mobile Safari/537.36` | `"Chromium";v="158", "Not.A/Brand";v="24", "Google Chrome";v="158"` | As above, with `sec-ch-ua-mobile: ?1`. |
+| `chrome-157-windows` | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36` | `"Not-A.Brand";v="99", "Google Chrome";v="157", "Chromium";v="157"` | Headers only: UA and brand list. TLS, HTTP/2 and `Accept` inherited from 156. |
+| `chrome-157-linux` | `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36` | `"Not-A.Brand";v="99", "Google Chrome";v="157", "Chromium";v="157"` | As above. |
+| `chrome-157-macos` | `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36` | `"Not-A.Brand";v="99", "Google Chrome";v="157", "Chromium";v="157"` | As above. |
+| `chrome-157-android` | `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36` | `"Not-A.Brand";v="99", "Google Chrome";v="157", "Chromium";v="157"` | As above, with `sec-ch-ua-mobile: ?1`. |
+| `chrome-156-windows` | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36` | `"Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"` | Headers only: UA and brand list. TLS, HTTP/2 and `Accept` inherited from 155. |
+| `chrome-156-linux` | `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36` | `"Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"` | As above. |
+| `chrome-156-macos` | `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36` | `"Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"` | As above. |
+| `chrome-156-android` | `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36` | `"Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"` | As above, with `sec-ch-ua-mobile: ?1`. |
 | `chrome-155-windows` | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36` | `"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"` | Adds `image/jxl` to the document and image `Accept` headers. TLS inherited from 154. |
 | `chrome-155-linux` | `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36` | `"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"` | As above. |
 | `chrome-155-macos` | `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36` | `"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"` | As above. |
@@ -130,7 +142,7 @@ The Chrome desktop family. Versions 143 through 146 are Go-defined in `fingerpri
 | `chrome-141` | `...Chrome/141.0.0.0...` | matching brand list | Legacy preset, no per-OS variants, no QUIC fingerprint (H1/H2 only). |
 | `chrome-133` | `...Chrome/133.0.0.0...` | matching brand list | Legacy preset, no per-OS variants, no QUIC fingerprint (H1/H2 only). |
 
-The unsuffixed names, `chrome-143` through `chrome-155`, resolve at runtime to whichever platform-suffixed variant matches the host OS. Pick the suffix when you want consistent results across machines.
+The unsuffixed names, `chrome-143` through `chrome-158`, resolve at runtime to whichever platform-suffixed variant matches the host OS. Pick the suffix when you want consistent results across machines.
 
 The 143-and-newer Chrome desktop line:
 
@@ -269,7 +281,7 @@ Desktop Safari and explicit Safari 17/18 presets retain their existing profiles.
 
 TLS uses the existing `HelloIOS_18` implementation. The captured JA3 is
 `ecdf4f49dd59effc439639da29186671`, JA4 is
-`t13d2013h2_a09f3c656075_7f0f34a4126d`, and Peetprint is
+`t13d2013h2_a09f3c656075_7f0f34a4126d`, and the TLS extension hash is
 `62b834de729e78a9f0ebd1dd099314a7`. The HTTP/2 fingerprint is
 `2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p`, with no PRIORITY field
 on HEADERS. Navigation uses the captured Safari 26.6.1 UA, header order,

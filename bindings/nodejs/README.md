@@ -643,6 +643,7 @@ const proxy = new LocalProxy({
   tcpProxy: null,       // Default upstream TCP proxy
   udpProxy: null,       // Default upstream UDP proxy
   tlsOnly: false,       // TLS-only mode
+  verify: true,         // Check the certificates of the sites it connects to (false for self-signed test servers)
 });
 
 proxy.port;           // Actual port number

@@ -368,12 +368,13 @@ new HttpCloakHandler(
     string? tcpProxy = null,
     string? udpProxy = null,
     int timeout = 30,
-    int maxConnections = 1000);
+    int maxConnections = 1000,
+    bool verify = true);
 
 new HttpCloakHandler(LocalProxy existingProxy);
 ```
 
-The first form spins up its own `LocalProxy` and disposes it with the handler. The second form takes an existing `LocalProxy` and leaves disposal to the caller (so multiple handlers can share one proxy). `handler.Proxy`, `handler.ProxyUrl`, and `handler.GetStats()` reach the underlying proxy for diagnostics.
+The first form spins up its own `LocalProxy` and disposes it with the handler. Its `verify: false` skips certificate checks between the proxy and the site, for a self-signed test server; verification is on by default. The second form takes an existing `LocalProxy` and leaves disposal to the caller (so multiple handlers can share one proxy). `handler.Proxy`, `handler.ProxyUrl`, and `handler.GetStats()` reach the underlying proxy for diagnostics.
 
 For a `LocalProxy` you already own (configured with custom registered sessions, etc.), build the client from the proxy:
 
@@ -451,7 +452,7 @@ HttpCloak.CustomPresets     // Describe / LoadFromJson / LoadFromFile / Unregist
 HttpCloak.Presets           // PascalCase string constants (Presets.Chrome146, Presets.Firefox133, ...)
 ```
 
-The `Presets` static class mirrors the runtime registry. `Presets.ChromeLatest` (and the platform variants `ChromeLatestWindows`, `ChromeLatestLinux`, etc.) auto-resolves to the newest shipped Chrome; pin to a specific major with `Presets.Chrome155Windows` (constants run through 155) if you need byte-for-byte reproducibility. Firefox, Safari and the mobile families are similarly enumerated. For the authoritative live list including any custom presets loaded at runtime, `HttpCloakInfo.AvailablePresets()` returns a `Dictionary<string, PresetInfo>` keyed by the canonical preset name.
+The `Presets` static class mirrors the runtime registry. `Presets.ChromeLatest` (and the platform variants `ChromeLatestWindows`, `ChromeLatestLinux`, etc.) auto-resolves to the newest shipped Chrome; pin to a specific major with `Presets.Chrome158Windows` (constants run through 158) if you need byte-for-byte reproducibility. Firefox, Safari and the mobile families are similarly enumerated. For the authoritative live list including any custom presets loaded at runtime, `HttpCloakInfo.AvailablePresets()` returns a `Dictionary<string, PresetInfo>` keyed by the canonical preset name.
 
 `SessionCacheBackend` plugs a distributed TLS session cache (Redis, Memcached, your own store) into the binding via an `ISessionCache` interface. Construct it with your implementation and call `Register()`, or use the `HttpCloakCache.ConfigureSessionCache(impl)` shorthand. The wrapper pins the six callback delegates as instance fields, swallows user-side exceptions back to "not found" / non-zero, and frees its trailing string buffers on `Dispose`. Full design in [Session cache](/advanced-tls/session-cache).
 

@@ -562,7 +562,8 @@ var proxy = new LocalProxy(
     maxConnections: 1000,  // Max concurrent connections
     tcpProxy: null,        // Default upstream TCP proxy
     udpProxy: null,        // Default upstream UDP proxy
-    tlsOnly: false         // TLS-only mode
+    tlsOnly: false,        // TLS-only mode
+    verify: true           // Check the certificates of the sites it connects to (false for self-signed test servers)
 );
 
 proxy.Port;           // Actual port number

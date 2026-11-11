@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Whether HTTP/3 sends Chrome's `version_information` and `google_connection_options` transport parameters is read off the capture. It used to follow the QUIC identity, which a capture clears, so a preset carrying both captures sent neither even when its captured Chrome hello carried both. Each is now sent exactly when the captured `quic_transport_parameters` has it, and `google_connection_options` takes the captured tags unless `http3.quic_connection_options` is set. A capture whose parameter list does not decode is refused at load.
 
-- **`WithHTTP2MaxConnAge` sets how long an HTTP/2 connection takes new requests** (#142): a Session moves new requests to a fresh connection once the current one is five minutes old, and anything still running on the old one finishes first. That five minutes is now yours to change, or to turn off so a connection is reused for as long as the server keeps it open. In Go pass a duration, or zero to turn it off. The bindings take seconds as `http2_max_conn_age` in Python and `http2MaxConnAge` in Node.js, .NET and Android, where leaving it out keeps five minutes and `0` turns it off. It's kept across `Fork`, `Refresh` and saved sessions. A `client.Client` HTTP/2 pool takes the same through `HostPool.SetMaxConnAge`.
+- **`WithHTTP2MaxConnAge` sets how long an HTTP/2 connection takes new requests** (#142): a Session moves new requests to a fresh connection once the current one is five minutes old, and anything still running on the old one finishes first. That five minutes is now yours to change, or to turn off so a connection is reused for as long as the server keeps it open. In Go pass a duration, or zero to turn it off. The bindings take seconds as `http2_max_conn_age` in Python and `http2MaxConnAge` in Node.js, .NET and Android, where leaving it out keeps five minutes, `0` turns it off and a fraction rounds up to the next whole second. It's kept across `Fork`, `Refresh` and saved sessions. Code that builds its own `pool.Manager` can set it per host with `SetMaxConnAge` on the pool `GetPool` returns.
 
 ### Changed
 
@@ -77,9 +77,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Calls into the library from .NET no longer risk crashing the process on Windows** (#147): 1.7.3 moved host callbacks onto threads the library owns (#114), but calls the other way still ran Go on the caller's .NET thread, where the same GC suspension signal can end the process with `0xC000000D` and no managed exception. Every exported function is now a small C wrapper that, on Windows, runs the call on a thread the library owns and waits for it, so .NET code and Go code never share a thread in either direction. Python and Node.js on Windows go through the same path. Arguments, return values and blocking behaviour are unchanged; the handoff adds a few microseconds to each call (about 15 when we measured it on Linux with the handoff forced on). Linux, macOS and Android call straight through as before. We couldn't reproduce the crash itself here, so this closes the gap the report points at rather than a crash we watched happen; please tell us if you still see it.
 
-- **A LocalProxy, and .NET's `HttpCloakHandler`, can skip certificate verification** (#149): a Session has `verify=False`, but the local proxy had no such setting, so a site with a self-signed certificate couldn't be reached through it at all. `LocalProxy` takes `verify=False` in Python, `verify: false` in Node.js and .NET, and `WithProxyInsecureSkipVerify()` in Go; `HttpCloakHandler` takes `verify: false` too. Verification stays on by default.
+- **A LocalProxy, and .NET's `HttpCloakHandler`, can skip certificate verification** (#149): a Session has `verify=False`, but the local proxy had no such setting, so a site with a self-signed certificate couldn't be reached through it at all. `LocalProxy` takes `verify=False` in Python, `verify: false` in Node.js, .NET and Android, and `WithProxyInsecureSkipVerify()` in Go; `HttpCloakHandler` takes `verify: false` too. Verification stays on by default.
+
+- **`client.Client` follows a relative redirect that has a query**: a `Location` such as `/next?page=2` went out with the `?` escaped into the path, as `/next%3Fpage=2`, so the server answered for a path that doesn't exist. `../` wasn't resolved either. `JoinURL`, which the redirect uses, now resolves a reference the way RFC 3986 says, as browsers do.
+
+- **`client.Client` reuses the connection after a redirect or a Digest challenge**: the next request went out while the previous response was still open, so over HTTP/1.1 every redirect hop and every Digest answer opened a new connection. What is left of the response is now read, up to 64 KB, and the connection goes back to the pool first.
+
+- **A redirect hop works out its own `Sec-Fetch-Site`**: `client.Client` copied every header the first request sent onto each hop, so a navigation's `Sec-Fetch-Site: none` went out on every hop after it, wherever the hop went. A hop now carries only the headers you set and builds the rest itself. A `fetch()`-shaped request stays one on the hop, as before.
+
+- **The bindings leave your headers object alone, and the stream methods follow the same spelling rules**: in Node.js, `json=`, `data=` and `files=` wrote their `Content-Type` into the object you passed when the session had no headers of its own, and in .NET `auth=`, `cookies=` and every body helper wrote into your dictionary, so a reused one carried them into the next request. Both work on a copy now, as Python already did. Node.js's `getStream`, `postStream` and `requestStream` merged headers in one spelling only, so a session's `Authorization` beat a request's `authorization` there, and .NET's `cookies=` started a second `Cookie` header beside a lowercase `cookie`. Python's `post_fast` and `request_fast` replaced a lowercase `content-type` with their default, and a form body with no headers at all raised `TypeError`. A streaming upload in any binding replaced a lowercase `content-type` with `application/octet-stream`. All of these now keep the caller's value, in whatever spelling.
+
+- **A captured QUIC resumption hello can resume with 0-RTT**: a QUIC preset built from a capture offered `early_data` on a ticket that allows it, but the TLS layer didn't know it had, so a server that accepted the early data failed the handshake, and the request with it. It now resumes with 0-RTT, as the shipped presets do.
+
+- **`trimMemory` can be imported in an ES module**: `index.d.ts` declared it, but the Node.js ESM entry didn't export it, so `import { trimMemory } from 'httpcloak'` failed at runtime.
 
 ### Security
+
+- **A `verify` that isn't `false` no longer turns certificate checks off**: the C library reads its session and local proxy settings as JSON, and a `verify` of the wrong type, such as `"true"` or `1`, was read as `false`, which skipped certificate verification with no error. Only a JSON `false` turns it off now. The Python, Node.js, .NET and Android bindings always send a real boolean, so this affects code that calls the C library directly.
+
+- **`client.Client` sends another origin only the origin as `Referer` on a redirect**: a hop's `Referer` was the full URL of the request before it, path and query included, whatever host the hop went to. It now follows the default `strict-origin-when-cross-origin` policy, as `Session` and browsers do: the full URL on the same origin, the origin alone on another, and none from https to http. The fragment and any credentials in the URL are never sent.
 
 - **HTTP/1.1 requests with a line break in a header, the method, the path or the Host are refused**: the HTTP/1.1 writer printed them verbatim, so a CR or LF in a value let whoever controlled it add headers of their own, or a second request, on the same connection. HTTP/2 and HTTP/3 already refused these, as Chrome and Go's client do. A request carrying a CR, LF or NUL byte in any of those now fails before anything is sent. Nothing else is refused, so requests 1.7.3 sent, such as a raw space in the query or a header dict copied from DevTools, still go out as before.
 
@@ -819,7 +835,8 @@ the requests succeeded anyway, so there was nothing to notice.
 
 Baseline release. This changelog begins tracking changes from this version forward.
 
-[Unreleased]: https://github.com/sardanioss/httpcloak/compare/v1.7.3...HEAD
+[Unreleased]: https://github.com/sardanioss/httpcloak/compare/v1.7.4-beta.1...HEAD
+[1.7.4-beta.1]: https://github.com/sardanioss/httpcloak/compare/v1.7.3...v1.7.4-beta.1
 [1.7.3]: https://github.com/sardanioss/httpcloak/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/sardanioss/httpcloak/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/sardanioss/httpcloak/compare/v1.7.0...v1.7.1

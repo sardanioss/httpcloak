@@ -150,6 +150,7 @@ Pass these to `StartLocalProxy(port, opts...)` (Go) or as kwargs to the binding 
 | `WithProxyMaxConnections(n)` | Hard cap on concurrent client connections. Anything above gets dropped at accept. Default 1000. |
 | `WithProxyUpstream(tcp, udp)` | Chain through an upstream proxy. SOCKS5 or HTTP for `tcp`, MASQUE for `udp`. Both are optional. |
 | `WithProxyTLSOnly()` | Skip the preset's HTTP headers. Pass client headers through unchanged. Use when your client already ships authentic browser headers (Playwright, Undici, real browsers driven by CDP). |
+| `WithProxyInsecureSkipVerify()` | Don't check the certificates of the sites the proxy connects to, for a self-signed test server. The bindings take `verify=False` (Python) or `verify: false` (Node.js, .NET, Android). Verification is on by default. |
 | `WithProxySessionCache(backend, errCb)` | Plug in a distributed TLS session ticket cache. Lets multiple LocalProxy instances share resumption state. |
 
 Pass `0` as the port to let the kernel pick one, then read it back with `lp.Port()`.
