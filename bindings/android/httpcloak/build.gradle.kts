@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "io.github.sardanioss"
-version = "1.7.4-beta.1" // kept in step with the other bindings by bindings/bump-version.sh
+version = "1.7.4" // kept in step with the other bindings by bindings/bump-version.sh
 
 val minSdkVersion = 24
 val abis = providers.gradleProperty("httpcloak.abis").get()
