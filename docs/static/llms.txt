@@ -1,8 +1,8 @@
 # httpcloak
 
-> Go HTTP client library that emits TLS, HTTP/2, and HTTP/3 wire bytes byte-identical to real Chrome / Firefox / Safari handshakes. Bindings ship for Go, Python, Node.js, and .NET via a shared cgo library.
+> Go HTTP client library that emits TLS, HTTP/2, and HTTP/3 wire bytes byte-identical to real Chrome / Firefox / Safari handshakes. Bindings ship for Go, Python, Node.js, .NET and Android (Kotlin) via a shared cgo library.
 
-httpcloak handles uTLS-backed TLS fingerprinting, HTTP/1.1, HTTP/2 with akamai-style fingerprinting, HTTP/3 over QUIC, proxy support (HTTP CONNECT, SOCKS5 with optional UDP, MASQUE), per-resource RFC 7540 / RFC 9218 stream priorities, ECH (Encrypted Client Hello), and a full preset registry covering Chrome 133-149, Firefox 133/148, Safari 17/18 and their per-OS variants. The JSON preset builder lets you describe a built-in preset, mutate the JSON, and load it back as a custom registration without rebuilding.
+httpcloak handles uTLS-backed TLS fingerprinting, HTTP/1.1, HTTP/2 with akamai-style fingerprinting, HTTP/3 over QUIC, proxy support (HTTP CONNECT, SOCKS5 with optional UDP, MASQUE), per-resource RFC 7540 / RFC 9218 stream priorities, ECH (Encrypted Client Hello), and a full preset registry covering Chrome 133-158, Firefox 133/148, Safari 17/18/26 and their per-OS and mobile variants. The JSON preset builder lets you describe a built-in preset, mutate the JSON, and load it back as a custom registration without rebuilding.
 
 ## Getting Started
 
@@ -20,6 +20,7 @@ httpcloak handles uTLS-backed TLS fingerprinting, HTTP/1.1, HTTP/2 with akamai-s
 - [SOCKS5 UDP](https://httpcloak.dev/proxies/socks5-udp): UDP_ASSOCIATE for HTTP/3 over SOCKS5.
 - [MASQUE](https://httpcloak.dev/proxies/masque): HTTP/3 CONNECT-UDP, QUIC inside QUIC.
 - [Source Address Binding](https://httpcloak.dev/proxies/source-address-binding): WithLocalAddress, WithLocalAddrIP, IPv6 freebind for prefix rotation.
+- [Overview](https://httpcloak.dev/proxies/overview): the four proxy protocols and which one to pick.
 
 ## Cookies and State
 
@@ -36,6 +37,8 @@ httpcloak handles uTLS-backed TLS fingerprinting, HTTP/1.1, HTTP/2 with akamai-s
 - [Custom JA3](https://httpcloak.dev/fingerprinting/custom-ja3): WithCustomFingerprint with a raw JA3 string.
 - [Akamai Shorthand](https://httpcloak.dev/fingerprinting/akamai-shorthand): the H2 shorthand format and one-knob overrides.
 - [Per-Resource Priority](https://httpcloak.dev/fingerprinting/per-resource-priority): RFC 7540 stream weights and RFC 9218 priority headers from Sec-Fetch-Dest.
+- [Programmatic Headers](https://httpcloak.dev/fingerprinting/programmatic-headers): build the Sec-Fetch-* and client hint clusters from a description of the request.
+- [TCP Fingerprint](https://httpcloak.dev/fingerprinting/tcp-fingerprint): TTL, MSS, window size and the other first-packet knobs.
 
 ## Connection Lifecycle
 
@@ -44,6 +47,10 @@ httpcloak handles uTLS-backed TLS fingerprinting, HTTP/1.1, HTTP/2 with akamai-s
 - [Protocol Switching](https://httpcloak.dev/connection-lifecycle/protocol-switching): force H1, H2, or H3 mid-session.
 - [Session Save and Restore](https://httpcloak.dev/connection-lifecycle/session-save-restore): persist a session to disk, resume across processes.
 - [Fork (Sibling Sessions)](https://httpcloak.dev/connection-lifecycle/fork): N siblings sharing cookies and TLS state with separate connection pools.
+- [Conditional Cache](https://httpcloak.dev/connection-lifecycle/conditional-cache): ETag / Last-Modified replay as If-None-Match / If-Modified-Since.
+- [DNS Cache](https://httpcloak.dev/connection-lifecycle/dns-cache): the in-memory resolver every transport sits on.
+- [Observability](https://httpcloak.dev/connection-lifecycle/observability): inspecting a live session, idle timers, refresh and close.
+- [Session Manager](https://httpcloak.dev/connection-lifecycle/session-manager): an in-process registry for many sessions.
 
 ## HTTP Protocols
 
@@ -59,6 +66,8 @@ httpcloak handles uTLS-backed TLS fingerprinting, HTTP/1.1, HTTP/2 with akamai-s
 - [TLS Keylog](https://httpcloak.dev/advanced-tls/tls-keylog): SSLKEYLOGFILE for Wireshark decryption.
 - [Domain Fronting](https://httpcloak.dev/advanced-tls/domain-fronting): SNI != Host wiring.
 - [Certificate Pinning](https://httpcloak.dev/advanced-tls/cert-pinning): SPKI / cert-hash pinning, CertPinner API.
+- [Insecure Skip Verify](https://httpcloak.dev/advanced-tls/insecure-skip-verify): turn certificate verification off, for sessions and the local proxy.
+- [Distributed TLS Session Cache](https://httpcloak.dev/advanced-tls/session-cache): share TLS tickets across replicas.
 
 ## Requests and Responses
 
@@ -76,6 +85,7 @@ httpcloak handles uTLS-backed TLS fingerprinting, HTTP/1.1, HTTP/2 with akamai-s
 - [Python](https://httpcloak.dev/bindings/python): `pip install httpcloak`.
 - [Node.js](https://httpcloak.dev/bindings/nodejs): `npm install httpcloak`.
 - [.NET](https://httpcloak.dev/bindings/dotnet): `dotnet add package HttpCloak`.
+- [Android (Kotlin)](https://httpcloak.dev/bindings/android): the Kotlin API over the same library, built with the NDK.
 
 ## Reference
 
@@ -91,6 +101,7 @@ httpcloak handles uTLS-backed TLS fingerprinting, HTTP/1.1, HTTP/2 with akamai-s
 - [Long-Running Scraper Patterns](https://httpcloak.dev/recipes/long-running-scraper-patterns): Refresh, Warmup, cookie strategies for multi-day scrapers.
 - [Debug With Wireshark](https://httpcloak.dev/recipes/debug-with-wireshark): keylog plus filter recipes.
 - [Local Proxy Server](https://httpcloak.dev/recipes/local-proxy-server): run httpcloak as an HTTP proxy any client can point at.
+- [Preset Pool Rotation](https://httpcloak.dev/recipes/preset-pool-rotation): rotate presets across requests or sessions with a selection strategy.
 
 ## Optional
 
