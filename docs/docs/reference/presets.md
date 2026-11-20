@@ -172,6 +172,7 @@ iOS Chrome is a WebKit wrapper, so its TLS fingerprint matches Safari iOS rather
 All iOS Chrome presets:
 
 - Use the iOS Safari H2 stack (`safariH2Config`): pseudo `m,s,p,a`, `NO_RFC7540_PRIORITIES=1`.
+- Send no `sec-fetch-user`, which WebKit has never implemented.
 - Speak HTTP/3 via `HelloIOS_18_QUIC`.
 - Default Akamai: `2:0;4:2097152;3:100;5:16384;9:1|10485760|0|m,s,p,a`.
 
@@ -223,6 +224,7 @@ Safari macOS:
 - Pseudo order `m,s,p,a`, different from both Chrome and Firefox.
 - `NO_RFC7540_PRIORITIES=1`. Safari opts out of stream priorities.
 - No `sec-ch-ua` (Safari doesn't ship Client Hints). Header order is shorter than Chrome's.
+- No `sec-fetch-user`. WebKit sends `sec-fetch-dest`, `sec-fetch-mode` and `sec-fetch-site`, and has never implemented `sec-fetch-user` (WebKit bug 247697).
 - Default Akamai: `2:0;4:2097152;3:100;5:16384;9:1|10485760|0|m,s,p,a`.
 
 ---
@@ -235,7 +237,7 @@ Safari macOS:
 | `safari-18-ios` | `Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1` | `HelloIOS_18` | H3 via `HelloIOS_18_QUIC`. |
 | `safari-17-ios` | `...iPhone OS 17_0...Version/17.0 Mobile...` | `HelloIOS_17` | Older variant; H1 / H2 only (no proper H3 TLS spec for iOS Safari 17). |
 
-The Safari 18 iOS and desktop presets share the older H2 fingerprint. Safari 26 iOS has the captured H2 changes described below.
+The Safari 18 iOS and desktop presets share the older H2 fingerprint. Safari 26 iOS has the captured H2 changes described below. Like macOS Safari, iOS Safari sends no `sec-fetch-user`.
 
 ---
 

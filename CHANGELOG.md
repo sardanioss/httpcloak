@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Safari and Chrome on iOS send no `Sec-Fetch-User`**: `safari-18`, `safari-18-ios`, `safari-17-ios` and `chrome-143-ios` through `chrome-147-ios` sent `Sec-Fetch-User: ?1` on every navigation, and `client.Client` set it on every navigation whatever the preset, so `chrome-148-ios` and later and `safari-26-ios` sent it there too. WebKit, which Safari and Chrome on iOS run on, has never sent it. It turned Fetch Metadata on in November 2022 with `Sec-Fetch-Dest`, `Sec-Fetch-Mode` and `Sec-Fetch-Site` (WebKit bug 246508), the bug for `Sec-Fetch-User` (247697) is still open, and no revision of WebKit's header name table has listed it. Devices agree: the iPhone captures behind `safari-26-ios` (#135) and behind Chrome on iOS from 148 on carry none, and Safari 26.3 on macOS and in the iOS 26.3.1 simulator sent it on no request. The `chrome-144-ios` to `chrome-147-ios` order, taken from an earlier iOS Chrome capture, ended in `?1`; WebKit's source and the later captures outweigh that one, so it is dropped there too. Those presets now leave it out, along with their `-latest` and `ios-` aliases, and `client.Client` follows the preset: one that sends the other Fetch Metadata headers but not this one gets none, and one that sends no Fetch Metadata at all still gets the full navigation set. Chrome, Android and Firefox presets are unchanged.
+
 ## [1.7.4] - 2026-11-15
 
 ### Added

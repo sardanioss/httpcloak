@@ -2295,7 +2295,9 @@ func applyNavigationModeHeaders(httpReq *http.Request, preset *fingerprint.Prese
 	// Navigation headers — always set for bot detection
 	httpReq.Header.Set("Sec-Fetch-Dest", "document")
 	httpReq.Header.Set("Sec-Fetch-Mode", "navigate")
-	httpReq.Header.Set("Sec-Fetch-User", "?1")
+	if !omitsSecFetchUser(preset) {
+		httpReq.Header.Set("Sec-Fetch-User", "?1")
+	}
 	httpReq.Header.Set("Upgrade-Insecure-Requests", "1")
 
 	// Priority header (newer Chrome/Firefox)
@@ -2307,6 +2309,33 @@ func applyNavigationModeHeaders(httpReq *http.Request, preset *fingerprint.Prese
 	if v, ok := preset.Headers["TE"]; ok {
 		httpReq.Header.Set("TE", v)
 	}
+}
+
+// omitsSecFetchUser reports whether the preset's browser sends Fetch Metadata
+// but no Sec-Fetch-User, as WebKit does: it implements Sec-Fetch-Dest, -Mode
+// and -Site and never implemented -User (WebKit bug 247697), so neither Safari
+// nor Chrome on iOS sends it. The answer comes from the preset's emit set, its
+// HeaderOrder or, without one, its Headers map, which is what the session
+// transport sends. A preset with no Sec-Fetch-* in it at all still gets the
+// whole navigation set above.
+func omitsSecFetchUser(preset *fingerprint.Preset) bool {
+	var secFetch, user bool
+	note := func(name string) {
+		if len(name) >= 10 && strings.EqualFold(name[:10], "sec-fetch-") {
+			secFetch = true
+			user = user || strings.EqualFold(name, "sec-fetch-user")
+		}
+	}
+	if len(preset.HeaderOrder) > 0 {
+		for _, hp := range preset.HeaderOrder {
+			note(hp.Key)
+		}
+	} else {
+		for name := range preset.Headers {
+			note(name)
+		}
+	}
+	return secFetch && !user
 }
 
 // applyCORSModeHeaders sets headers for XHR/fetch() calls (JavaScript API request)

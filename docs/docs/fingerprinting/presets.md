@@ -23,7 +23,7 @@ Pick one by name, send a request, the wire bytes match the real browser.
 
 - **Default to `chrome-latest`.** Works against the widest range of targets, and auto-tracks the newest Chrome we've shipped.
 - **Reach for `android-chrome-latest` when you need a mobile UA.** Mobile traffic gets scored differently on most anti-bot stacks. The TLS handshake is identical to desktop Chrome, but the User-Agent and `sec-ch-ua-mobile: ?1` route the request onto the mobile path.
-- **Use `safari-latest-ios` (Safari 26) or `safari-18-ios` for an iPhone fingerprint.** Different cipher list, different pseudo-header order, no RFC 7540 priorities, smaller QUIC stream window. Targets that profile iOS users will spot a Chrome preset pretending to be an iPhone in seconds.
+- **Use `safari-latest-ios` (Safari 26) or `safari-18-ios` for an iPhone fingerprint.** Different cipher list, different pseudo-header order, no RFC 7540 priorities, no `sec-fetch-user`, smaller QUIC stream window. Targets that profile iOS users will spot a Chrome preset pretending to be an iPhone in seconds.
 - **Pick `firefox-148` when the target only accepts Firefox.** Different cipher list, different SETTINGS layout (smaller initial window, smaller max frame size), different pseudo-header order (`m,p,a,s` vs Chrome's `m,a,s,p`).
 
 ## Available preset families
