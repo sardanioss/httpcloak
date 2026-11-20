@@ -2414,8 +2414,18 @@ func applyNoCorsHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *
 		httpReq.Header.Set("Accept", "*/*")
 	}
 
-	httpReq.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	httpReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	// Use preset's Accept-Encoding/Language if available, else Chrome defaults.
+	// Browsers send a subresource the same pair as the page itself.
+	if v, ok := preset.Headers["Accept-Encoding"]; ok {
+		httpReq.Header.Set("Accept-Encoding", v)
+	} else {
+		httpReq.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	}
+	if v, ok := preset.Headers["Accept-Language"]; ok {
+		httpReq.Header.Set("Accept-Language", v)
+	} else {
+		httpReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	}
 
 	// NoCors headers — subresource loads
 	httpReq.Header.Set("Sec-Fetch-Mode", "no-cors")
