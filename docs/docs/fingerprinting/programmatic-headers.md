@@ -7,7 +7,7 @@ sidebar_position: 8
 
 The `fingerprint` package exposes a small set of helpers that build the `Sec-Fetch-*` cluster and the `sec-ch-ua-*` Client Hints cluster from a description of the request. You hand them a context (navigation, XHR, image, script, etc.) and they hand you back a header bundle that lines up with what a real browser would emit for that same request.
 
-Most callers never need to touch any of this. Every `Session.Get` / `Session.Post` / `Session.Do` already runs the same logic internally and rewrites these headers per request before the bytes hit the wire. The helpers exist for code that builds custom flows on top of `Session`: tooling that wants to pre-compute a header bundle, scrapers that fire a navigation followed by five XHRs and need each one to look like the page's own JavaScript firing it, or callers that want to inspect what httpcloak is going to send before sending it.
+Most callers never need to touch any of this. `Session.Get` / `Session.Post` / `Session.Do` do not call these helpers: they send the preset's own headers and rewrite the `Sec-Fetch-*` cluster themselves when a request looks like an API call (see [When you need this](#when-you-need-this)). The helpers exist for code that builds custom flows on top of `Session`: tooling that wants to pre-compute a header bundle, scrapers that fire a navigation followed by five XHRs and need each one to look like the page's own JavaScript firing it, or callers that want a browser-shaped header map without sending anything.
 
 This chapter is a tour of the surface. The types and functions all live in `github.com/sardanioss/httpcloak/fingerprint`.
 
@@ -207,13 +207,13 @@ The mutation model means you can take any existing header map, run `ApplyToHeade
 
 ## When you need this
 
-Most flows do not need any of this. The session layer already calls `ApplyToHeaders` on every request through the same code paths described above, so a plain `session.Get(ctx, url)` ends up on the wire with the right `Sec-Fetch-*` for a navigation and a real `Accept` string. Cross-origin XHRs from inside a custom `Do` call get the correct `Site` value because the session tracks the previous response URL as the referrer.
+Most flows do not need any of this. A session's requests do not go through these helpers; only `Warmup` calls one, `GenerateSecFetchHeaders`, for the subresources it loads. A request starts from the preset's own headers, which describe a typed-URL navigation, so a plain `session.Get(ctx, url)` goes out with the preset's navigation `Sec-Fetch-*` (`none` / `navigate` / `document`) and its document `Accept`. A request that looks like an API call, such as one with a JSON `Accept`, a `POST` / `PUT` / `PATCH` without a form `Content-Type`, or a `DELETE`, is switched to `cors` / `empty` / `cross-site` with `Accept: */*` unless you set one (see [What ships by default](../requests-and-responses/headers#what-ships-by-default)). The session does not track which page your requests come from: it sends `cross-site` even to the origin you just loaded, and adds no `Referer` outside redirect hops and `Warmup`. A `Sec-Fetch-Site`, `Sec-Fetch-Mode` or `Sec-Fetch-Dest` you set on the request is kept.
 
 The programmatic helpers come in when the auto-rewrite isn't enough on its own. Three concrete cases:
 
-1. Multi-step request chains where you load a page, then fire several XHRs that should reference back to that page. You want each XHR's `Referer` and `Sec-Fetch-Site` to point at the page URL, not at whatever the session last saw. `XHRContext(pageURL, apiURL)` plus `ApplyToHeaders` gives you precise control over the relationship.
+1. Multi-step request chains where you load a page, then fire several XHRs that should reference back to that page. You want each XHR's `Referer` and `Sec-Fetch-Site` to follow from the page URL, which the session does not do on its own. `XHRContext(pageURL, apiURL)` plus `ApplyToHeaders` gives you precise control over the relationship.
 2. Building a header fixture for an external transport. You want the bundle as a flat `map[string]string` to inject into something that isn't a `Session` (a worker pool, a queue, a different HTTP library). `GenerateXHRHeaders` returns exactly that map.
-3. Pre-computing or auditing what httpcloak is going to send before sending it. The generators are pure functions of their inputs, so you can run them in tests, log their output, or diff them against a real-browser capture without spinning up a full session.
+3. Pre-computing or auditing a browser-shaped header bundle. The generators are pure functions of their inputs, so you can run them in tests, log their output, or diff them against a real-browser capture without spinning up a full session. They are not what the session sends: it builds its headers as described above.
 
 ## Bindings
 
@@ -224,4 +224,4 @@ If you need explicit programmatic header control from a binding, two paths work:
 1. Build the headers Go-side and surface them to the binding through your own thin service. A small Go program that exposes `GenerateXHRHeaders` over a local socket or HTTP endpoint covers most use cases.
 2. Set the `Sec-Fetch-*` values directly via the request `headers` argument the binding already accepts. The session layer respects caller-supplied headers and won't overwrite values you set explicitly, so you get the same end result without going through the helper types.
 
-For binding users whose flows are plain GET / POST / XHR with the session-tracked referrer behaviour, neither path is needed. The defaults match what real Chrome sends on the same request.
+For binding users whose flows are typed-URL navigations and API calls to other sites, neither path is needed. A same-origin or same-site API call needs path 2: the session sends `cross-site` and no `Referer` unless you set them.

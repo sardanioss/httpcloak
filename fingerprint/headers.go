@@ -544,8 +544,8 @@ func (h *HeaderCoherence) GenerateXHRHeaders(referrer, targetURL string) map[str
 	// Start with basic headers
 	headers["User-Agent"] = h.preset.UserAgent
 	headers["Accept"] = "*/*"
-	headers["Accept-Encoding"] = "gzip, deflate, br, zstd"
-	headers["Accept-Language"] = "en-US,en;q=0.9"
+	headers["Accept-Encoding"] = firstNonEmpty(h.preset.Headers["Accept-Encoding"], "gzip, deflate, br, zstd")
+	headers["Accept-Language"] = firstNonEmpty(h.preset.Headers["Accept-Language"], "en-US,en;q=0.9")
 
 	// Copy client hints from preset (low-entropy only for XHR)
 	if ua, ok := h.preset.Headers["sec-ch-ua"]; ok {
