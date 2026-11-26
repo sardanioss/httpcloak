@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -709,7 +710,16 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 				if (crossOrigin || schemeDowngrade) && (lk == "authorization" || lk == "proxy-authorization") {
 					continue
 				}
+				// A Host override belongs to the origin it was set for
+				if crossOrigin && lk == "host" {
+					continue
+				}
 				newReq.Headers[k] = v
+			}
+			if crossOrigin {
+				newReq.ExactHeaders = slices.DeleteFunc(slices.Clone(newReq.ExactHeaders), func(hp fingerprint.HeaderPair) bool {
+					return strings.EqualFold(hp.Key, "Host")
+				})
 			}
 
 			// Referer and Sec-Fetch-Site follow the chain as Chrome 158 sent

@@ -2837,6 +2837,12 @@ func applyExactHeaders(httpReq *http.Request, exact []fingerprint.HeaderPair, pr
 	}
 	order := make([]string, 0, len(exact))
 	for _, hp := range exact {
+		// The encoders write Host and :authority from httpReq.Host and skip a
+		// Host entry in the header map.
+		if strings.EqualFold(hp.Key, "Host") {
+			httpReq.Host = hp.Value
+			continue
+		}
 		httpReq.Header[hp.Key] = append(httpReq.Header[hp.Key], hp.Value)
 		order = append(order, hp.Key)
 	}
@@ -2934,6 +2940,11 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request, protocol string) {
 			continue
 		}
 		canonical := canonicalHeaderName(key)
+		if canonical == "Host" {
+			// As in ExactHeaders: only httpReq.Host reaches the wire.
+			httpReq.Host = values[0]
+			continue
+		}
 		dup := -1
 		for i := range seen {
 			if seen[i].canonical == canonical {
