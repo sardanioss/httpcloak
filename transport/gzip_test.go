@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -32,9 +33,10 @@ func gzipBytes(tb testing.TB, text []byte) []byte {
 	return buf.Bytes()
 }
 
-// TestSetupStreamDecompressorGzip locks the streaming path's existing
-// contract: the header is read before the stream is handed out, and a body
-// whose header cannot be read is returned raw rather than failing the request.
+// TestSetupStreamDecompressorGzip locks the streaming path's contract: the
+// header is read before the stream is handed out, and a body whose header
+// cannot be read fails on Read with the header's error, rather than coming
+// back raw without the bytes the header read consumed.
 func TestSetupStreamDecompressorGzip(t *testing.T) {
 	text := []byte("hello")
 	body := io.NopCloser(bytes.NewReader(gzipBytes(t, text)))
@@ -53,13 +55,32 @@ func TestSetupStreamDecompressorGzip(t *testing.T) {
 		t.Fatalf("ReadAll = %q, want %q", got, text)
 	}
 
-	raw := io.NopCloser(bytes.NewReader([]byte("this is not a gzip stream")))
-	reader, closer = setupStreamDecompressor(raw, "gzip")
-	if reader != raw {
-		t.Fatalf("setupStreamDecompressor(unreadable header) reader = %T, want the raw body", reader)
+	tests := []struct {
+		name    string
+		body    []byte
+		wantErr error // nil when the body reads as empty
+	}{
+		{name: "not gzip", body: []byte("this is not a gzip stream"), wantErr: gzip.ErrHeader},
+		{name: "truncated header", body: gzipBytes(t, text)[:5], wantErr: io.ErrUnexpectedEOF},
+		{name: "empty", body: nil, wantErr: nil},
 	}
-	if closer != nil {
-		t.Fatalf("setupStreamDecompressor(unreadable header) closer = %v, want nil", closer)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reader, closer := setupStreamDecompressor(io.NopCloser(bytes.NewReader(tc.body)), "gzip")
+			if closer != nil {
+				t.Errorf("setupStreamDecompressor(%s) closer = %v, want nil", tc.name, closer)
+			}
+			got, err := io.ReadAll(reader)
+			if len(got) != 0 {
+				t.Errorf("ReadAll(%s) = %q, want no data", tc.name, got)
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("ReadAll(%s) error = %v, want %v", tc.name, err, tc.wantErr)
+			}
+			if err := reader.Close(); err != nil {
+				t.Errorf("Close(%s) = %v, want nil", tc.name, err)
+			}
+		})
 	}
 }
 
@@ -137,6 +158,69 @@ func TestGzipResponsesEndToEnd(t *testing.T) {
 		if !bytes.Equal(got, text.Bytes()) {
 			t.Fatalf("DoStream %d: body is %d bytes, want %d", i, len(got), text.Len())
 		}
+	}
+}
+
+// TestStreamGzipHeaderErrorFailsRead drives Transport.DoStream against bodies
+// labelled gzip, some of which are not. The status still arrives, and reading
+// a body whose gzip header cannot be read fails with the header error rather
+// than returning what the header read left of it.
+func TestStreamGzipHeaderErrorFailsRead(t *testing.T) {
+	small := []byte(`{"id":"123456789","ok":true,"n":1}`)
+	var large bytes.Buffer
+	for i := range 1280 {
+		fmt.Fprintf(&large, "%07d\n", i)
+	}
+
+	tests := []struct {
+		name    string
+		sent    []byte // what the server writes under Content-Encoding: gzip
+		want    []byte
+		wantErr error
+	}{
+		{name: "small plain body", sent: small, wantErr: gzip.ErrHeader},
+		{name: "large plain body", sent: large.Bytes(), wantErr: gzip.ErrHeader},
+		{name: "empty body", sent: nil, want: nil},
+		{name: "gzip body", sent: gzipBytes(t, large.Bytes()), want: large.Bytes()},
+	}
+
+	tr := NewTransport("chrome-latest")
+	defer tr.Close()
+	tr.SetInsecureSkipVerify(true)
+	tr.SetProtocol(ProtocolHTTP2)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Encoding", "gzip")
+				w.WriteHeader(http.StatusOK)
+				w.Write(tc.sent)
+			}))
+			server.EnableHTTP2 = true
+			server.StartTLS()
+			defer server.Close()
+
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			stream, err := tr.DoStream(ctx, &Request{Method: "GET", URL: server.URL})
+			if err != nil {
+				t.Fatalf("DoStream: %v", err)
+			}
+			if stream.Protocol != "h2" {
+				stream.Close()
+				t.Fatalf("DoStream protocol = %q, want h2", stream.Protocol)
+			}
+			if stream.StatusCode != http.StatusOK {
+				t.Errorf("DoStream status = %d, want %d", stream.StatusCode, http.StatusOK)
+			}
+			got, err := stream.ReadAll()
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("ReadAll error = %v, want %v", err, tc.wantErr)
+			}
+			if !bytes.Equal(got, tc.want) {
+				t.Errorf("ReadAll = %d bytes, want %d", len(got), len(tc.want))
+			}
+		})
 	}
 }
 

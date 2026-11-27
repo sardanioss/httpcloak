@@ -298,11 +298,14 @@ func (c *Client) DoStream(ctx context.Context, req *Request) (*StreamResponse, e
 func setupDecompressor(body io.ReadCloser, encoding string) (io.ReadCloser, io.Closer) {
 	switch strings.ToLower(encoding) {
 	case "gzip":
-		// The header is read here, before the stream is handed out, so a body
-		// whose header cannot be read still falls back to the raw bytes.
+		// The header is read here, before the stream is handed out. A body
+		// whose header cannot be read fails on Read with that error, as on
+		// the buffered path: the header read has already consumed body bytes
+		// that cannot be handed back.
 		stream, err := gunzip.NewStream(body)
 		if err != nil {
-			return body, nil
+			// An empty body fails with io.EOF, so it still reads as empty.
+			return &errReadCloser{err}, nil
 		}
 		return stream, nil
 	case "br":
@@ -325,6 +328,19 @@ func setupDecompressor(body io.ReadCloser, encoding string) (io.ReadCloser, io.C
 	default:
 		return body, nil
 	}
+}
+
+// errReadCloser is a body whose every Read fails with err.
+type errReadCloser struct {
+	err error
+}
+
+func (e *errReadCloser) Read(p []byte) (n int, err error) {
+	return 0, e.err
+}
+
+func (e *errReadCloser) Close() error {
+	return nil // the body is closed separately, as rawReader
 }
 
 // brotliReadCloser wraps brotli.Reader to implement io.ReadCloser

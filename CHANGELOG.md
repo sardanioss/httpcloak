@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A streamed body labelled gzip that is not gzip fails instead of coming back truncated**: when a response said `Content-Encoding: gzip` but its body did not start with a gzip header, a streaming request handed the body back raw with up to its first 4 KB missing (all of a smaller body), because reading the header had already used those bytes, and nothing reported an error. Reading such a body now fails with `gzip: invalid header`, as the buffered path and Chrome fail it, or with `unexpected EOF` when the body is shorter than the 10-byte header, as the buffered path fails it. The status and headers still arrive as before, and an empty body labelled gzip still reads as empty.
+
 ## [1.7.4] - 2026-11-15
 
 ### Added
