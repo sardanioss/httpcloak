@@ -33,7 +33,7 @@ Every preset carries its own browser header set. For `chrome-latest` on a Linux 
 | 12 | `accept-language` | `en-US,en;q=0.9` |
 | 13 | `priority` | `u=0, i` |
 
-Different presets ship different defaults. Firefox skips `sec-ch-ua-*` entirely, Safari sends a different `accept-language`, mobile presets flip `sec-ch-ua-mobile` to `?1`. The full list per preset lives in `fingerprint/embedded/<preset>.json`.
+Different presets ship different defaults. Firefox skips `sec-ch-ua-*` entirely, Safari sends a different `accept-language`, mobile presets flip `sec-ch-ua-mobile` to `?1`. Safari and Chrome on iOS send no `sec-fetch-user`: both run on WebKit, which sends the other three `sec-fetch-*` headers and has never implemented that one. The full list per preset lives in `fingerprint/embedded/<preset>.json`.
 
 The lib also auto-rewrites the `sec-fetch-*` cluster based on the kind of request you're firing. POST/PUT/PATCH and most XHR-shaped GETs flip from navigation mode (`navigate`/`document`/`?1`) to CORS mode (`cors`/`empty`/cross-site, no `sec-fetch-user`). The browser does the same rewrite, so an API call doesn't go out with navigation-style headers attached.
 

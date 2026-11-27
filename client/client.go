@@ -64,6 +64,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/sardanioss/httpcloak/fingerprint"
 	"github.com/sardanioss/httpcloak/internal/compress"
+	"github.com/sardanioss/httpcloak/internal/engine"
 	"github.com/sardanioss/httpcloak/internal/gunzip"
 	"github.com/sardanioss/httpcloak/pool"
 	"github.com/sardanioss/httpcloak/protocol"
@@ -2295,8 +2296,16 @@ func applyNavigationModeHeaders(httpReq *http.Request, preset *fingerprint.Prese
 	// Navigation headers — always set for bot detection
 	httpReq.Header.Set("Sec-Fetch-Dest", "document")
 	httpReq.Header.Set("Sec-Fetch-Mode", "navigate")
-	httpReq.Header.Set("Sec-Fetch-User", "?1")
-	httpReq.Header.Set("Upgrade-Insecure-Requests", "1")
+	if !omitsSecFetchUser(preset) {
+		httpReq.Header.Set("Sec-Fetch-User", "?1")
+	}
+	// WebKit adds Upgrade-Insecure-Requests only to the load of a document or
+	// an iframe whose URL is not https (CachedResourceLoader::requestResource).
+	// Do sends https alone, so a Safari or iOS preset sends none; Chrome and
+	// Firefox send it on every navigation.
+	if engine.Of(preset.UserAgent) != engine.WebKit || !strings.EqualFold(httpReq.URL.Scheme, "https") {
+		httpReq.Header.Set("Upgrade-Insecure-Requests", "1")
+	}
 
 	// Priority header (newer Chrome/Firefox)
 	if v, ok := preset.Headers["Priority"]; ok {
@@ -2307,6 +2316,33 @@ func applyNavigationModeHeaders(httpReq *http.Request, preset *fingerprint.Prese
 	if v, ok := preset.Headers["TE"]; ok {
 		httpReq.Header.Set("TE", v)
 	}
+}
+
+// omitsSecFetchUser reports whether the preset's browser sends Fetch Metadata
+// but no Sec-Fetch-User, as WebKit does: it implements Sec-Fetch-Dest, -Mode
+// and -Site and never implemented -User (WebKit bug 247697), so neither Safari
+// nor Chrome on iOS sends it. The answer comes from the preset's emit set, its
+// HeaderOrder or, without one, its Headers map, which is what the session
+// transport sends. A preset with no Sec-Fetch-* in it at all still gets the
+// whole navigation set above.
+func omitsSecFetchUser(preset *fingerprint.Preset) bool {
+	var secFetch, user bool
+	note := func(name string) {
+		if len(name) >= 10 && strings.EqualFold(name[:10], "sec-fetch-") {
+			secFetch = true
+			user = user || strings.EqualFold(name, "sec-fetch-user")
+		}
+	}
+	if len(preset.HeaderOrder) > 0 {
+		for _, hp := range preset.HeaderOrder {
+			note(hp.Key)
+		}
+	} else {
+		for name := range preset.Headers {
+			note(name)
+		}
+	}
+	return secFetch && !user
 }
 
 // applyCORSModeHeaders sets headers for XHR/fetch() calls (JavaScript API request)
@@ -2385,8 +2421,18 @@ func applyNoCorsHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *
 		httpReq.Header.Set("Accept", "*/*")
 	}
 
-	httpReq.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	httpReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	// Use preset's Accept-Encoding/Language if available, else Chrome defaults.
+	// Browsers send a subresource the same pair as the page itself.
+	if v, ok := preset.Headers["Accept-Encoding"]; ok {
+		httpReq.Header.Set("Accept-Encoding", v)
+	} else {
+		httpReq.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	}
+	if v, ok := preset.Headers["Accept-Language"]; ok {
+		httpReq.Header.Set("Accept-Language", v)
+	} else {
+		httpReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	}
 
 	// NoCors headers — subresource loads
 	httpReq.Header.Set("Sec-Fetch-Mode", "no-cors")

@@ -76,7 +76,6 @@ HEADERS stream=1 flags=0x25 exclusive=false dep=0 weight=255
   incremental name=literal huffman=true value-huffman=true     sec-fetch-dest: document
   incremental name=literal huffman=true value-huffman=true     sec-fetch-mode: navigate
   incremental name=literal huffman=true value-huffman=true     sec-fetch-site: none
-  incremental name=literal huffman=true value-huffman=false    sec-fetch-user: ?1
   incremental name=17 value-huffman=true                       accept-language: en-US,en;q=0.9
   incremental name=16 value-huffman=true                       accept-encoding: gzip, deflate, br
   incremental name=58 value-huffman=true                       user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1
@@ -84,12 +83,11 @@ HEADERS stream=3 flags=0x25 exclusive=false dep=0 weight=255
   indexed 2                                                    :method: GET
   indexed 7                                                    :scheme: https
   incremental name=4 value-huffman=true                        :path: /b?q=1
-  indexed 71                                                   :authority: 127.0.0.1:PORT
-  indexed 70                                                   accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
-  indexed 69                                                   sec-fetch-dest: document
-  indexed 68                                                   sec-fetch-mode: navigate
-  indexed 67                                                   sec-fetch-site: none
-  indexed 66                                                   sec-fetch-user: ?1
+  indexed 70                                                   :authority: 127.0.0.1:PORT
+  indexed 69                                                   accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+  indexed 68                                                   sec-fetch-dest: document
+  indexed 67                                                   sec-fetch-mode: navigate
+  indexed 66                                                   sec-fetch-site: none
   indexed 65                                                   accept-language: en-US,en;q=0.9
   indexed 64                                                   accept-encoding: gzip, deflate, br
   indexed 63                                                   user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1
@@ -97,12 +95,11 @@ HEADERS stream=5 flags=0x25 exclusive=false dep=0 weight=255
   indexed 2                                                    :method: GET
   indexed 7                                                    :scheme: https
   incremental name=4 value-huffman=true                        :path: /b?q=2
-  indexed 72                                                   :authority: 127.0.0.1:PORT
-  indexed 71                                                   accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
-  indexed 70                                                   sec-fetch-dest: document
-  indexed 69                                                   sec-fetch-mode: navigate
-  indexed 68                                                   sec-fetch-site: none
-  indexed 67                                                   sec-fetch-user: ?1
+  indexed 71                                                   :authority: 127.0.0.1:PORT
+  indexed 70                                                   accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+  indexed 69                                                   sec-fetch-dest: document
+  indexed 68                                                   sec-fetch-mode: navigate
+  indexed 67                                                   sec-fetch-site: none
   indexed 66                                                   accept-language: en-US,en;q=0.9
   indexed 65                                                   accept-encoding: gzip, deflate, br
   indexed 64                                                   user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1
@@ -110,11 +107,11 @@ HEADERS stream=7 flags=0x24 exclusive=false dep=0 weight=255
   indexed 3                                                    :method: POST
   indexed 7                                                    :scheme: https
   incremental name=4 value-huffman=false                       :path: /c
-  indexed 73                                                   :authority: 127.0.0.1:PORT
+  indexed 72                                                   :authority: 127.0.0.1:PORT
   incremental name=19 value-huffman=false                      accept: */*
-  incremental name=72 value-huffman=true                       sec-fetch-dest: empty
-  incremental name=72 value-huffman=true                       sec-fetch-mode: cors
-  incremental name=72 value-huffman=true                       sec-fetch-site: cross-site
+  incremental name=71 value-huffman=true                       sec-fetch-dest: empty
+  incremental name=71 value-huffman=true                       sec-fetch-mode: cors
+  incremental name=71 value-huffman=true                       sec-fetch-site: cross-site
   indexed 71                                                   accept-language: en-US,en;q=0.9
   indexed 70                                                   accept-encoding: gzip, deflate, br
   indexed 69                                                   user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1
@@ -131,7 +128,6 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Sec-Fetch-Dest: document
 Sec-Fetch-Mode: navigate
 Sec-Fetch-Site: none
-Sec-Fetch-User: ?1
 Accept-Language: en-US,en;q=0.9
 Accept-Encoding: gzip, deflate, br
 User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1
@@ -143,7 +139,6 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Sec-Fetch-Dest: document
 Sec-Fetch-Mode: navigate
 Sec-Fetch-Site: none
-Sec-Fetch-User: ?1
 Accept-Language: en-US,en;q=0.9
 Accept-Encoding: gzip, deflate, br
 User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1
@@ -155,7 +150,6 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Sec-Fetch-Dest: document
 Sec-Fetch-Mode: navigate
 Sec-Fetch-Site: none
-Sec-Fetch-User: ?1
 Accept-Language: en-US,en;q=0.9
 Accept-Encoding: gzip, deflate, br
 User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1
@@ -210,7 +204,6 @@ HEADERS
   literal name="sec-fetch-dest" name-huffman=true never=false huffman=true "document"
   literal name="sec-fetch-mode" name-huffman=true never=false huffman=true "navigate"
   literal name="sec-fetch-site" name-huffman=true never=false huffman=true "none"
-  literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
   literal name-ref static=true 72 never=false huffman=true "en-US,en;q=0.9"
   indexed static=true 31
   literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1"
@@ -225,7 +218,6 @@ HEADERS
   literal name="sec-fetch-dest" name-huffman=true never=false huffman=true "document"
   literal name="sec-fetch-mode" name-huffman=true never=false huffman=true "navigate"
   literal name="sec-fetch-site" name-huffman=true never=false huffman=true "none"
-  literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
   literal name-ref static=true 72 never=false huffman=true "en-US,en;q=0.9"
   indexed static=true 31
   literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1"
@@ -240,7 +232,6 @@ HEADERS
   literal name="sec-fetch-dest" name-huffman=true never=false huffman=true "document"
   literal name="sec-fetch-mode" name-huffman=true never=false huffman=true "navigate"
   literal name="sec-fetch-site" name-huffman=true never=false huffman=true "none"
-  literal name="sec-fetch-user" name-huffman=true never=false huffman=true "?1"
   literal name-ref static=true 72 never=false huffman=true "en-US,en;q=0.9"
   indexed static=true 31
   literal name-ref static=true 95 never=false huffman=true "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/147.0.6917.0 Mobile/15E148 Safari/604.1"
@@ -344,8 +335,7 @@ DATA len=7
         "Accept-Language": "en-US,en;q=0.9",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1"
+        "Sec-Fetch-Site": "none"
       },
       "order": [
         {
@@ -375,10 +365,6 @@ DATA len=7
         {
           "key": "accept-language",
           "value": "en-US,en;q=0.9"
-        },
-        {
-          "key": "sec-fetch-user",
-          "value": "?1"
         }
       ]
     },
