@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -40,9 +41,10 @@ func gzipBytes(tb testing.TB, text []byte) []byte {
 	return buf.Bytes()
 }
 
-// TestSetupDecompressorGzip locks the streaming path's existing contract: the
-// header is read before the stream is handed out, and a body whose header
-// cannot be read is returned raw rather than failing the request.
+// TestSetupDecompressorGzip locks the streaming path's contract: the header is
+// read before the stream is handed out, and a body whose header cannot be read
+// fails on Read with the header's error, rather than coming back raw without
+// the bytes the header read consumed.
 func TestSetupDecompressorGzip(t *testing.T) {
 	text := []byte("hello")
 	body := io.NopCloser(bytes.NewReader(gzipBytes(t, text)))
@@ -61,13 +63,32 @@ func TestSetupDecompressorGzip(t *testing.T) {
 		t.Fatalf("ReadAll = %q, want %q", got, text)
 	}
 
-	raw := io.NopCloser(bytes.NewReader([]byte("this is not a gzip stream")))
-	reader, closer = setupDecompressor(raw, "gzip")
-	if reader != raw {
-		t.Fatalf("setupDecompressor(unreadable header) reader = %T, want the raw body", reader)
+	tests := []struct {
+		name    string
+		body    []byte
+		wantErr error // nil when the body reads as empty
+	}{
+		{name: "not gzip", body: []byte("this is not a gzip stream"), wantErr: gzip.ErrHeader},
+		{name: "truncated header", body: gzipBytes(t, text)[:5], wantErr: io.ErrUnexpectedEOF},
+		{name: "empty", body: nil, wantErr: nil},
 	}
-	if closer != nil {
-		t.Fatalf("setupDecompressor(unreadable header) closer = %v, want nil", closer)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reader, closer := setupDecompressor(io.NopCloser(bytes.NewReader(tc.body)), "gzip")
+			if closer != nil {
+				t.Errorf("setupDecompressor(%s) closer = %v, want nil", tc.name, closer)
+			}
+			got, err := io.ReadAll(reader)
+			if len(got) != 0 {
+				t.Errorf("ReadAll(%s) = %q, want no data", tc.name, got)
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("ReadAll(%s) error = %v, want %v", tc.name, err, tc.wantErr)
+			}
+			if err := reader.Close(); err != nil {
+				t.Errorf("Close(%s) = %v, want nil", tc.name, err)
+			}
+		})
 	}
 }
 
