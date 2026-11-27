@@ -48,7 +48,7 @@ The table above is Chrome's, and so is the rule that turns urgency into a weight
 
 Three more differences come with it, and a preset's `priority_model` (`chromium` or `table`) says which side it is on:
 
-- **Who decides the weight.** On the `chromium` model a request that sets its own `priority` header gets the weight that goes with that urgency, as Chrome does for a `fetch()` with a priority hint. On the `table` model the weight always comes from the table entry, whatever header the request carries.
+- **Who decides the weight.** On the `chromium` model a request that sets its own `priority` header gets the weight that goes with that urgency, as Chrome does for a `fetch()` with a priority hint, and a request that carries none goes at urgency 3's weight, 147, the only urgency Chrome sends no header for. On the `table` model the weight always comes from the table entry, whatever header the request carries.
 - **Stream dependencies.** Chrome never names stream 0 as the parent once two requests overlap on a connection: each new stream depends, exclusively, on the newest open stream at the same or a higher priority, so the tree is one chain. The `chromium` model builds that chain. Firefox names stream 0, never exclusive, and so does the `table` model.
 - **HTTP/1.1.** Chrome sends no priority header over HTTP/1.1, and Firefox sends the same one it sends over HTTP/2. Chrome on iOS runs on WebKit and sends none there either. A preset can state this outright with `priority_over_http1`. On a preset that sends none, a `priority` you set yourself is dropped on HTTP/1.1 too, so the value meant for HTTP/2 does not leak when a request falls back. Exact-headers and TLS-only requests go out as you composed them.
 
@@ -163,6 +163,26 @@ The H2 wire stream weight on each HEADERS frame matches: 256 for document, 256 f
 :::info
 Skip `Sec-Fetch-Dest` and httpcloak's auto-detect sets it for you. Top-level navigations get `document`, XHR / fetch() requests get `empty`, and sub-resource loads (image / script / stylesheet tags) keep whatever value you passed. Most sites don't check H2 PRIORITY weight per request, but Cloudflare and Akamai do at the H2 / H3 layer. CF challenges that don't show up in a real browser test often trace back to a priority weight mismatch.
 :::
+
+## One request's priority
+
+The table goes by `Sec-Fetch-Dest`, and Chrome's priority goes by how the page scheduled the fetch. Three scripts on one page can go out three ways: a parser-blocking `<script>` at `u=1` (weight 220), one late in the body at `u=2` (weight 183), and an async, deferred or injected one at urgency 3, which Chrome sends with no `priority` header at all, at weight 147. The table gives every script the first.
+
+Set the header yourself to say which one a request is. On a Chromium preset the HTTP/2 weight follows what you set, so the header and the frame stay one signal. Set it to `""` for the third kind: an empty priority is no priority header, the way RFC 8941 serializes an empty dictionary and the way Chrome sends urgency 3. Any request that goes out with no `priority` header and a `Sec-Fetch-Dest`, exact-headers and TLS-only ones included, goes at that weight. One with no `Sec-Fetch-Dest` either keeps the preset's static weight.
+
+```go
+req := &httpcloak.Request{
+    Method: "GET",
+    URL:    "https://example.com/pixel.js",
+    Headers: map[string][]string{
+        "Sec-Fetch-Dest": {"script"},
+        "Sec-Fetch-Mode": {"no-cors"},
+        "priority":       {""}, // injected script: no header, weight 147
+    },
+}
+```
+
+The bindings take the same empty string in their headers map.
 
 ## Capturing the wire-level frame
 

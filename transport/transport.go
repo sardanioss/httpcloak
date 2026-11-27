@@ -2964,6 +2964,14 @@ func mergeCallerHeaders(httpReq *http.Request, req *Request, protocol string) {
 			seen = append(seen, placed{canonical, key, name})
 		}
 	}
+	// A blank priority asks for a request with no priority header; see
+	// omitsPriority. The spelling that went out above decides, as for any
+	// other header, so the result never depends on map order.
+	for _, p := range seen {
+		if p.canonical == "Priority" && omitsPriority(p.key, httpReq.Header[p.name]) {
+			delete(httpReq.Header, p.name)
+		}
+	}
 }
 
 // browserCasedHeader reports whether a header, named by its canonical key, is
@@ -3146,6 +3154,13 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 			if p := httpReq.Header["Priority"]; len(p) > 0 && p[0] != "" {
 				httpReq.Header["Priority"] = []string{"u=1, i"}
 			}
+		} else if wire.sendsSecFetch && frameNavigation(userHeaders) {
+			// Chrome sends Sec-Fetch-User only on a navigation a person
+			// started, and an iframe loading its src is not one, so Chrome
+			// sends it no Sec-Fetch-User. The preset's ?1 describes a
+			// top-level click; on a navigation the caller marked as a frame's
+			// it goes, unless the caller sets it for a click inside the frame.
+			delete(httpReq.Header, "Sec-Fetch-User")
 		}
 
 		// Per-resource-type priority: HTTP header. Chrome 147+ desktop emits
@@ -3162,6 +3177,14 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 			var dest string
 			if d := httpReq.Header["Sec-Fetch-Dest"]; len(d) > 0 {
 				dest = d[0]
+			}
+			// The caller's Sec-Fetch-Dest is merged after this, and a
+			// navigation still carries the preset's document here, so the
+			// caller's decides when it sets one. Firefox 159 sends an iframe's
+			// document at u=4, not the u=0, i of a top-level page; Chrome
+			// sends both at u=0, i, so its requests do not change.
+			if d := headerVal(userHeaders, "Sec-Fetch-Dest"); d != "" {
+				dest = d
 			}
 			if _, _, hv, ok := preset.H2PriorityFor(dest); ok {
 				if hv == "" {
@@ -3226,6 +3249,26 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 	}
 }
 
+// omitsPriority reports whether a caller's values for a header ask for a
+// request with no priority header. The header is an RFC 8941 Dictionary, and a
+// Dictionary with no members is serialized by leaving the field out. That is
+// what Chrome does at the default urgency: quiche's SerializePriorityFieldValue
+// drops u=3 and a false i, and spdy_http_utils.cc adds the header only when
+// something is left. So "" asks for that request, which Chrome sends for an
+// async or injected script, rather than for an empty field no browser sends.
+// h2build gives a request without the header the default urgency's weight.
+func omitsPriority(key string, values []string) bool {
+	if !strings.EqualFold(key, "priority") {
+		return false
+	}
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return false
+		}
+	}
+	return true
+}
+
 // sniffXHRMode decides whether a request should send CORS-mode Sec-Fetch-*
 // instead of navigation-mode, based on the request method and user headers.
 // Browsers send cors/empty for fetch()/XHR and navigate/document for top-level
@@ -3285,6 +3328,15 @@ func sniffXHRMode(method string, userHeaders map[string][]string) bool {
 	// POSTs from scrapers are overwhelmingly API calls; form submissions
 	// always carry one of the form Content-Types handled above.
 	return true
+}
+
+// frameNavigation reports whether a navigation is a nested frame's: the caller
+// gave a Sec-Fetch-Dest other than document, and no Sec-Fetch-User of their
+// own. It is only asked about a request sniffXHRMode left in navigation mode,
+// which with such a destination means the caller set Sec-Fetch-Mode: navigate.
+func frameNavigation(userHeaders map[string][]string) bool {
+	dest := headerVal(userHeaders, "Sec-Fetch-Dest")
+	return dest != "" && !strings.EqualFold(dest, "document") && headerVal(userHeaders, "Sec-Fetch-User") == ""
 }
 
 func headerVal(h map[string][]string, name string) string {

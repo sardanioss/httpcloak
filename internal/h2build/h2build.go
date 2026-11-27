@@ -131,10 +131,19 @@ func Transport(o Options) *http2.Transport {
 		// Per-request priority. Chrome derives a stream's weight and its
 		// priority header from one request priority (spdy_session.cc and
 		// spdy_http_utils.cc both start from HIGHEST - priority), so a request
-		// that carries its own priority header gets the weight that goes with
-		// it. The dest is only a stand-in for when it does not: a favicon is
-		// dest image like an <img>, but goes at u=1 where the <img> goes at u=2.
-		// nil, for an unknown dest and no header, falls back to HeaderPriority.
+		// gets the weight that goes with the priority header it carries. The
+		// dest cannot stand in for it: a favicon is dest image like an <img>,
+		// but goes at u=1 where the <img> goes at u=2.
+		//
+		// A request that carries none is at the default urgency, and gets its
+		// weight, 147. Chrome leaves the header out only when quiche serializes
+		// the priority to nothing, which is u=3 and not incremental, so no
+		// Chrome request pairs a missing header with another weight. The dest
+		// used to decide here, and sent a script with no header at 220 where
+		// Chrome sends an async or injected one at 147. A table entry that
+		// sends no header keeps its own weight, and a request with no
+		// Sec-Fetch-Dest either, which no browser sends, falls back to
+		// HeaderPriority.
 		//
 		// That is Chromium's model only. Firefox's weight is not a function of
 		// the urgency (u=2 and u=4 both go at 22), so a "table" preset takes
@@ -148,8 +157,9 @@ func Transport(o Options) *http2.Transport {
 			}
 			chromium := p.H2PriorityModel() == fingerprint.PriorityModelChromium
 			return func(req *http.Request) *http2.PriorityParam {
-				weight, exclusive, _, ok := p.H2PriorityFor(headerValue(req.Header, "Sec-Fetch-Dest"))
-				if v := headerValue(req.Header, "Priority"); chromium && v != "" {
+				dest := headerValue(req.Header, "Sec-Fetch-Dest")
+				weight, exclusive, hv, ok := p.H2PriorityFor(dest)
+				if v := headerValue(req.Header, "Priority"); chromium && (v != "" || (dest != "" && (!ok || hv != ""))) {
 					if !ok {
 						exclusive = s.StreamExclusive
 					}

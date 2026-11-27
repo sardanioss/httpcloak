@@ -2063,6 +2063,7 @@ func applyTLSOnlyHeaders(httpReq *http.Request, preset *fingerprint.Preset, req 
 			}
 		}
 	}
+	dropEmptyPriority(httpReq.Header)
 
 	// In TLSOnly mode, if user didn't provide User-Agent, set empty string to prevent Go default
 	if _, hasUA := getHeaderCaseInsensitive(req.Headers, "User-Agent"); !hasUA {
@@ -2132,7 +2133,7 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 	default:
 		applyNavigationModeHeaders(httpReq, preset, req)
 	}
-	applyTablePriority(httpReq, preset)
+	applyTablePriority(httpReq, preset, req)
 
 	// Apply user custom headers. User wins over mode defaults — they can project
 	// any intent they want, including deliberate incoherence for site testing.
@@ -2147,6 +2148,7 @@ func applyModeHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *Re
 			}
 		}
 	}
+	dropEmptyPriority(httpReq.Header)
 
 	// Set header order for HTTP/2 and HTTP/3 fingerprinting
 	// Use H2HeaderOrder (full HPACK position table) — see the matching
@@ -2295,7 +2297,13 @@ func applyNavigationModeHeaders(httpReq *http.Request, preset *fingerprint.Prese
 	// Navigation headers — always set for bot detection
 	httpReq.Header.Set("Sec-Fetch-Dest", "document")
 	httpReq.Header.Set("Sec-Fetch-Mode", "navigate")
-	httpReq.Header.Set("Sec-Fetch-User", "?1")
+	// Chrome sends Sec-Fetch-User only on a navigation a person started, and
+	// an iframe loading its src is not one. A request the caller marks as a
+	// frame's navigation goes without, unless the caller sets it for a click
+	// inside the frame; their headers are applied after this.
+	if dest, ok := getHeaderCaseInsensitive(req.Headers, "Sec-Fetch-Dest"); !ok || len(dest) == 0 || strings.EqualFold(dest[0], "document") {
+		httpReq.Header.Set("Sec-Fetch-User", "?1")
+	}
 	httpReq.Header.Set("Upgrade-Insecure-Requests", "1")
 
 	// Priority header (newer Chrome/Firefox)
@@ -2407,12 +2415,19 @@ func applyNoCorsHeaders(httpReq *http.Request, preset *fingerprint.Preset, req *
 // hardcode Chrome's values, so a Firefox preset sent Chrome's headers, and
 // no-cors requests sent none at all, where Chrome sends u=0 on a stylesheet,
 // u=1 on a script and u=2, i on an image. A dest the table does not know
-// keeps whatever the mode set. User headers are applied after this and win.
-func applyTablePriority(httpReq *http.Request, preset *fingerprint.Preset) {
+// keeps whatever the mode set. User headers are applied after this and win,
+// so a Sec-Fetch-Dest of the caller's is the dest the request goes out with:
+// an iframe's navigation is document here until they are applied, and Firefox
+// sends it at u=4 rather than a page's u=0, i.
+func applyTablePriority(httpReq *http.Request, preset *fingerprint.Preset, req *Request) {
 	if !preset.H2HasPriorityTable() {
 		return
 	}
-	_, _, hv, ok := preset.H2PriorityFor(httpReq.Header.Get("Sec-Fetch-Dest"))
+	dest := httpReq.Header.Get("Sec-Fetch-Dest")
+	if v, ok := getHeaderCaseInsensitive(req.Headers, "Sec-Fetch-Dest"); ok && len(v) > 0 && v[0] != "" {
+		dest = v[0]
+	}
+	_, _, hv, ok := preset.H2PriorityFor(dest)
 	if !ok {
 		return
 	}
@@ -2421,6 +2436,19 @@ func applyTablePriority(httpReq *http.Request, preset *fingerprint.Preset) {
 		return
 	}
 	httpReq.Header.Set("Priority", hv)
+}
+
+// dropEmptyPriority removes a priority header the caller set to "", the way
+// the transport's header pipeline does: an empty priority field is no field,
+// which is what Chrome sends at the default urgency (see omitsPriority in the
+// transport package). The HTTP/2 weight then goes with the default urgency.
+func dropEmptyPriority(h http.Header) {
+	for _, v := range h["Priority"] {
+		if strings.TrimSpace(v) != "" {
+			return
+		}
+	}
+	delete(h, "Priority")
 }
 
 // detectSecFetchSiteForMode determines the Sec-Fetch-Site header value

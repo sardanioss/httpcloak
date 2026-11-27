@@ -20,7 +20,8 @@ import (
 // like an <img>, and Chrome sends it at u=1, weight 220, where the <img> goes at
 // u=2, weight 183. So when a request carries its own priority header, the
 // weight has to come from that header, or the frame and the header disagree in
-// a way no Chrome build produces.
+// a way no Chrome build produces. A request that carries none is at u=3, the
+// one urgency Chrome sends no header for, whatever its dest.
 //
 // Two shapes were broken. With ordinary headers the caller's priority went out
 // unchanged but the weight came from the dest. With exact headers the names
@@ -38,15 +39,16 @@ func TestStreamWeightFollowsTheRequestsPriorityHeader(t *testing.T) {
 		{"img", false, "image", "u=2, i", 183},
 		{"favicon exact", true, "image", "u=1, i", 220},
 		{"img exact", true, "image", "u=2, i", 183},
-		// No header of its own: the dest table decides, in both modes.
-		{"dest only exact", true, "image", "", 183},
-		{"style exact", true, "style", "", 256},
+		// No header of its own is the default urgency; the dest does not
+		// decide.
+		{"dest only exact", true, "image", "", 147},
+		{"style exact", true, "style", "", 147},
 		// An RFC 9218 value with no u= is urgency 3.
 		{"incremental only", false, "image", "i", 147},
-		// A dest the table does not know still follows the header, and with no
-		// header either it falls back to the static weight.
+		// A dest the table does not know still follows the header, and with
+		// none it is at the default urgency too.
 		{"unknown dest", false, "made-up-dest", "u=4, i", 110},
-		{"unknown dest exact", true, "made-up-dest", "", 256},
+		{"unknown dest exact", true, "made-up-dest", "", 147},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
