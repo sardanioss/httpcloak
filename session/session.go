@@ -11,9 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +23,7 @@ import (
 	"time"
 
 	"github.com/sardanioss/httpcloak/fingerprint"
+	"github.com/sardanioss/httpcloak/internal/secfetch"
 	"github.com/sardanioss/httpcloak/protocol"
 	"github.com/sardanioss/httpcloak/transport"
 )
@@ -503,7 +506,7 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 				s.extractCookies(resp.Headers, req.URL)
 			}
 			// Also parse Accept-CH from intermediate responses
-			s.parseAcceptCH(host, resp.Headers)
+			s.parseAcceptCH(host, req, resp.Headers)
 		}
 
 		// Check if we should retry
@@ -553,7 +556,7 @@ func (s *Session) requestWithRedirects(ctx context.Context, req *transport.Reque
 	}
 
 	// Parse Accept-CH header to store requested client hints for this host
-	s.parseAcceptCH(host, resp.Headers)
+	s.parseAcceptCH(host, req, resp.Headers)
 
 	// Store cache validation headers from response for future requests, unless
 	// the conditional cache is disabled session-wide or the caller asked to
@@ -1064,10 +1067,32 @@ func (s *Session) storeCacheHeaders(url string, headers map[string][]string) {
 	}
 }
 
-// parseAcceptCH parses the Accept-CH response header and stores the requested client hints
-// for the given host. On subsequent requests to this host, the session will send the
-// high-entropy client hints that were requested.
-func (s *Session) parseAcceptCH(host string, headers map[string][]string) {
+// learnsAcceptCH reports whether the Accept-CH on the response to req is
+// remembered. Chrome parses Accept-CH only on the response to an outermost
+// main-frame navigation (ParseAndPersistAcceptCHForNavigation in
+// content/browser/client_hints/client_hints.cc), so a frame's document, a
+// fetch and a subresource can ask for hints and get none. That is the request
+// sent with Sec-Fetch-Dest: document. One sent with no Sec-Fetch-Dest at all,
+// TLS-only or a preset that sends no Sec-Fetch metadata, says nothing either
+// way and is treated as a navigation, as every request used to be.
+//
+// The Sec-Fetch-Dest is the transport's, worked out by the rule it composes the
+// header with (secfetch.Dest), for the preset it was built from.
+func (s *Session) learnsAcceptCH(req *transport.Request) bool {
+	tlsOnly := s.Config != nil && s.Config.TLSOnly
+	if req.TLSOnly != nil {
+		tlsOnly = *req.TLSOnly
+	}
+	dest := secfetch.Dest(s.preset(), tlsOnly, req.Method, req.Headers, req.ExactHeaders)
+	return dest == "" || strings.EqualFold(dest, "document")
+}
+
+// parseAcceptCH parses the Accept-CH header on the response to req and stores
+// the requested client hints for the given host. On subsequent requests to this
+// host, the session will send the high-entropy client hints that were
+// requested. Only a top-level navigation's response is read; see
+// learnsAcceptCH.
+func (s *Session) parseAcceptCH(host string, req *transport.Request, headers map[string][]string) {
 	// Helper to get first value from header (case-insensitive)
 	getHeader := func(key string) string {
 		if values := headers[key]; len(values) > 0 {
@@ -1082,6 +1107,14 @@ func (s *Session) parseAcceptCH(host string, headers map[string][]string) {
 		acceptCH = getHeader("Accept-CH")
 	}
 	if acceptCH == "" {
+		return
+	}
+	// A browser without UA client hints does not act on Accept-CH at all; see
+	// resolveClientHints.
+	if s.resolveClientHints().UA == "" {
+		return
+	}
+	if !s.learnsAcceptCH(req) {
 		return
 	}
 
@@ -1135,19 +1168,18 @@ func (s *Session) applyClientHintPolicy(host string, req *transport.Request) {
 	s.applyClientHints(host, req.Headers)
 }
 
-// applyClientHints adds the high-entropy client hints to the request if the host
-// has previously advertised them via Accept-CH. The values come from the resolved
-// preset (Preset.ResolveClientHints), so they stay coherent with the preset's
-// sec-ch-ua trio and User-Agent. A hint the caller already set explicitly is never
-// overwritten (matched case-insensitively), which makes per-request overrides
-// deterministic.
-func (s *Session) applyClientHints(host string, headers map[string][]string) {
+// clientHintsFor returns the high-entropy client hints host has advertised via
+// Accept-CH, header name to value. The values come from the resolved preset
+// (Preset.ResolveClientHints), so they stay coherent with the preset's sec-ch-ua
+// trio and User-Agent. applyClientHints sends exactly these and ClientHintsFor
+// reports them, so the injector and the getter cannot drift apart.
+func (s *Session) clientHintsFor(host string) map[string]string {
 	s.mu.RLock()
 	hints, exists := s.clientHints[host]
 	s.mu.RUnlock()
 
 	if !exists || len(hints) == 0 {
-		return
+		return nil
 	}
 
 	ch := s.resolveClientHints()
@@ -1159,36 +1191,65 @@ func (s *Session) applyClientHints(host string, headers map[string][]string) {
 	}{
 		"sec-ch-ua-arch":              {"Sec-Ch-Ua-Arch", ch.UAArch},
 		"sec-ch-ua-bitness":           {"Sec-Ch-Ua-Bitness", ch.UABitness},
+		"sec-ch-ua-full-version":      {"Sec-Ch-Ua-Full-Version", ch.UAFullVersion},
 		"sec-ch-ua-full-version-list": {"Sec-Ch-Ua-Full-Version-List", ch.UAFullVersionList},
 		"sec-ch-ua-model":             {"Sec-Ch-Ua-Model", ch.UAModel},
 		"sec-ch-ua-platform-version":  {"Sec-Ch-Ua-Platform-Version", ch.UAPlatformVersion},
 		"sec-ch-ua-wow64":             {"Sec-Ch-Ua-Wow64", ch.UAWow64},
 	}
 
+	out := make(map[string]string, len(hints))
 	for hintName, hintInfo := range hintValues {
 		if !hints[hintName] || hintInfo.value == "" {
 			continue
 		}
+		out[hintInfo.header] = hintInfo.value
+	}
+	return out
+}
+
+// applyClientHints adds the high-entropy client hints to the request if the host
+// has previously advertised them via Accept-CH; see clientHintsFor. A hint the
+// caller already set explicitly is never overwritten (matched
+// case-insensitively), which makes per-request overrides deterministic.
+func (s *Session) applyClientHints(host string, headers map[string][]string) {
+	for name, value := range s.clientHintsFor(host) {
 		// Don't clobber a value the caller supplied (any header case).
-		if headerKeyPresent(headers, hintInfo.header) {
+		if headerKeyPresent(headers, name) {
 			continue
 		}
-		headers[hintInfo.header] = []string{hintInfo.value}
+		headers[name] = []string{value}
 	}
 }
 
 // resolveClientHints returns the coherent UA client hints for this session's
 // preset. Looking the preset up by name mirrors how the transport built it, so
 // the hints reflect the projected identity rather than the local machine.
+//
+// A preset that sends no sec-ch-ua gets none at all. Only Chromium implements
+// UA client hints: Firefox and Safari send no sec-ch-* header and ignore
+// Accept-CH, and Chrome on iOS runs on WebKit. Firefox 159, asked for three
+// high-entropy hints by a navigation's Accept-CH, sent no sec-ch-* on that page
+// or after it. The resolved high-entropy values are platform defaults, which
+// filled in for those presets and went out as five headers no such browser
+// sends.
 func (s *Session) resolveClientHints() fingerprint.ClientHints {
+	if p := s.preset(); p != nil {
+		if ch := p.ResolveClientHints(); ch.UA != "" {
+			return ch
+		}
+	}
+	return fingerprint.ClientHints{}
+}
+
+// preset returns this session's preset, looked up by name the way the
+// transport was built from it.
+func (s *Session) preset() *fingerprint.Preset {
 	presetName := "chrome-latest"
 	if s.Config != nil && s.Config.Preset != "" {
 		presetName = s.Config.Preset
 	}
-	if p := fingerprint.Get(presetName); p != nil {
-		return p.ResolveClientHints()
-	}
-	return fingerprint.ClientHints{}
+	return fingerprint.Get(presetName)
 }
 
 // headerKeyPresent reports whether headers already contains key, comparing keys
@@ -1236,6 +1297,96 @@ func (s *Session) HighEntropyClientHintsEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.highEntropyClientHintsEnabled
+}
+
+// AcceptCH returns the client hints host asked for in Accept-CH, lowercase and
+// sorted, or nil when it has asked for none. host is a host name, or a URL,
+// matched the way a request's URL is.
+func (s *Session) AcceptCH(host string) []string {
+	host = extractHost(host)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.clientHints[host]) == 0 {
+		return nil
+	}
+	return slices.Sorted(maps.Keys(s.clientHints[host]))
+}
+
+// SetAcceptCH records hints as what host asked for in Accept-CH, replacing what
+// the session had from it, as a new Accept-CH does. Chrome keeps each host's
+// Accept-CH across restarts, so a host that asked last week gets the hints on
+// the first request of the next visit; this is how a session rebuilt from
+// stored state does the same, or how one is warmed for a host that is known to
+// ask. Empty forgets the host.
+func (s *Session) SetAcceptCH(host string, hints []string) {
+	host = extractHost(host)
+	set := make(map[string]bool, len(hints))
+	for _, hint := range hints {
+		if hint = trim(toLowerASCII(hint)); hint != "" {
+			set[hint] = true
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(set) == 0 {
+		delete(s.clientHints, host)
+		return
+	}
+	s.clientHints[host] = set
+}
+
+// ClientHintsFor returns the high-entropy client hints the session adds to a
+// request to host, lowercase header name to value: what host asked for in
+// Accept-CH, with the preset's values. It is nil when host asked for none, or
+// when the session's client hints or high-entropy hints are turned off. A
+// request's own DisableClientHints or DisableHighEntropyClientHints, and a hint
+// it sets itself, still take precedence on that request.
+func (s *Session) ClientHintsFor(host string) map[string]string {
+	s.mu.RLock()
+	on := s.clientHintsEnabled && s.highEntropyClientHintsEnabled
+	s.mu.RUnlock()
+	if !on {
+		return nil
+	}
+	hints := s.clientHintsFor(extractHost(host))
+	if len(hints) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(hints))
+	for name, value := range hints {
+		out[strings.ToLower(name)] = value
+	}
+	return out
+}
+
+// exportAcceptCH returns what each host asked for in Accept-CH, for the saved
+// state. The caller holds s.mu.
+func (s *Session) exportAcceptCH() map[string][]string {
+	if len(s.clientHints) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(s.clientHints))
+	for host, hints := range s.clientHints {
+		if len(hints) > 0 {
+			out[host] = slices.Sorted(maps.Keys(hints))
+		}
+	}
+	return out
+}
+
+// importAcceptCH restores what exportAcceptCH saved. The caller holds s.mu.
+func (s *Session) importAcceptCH(saved map[string][]string) {
+	for host, hints := range saved {
+		set := make(map[string]bool, len(hints))
+		for _, hint := range hints {
+			if hint = trim(toLowerASCII(hint)); hint != "" {
+				set[hint] = true
+			}
+		}
+		if len(set) > 0 {
+			s.clientHints[host] = set
+		}
+	}
 }
 
 // Helper functions for client hints
@@ -1917,8 +2068,9 @@ func (s *Session) RequestStream(ctx context.Context, req *transport.Request) (*S
 	}
 
 	// Parse Accept-CH so subsequent requests to this host (buffered or streaming)
-	// send the high-entropy hints, matching the buffered path.
-	s.parseAcceptCH(host, resp.Headers)
+	// send the high-entropy hints, matching the buffered path: only a top-level
+	// navigation's response is read, as there.
+	s.parseAcceptCH(host, req, resp.Headers)
 
 	return resp, nil
 }
@@ -2319,6 +2471,7 @@ func (s *Session) Marshal() ([]byte, error) {
 		Cookies:     cookies,
 		TLSSessions: tlsSessions,
 		ECHConfigs:  echConfigs,
+		AcceptCH:    s.exportAcceptCH(),
 		TLSVerify:   tlsVerifyStateOf(config),
 	}
 
@@ -2507,9 +2660,10 @@ func UnmarshalSessionWithOptions(data []byte, opts *SessionLoadOptions) (*Sessio
 	session := NewSession("", config)
 	session.CreatedAt = state.CreatedAt
 
-	// Import cookies (v5 format)
+	// Import cookies (v5 format) and what each host asked for in Accept-CH
 	session.mu.Lock()
 	session.importCookies(state.Cookies)
+	session.importAcceptCH(state.AcceptCH)
 	session.mu.Unlock()
 
 	// Import ECH configs FIRST - this must be done before TLS sessions

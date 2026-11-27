@@ -224,6 +224,7 @@ type ClientHints struct {
 	// High-entropy hints (only sent after Accept-CH)
 	UAArch            string // Sec-Ch-Ua-Arch
 	UABitness         string // Sec-Ch-Ua-Bitness
+	UAFullVersion     string // Sec-Ch-Ua-Full-Version
 	UAFullVersionList string // Sec-Ch-Ua-Full-Version-List
 	UAModel           string // Sec-Ch-Ua-Model
 	UAPlatformVersion string // Sec-Ch-Ua-Platform-Version
@@ -247,6 +248,7 @@ func GenerateClientHints(chromeVersion string, platform PlatformInfo, includeHig
 	if includeHighEntropy {
 		hints.UAArch = fmt.Sprintf(`"%s"`, platform.Arch)
 		hints.UABitness = `"64"`
+		hints.UAFullVersion = fmt.Sprintf(`"%s.0.0.0"`, chromeVersion)
 		hints.UAFullVersionList = fmt.Sprintf(`"Google Chrome";v="%s.0.0.0", "Chromium";v="%s.0.0.0", "Not_A Brand";v="24.0.0.0"`, chromeVersion, chromeVersion)
 		hints.UAPlatformVersion = fmt.Sprintf(`"%s"`, platform.PlatformVersion)
 	}
@@ -273,10 +275,22 @@ func (p *Preset) ResolveClientHints() ClientHints {
 		UAPlatform: p.Headers["sec-ch-ua-platform"],
 	}
 
-	if p.ClientHints.FullVersionList != "" {
+	// A pinned list wins only while it still describes this preset's sec-ch-ua.
+	// based_on inherits the pin, so a preset that moves sec-ch-ua to a newer Chrome
+	// would otherwise send the old build beside the new major, which no browser
+	// does. It gets the derived list instead until it pins its own.
+	if p.ClientHints.FullVersionList != "" && fullVersionListMatches(p.ClientHints.FullVersionList, secChUa) {
 		ch.UAFullVersionList = p.ClientHints.FullVersionList
 	} else {
 		ch.UAFullVersionList = expandSecChUaVersions(secChUa)
+	}
+	// Chrome sends the same version in sec-ch-ua-full-version as its own brand
+	// carries in the full version list, so it is read off that list, and a
+	// pinned list reaches both. A pin of its own wins only while its major is
+	// that brand's, for the same based_on reason as the list above.
+	ch.UAFullVersion = browserFullVersion(ch.UAFullVersionList)
+	if pinned := p.ClientHints.FullVersion; pinned != "" && majorOf(pinned) == majorOf(ch.UAFullVersion) {
+		ch.UAFullVersion = pinned
 	}
 
 	ch.UAArch = firstNonEmpty(p.ClientHints.Arch, defaultClientHintArch(platformName, isMobile))
@@ -342,6 +356,94 @@ func splitBrandList(s string) []string {
 	return parts
 }
 
+// fullVersionListMatches reports whether a full version list names the same
+// brands, in the same order, at the same major versions as sec-ch-ua, which is
+// how Chrome builds the two from one brand list.
+func fullVersionListMatches(list, secChUa string) bool {
+	full, low := splitBrandList(list), splitBrandList(secChUa)
+	if len(full) != len(low) {
+		return false
+	}
+	for i := range full {
+		fb, fv, ok := splitBrandEntry(full[i])
+		lb, lv, ok2 := splitBrandEntry(low[i])
+		if !ok || !ok2 || fb != lb {
+			return false
+		}
+		if major, _, _ := strings.Cut(fv, "."); major != lv {
+			return false
+		}
+	}
+	return true
+}
+
+// browserFullVersion returns the sec-ch-ua-full-version value that goes with a
+// full version list: the version of the browser's own brand, which is the first
+// entry that is neither Chromium nor the GREASE brand, or Chromium's when the
+// list names no other. "" when the list carries no version.
+func browserFullVersion(list string) string {
+	if list == "" {
+		return ""
+	}
+	var chromium string
+	for _, entry := range splitBrandList(list) {
+		brand, version, ok := splitBrandEntry(entry)
+		if !ok || isGreaseBrand(brand) {
+			continue
+		}
+		if brand != "Chromium" {
+			return `"` + version + `"`
+		}
+		if chromium == "" {
+			chromium = version
+		}
+	}
+	if chromium == "" {
+		return ""
+	}
+	return `"` + chromium + `"`
+}
+
+// majorOf returns the major version of a quoted full version, "155" for
+// "155.0.8059.39", and "" for no version.
+func majorOf(fullVersion string) string {
+	major, _, _ := strings.Cut(strings.Trim(fullVersion, `"`), ".")
+	return major
+}
+
+// isGreaseBrand reports whether a brand is Chromium's GREASE brand, "Not" + c +
+// "A" + c + "Brand" with c drawn from a set of punctuation: "Not(A:Brand",
+// "Not_A Brand", "Not?A_Brand" and so on. Older releases led with a space,
+// " Not A;Brand".
+func isGreaseBrand(brand string) bool {
+	brand = strings.TrimSpace(brand)
+	return len(brand) == 11 && strings.HasPrefix(brand, "Not") && brand[4] == 'A' && strings.HasSuffix(brand, "Brand")
+}
+
+// splitBrandEntry splits one brand-list entry, `"Chromium";v="155"`, into the
+// brand and the version.
+func splitBrandEntry(entry string) (brand, version string, ok bool) {
+	if len(entry) < 2 || entry[0] != '"' {
+		return "", "", false
+	}
+	end := strings.IndexByte(entry[1:], '"')
+	if end < 0 {
+		return "", "", false
+	}
+	brand = entry[1 : 1+end]
+	const marker = `;v="`
+	idx := strings.Index(entry, marker)
+	if idx < 0 {
+		return "", "", false
+	}
+	vStart := idx + len(marker)
+	vEnd := strings.IndexByte(entry[vStart:], '"')
+	if vEnd < 0 {
+		return "", "", false
+	}
+	return brand, entry[vStart : vStart+vEnd], true
+}
+
 // expandBrandVersion expands the v="N" inside a single brand entry to
 // v="N.0.0.0", leaving an already-multipart version untouched.
 func expandBrandVersion(entry string) string {
@@ -389,10 +491,15 @@ func defaultClientHintBitness(isMobile bool) string {
 // for a platform. Linux is "" (real Chrome behavior). Windows/macOS values are
 // best-effort defaults; a preset should pin the exact value via ClientHints from a
 // real capture.
+//
+// On Windows Chrome reports the UniversalApiContract version, not the marketing
+// one: 19.0.0 on Windows 11 24H2 and 25H2, measured against Chrome 156, where
+// 22H2 and 23H2 reported 15.0.0. Neither of those still gets updates on Home or
+// Pro, so 15.0.0 described a machine few Chrome users still run.
 func defaultClientHintPlatformVersion(platformName string) string {
 	switch platformName {
 	case "Windows":
-		return `"15.0.0"`
+		return `"19.0.0"`
 	case "macOS":
 		return `"14.5.0"`
 	case "Android":

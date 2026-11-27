@@ -56,6 +56,7 @@ func flattenToSpec(p *Preset) (*PresetSpec, error) {
 	spec.TLS = tlsSpec
 
 	spec.Headers = flattenHeaders(p)
+	spec.ClientHints = flattenClientHints(p)
 	spec.HTTP2 = flattenHTTP2(p)
 	// A preset can carry an HTTP/3 profile without advertising HTTP/3 by
 	// default (safari-17-ios does), and a session forced onto HTTP/3 still
@@ -246,6 +247,27 @@ func flattenHeaders(p *Preset) *HeaderSpec {
 	// following ResolveImageAccept.
 	out.ImageAccept = p.ImageAccept
 	return out
+}
+
+// flattenClientHints emits the high-entropy hints the preset pins, and only
+// those. An unset hint is derived from the sec-ch-ua trio at resolve time, and
+// writing the derived value out would pin it on a described preset that should
+// keep following its own sec-ch-ua, the same reason image_accept is only
+// written when set. Nil when nothing is pinned.
+func flattenClientHints(p *Preset) *ClientHintsSpec {
+	ch := p.ClientHints
+	if ch == (ClientHintsProfile{}) {
+		return nil
+	}
+	return &ClientHintsSpec{
+		FullVersionList: ch.FullVersionList,
+		FullVersion:     ch.FullVersion,
+		PlatformVersion: ch.PlatformVersion,
+		Arch:            ch.Arch,
+		Bitness:         ch.Bitness,
+		Model:           ch.Model,
+		Wow64:           ch.Wow64,
+	}
 }
 
 // flattenHTTP2 emits all HTTP/2 settings as discrete fields plus the resolved

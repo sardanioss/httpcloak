@@ -1486,6 +1486,26 @@ func (s *Session) HighEntropyClientHintsEnabled() bool {
 	return s.inner.HighEntropyClientHintsEnabled()
 }
 
+// AcceptCH returns the client hints host asked for in Accept-CH, lowercase and
+// sorted, or nil when it has asked for none.
+func (s *Session) AcceptCH(host string) []string {
+	return s.inner.AcceptCH(host)
+}
+
+// SetAcceptCH records hints as what host asked for in Accept-CH, replacing what
+// the session had from it. Chrome remembers a host's Accept-CH across restarts;
+// this lets a session rebuilt from stored state send the hints on its first
+// request to that host. Empty forgets the host. Save and Marshal keep it.
+func (s *Session) SetAcceptCH(host string, hints []string) {
+	s.inner.SetAcceptCH(host, hints)
+}
+
+// ClientHintsFor returns the high-entropy UA client hints the session adds to
+// a request to host, lowercase header name to value, or nil when it adds none.
+func (s *Session) ClientHintsFor(host string) map[string]string {
+	return s.inner.ClientHintsFor(host)
+}
+
 // SetFollowRedirects toggles the session's redirect-following policy at
 // runtime. A per-request Request.FollowRedirects override still wins over
 // this value for that one request.

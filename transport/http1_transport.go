@@ -1358,13 +1358,13 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 		headerOrder = []string{
 			"Connection",
 			"Cache-Control",
-			// UA client-hint cluster (low + high entropy) in a fixed Chrome
-			// order. The session injects the high-entropy Sec-Ch-Ua-* set on
-			// Accept-CH; listing them here keeps them out of the random
-			// map-iteration remainder loop below so the wire order is stable.
-			"Sec-Ch-Ua", "Sec-Ch-Ua-Arch", "Sec-Ch-Ua-Bitness", "Sec-Ch-Ua-Full-Version-List",
-			"Sec-Ch-Ua-Mobile", "Sec-Ch-Ua-Model",
-			"Sec-Ch-Ua-Platform", "Sec-Ch-Ua-Platform-Version", "Sec-Ch-Ua-Wow64",
+			// UA client-hint cluster (low + high entropy) in the order Chromium
+			// adds it to a navigation; see chromeH2Config. The session injects
+			// the high-entropy Sec-Ch-Ua-* set on Accept-CH; listing them here
+			// keeps them out of the sorted remainder below.
+			"Sec-Ch-Ua", "Sec-Ch-Ua-Mobile", "Sec-Ch-Ua-Full-Version", "Sec-Ch-Ua-Arch",
+			"Sec-Ch-Ua-Platform", "Sec-Ch-Ua-Platform-Version", "Sec-Ch-Ua-Model",
+			"Sec-Ch-Ua-Bitness", "Sec-Ch-Ua-Wow64", "Sec-Ch-Ua-Full-Version-List",
 			"Upgrade-Insecure-Requests",
 			"User-Agent",
 			"Accept",

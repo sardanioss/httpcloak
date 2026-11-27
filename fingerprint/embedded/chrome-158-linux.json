@@ -64,6 +64,9 @@
         }
       ],
       "image_accept": "image/jxl,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+    },
+    "client_hints": {
+      "full_version_list": "\"Chromium\";v=\"158.0.8127.18\", \"Not.A/Brand\";v=\"24.0.0.0\", \"Google Chrome\";v=\"158.0.8127.18\""
     }
   }
 }

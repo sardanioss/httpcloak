@@ -411,14 +411,15 @@ DATA len=7
       "hpack_header_order": [
         "cache-control",
         "sec-ch-ua",
-        "sec-ch-ua-arch",
-        "sec-ch-ua-bitness",
-        "sec-ch-ua-full-version-list",
         "sec-ch-ua-mobile",
-        "sec-ch-ua-model",
+        "sec-ch-ua-full-version",
+        "sec-ch-ua-arch",
         "sec-ch-ua-platform",
         "sec-ch-ua-platform-version",
+        "sec-ch-ua-model",
+        "sec-ch-ua-bitness",
         "sec-ch-ua-wow64",
+        "sec-ch-ua-full-version-list",
         "upgrade-insecure-requests",
         "user-agent",
         "content-type",
@@ -446,6 +447,7 @@ DATA len=7
         "user-agent",
         "sec-ch-ua",
         "sec-ch-ua-arch",
+        "sec-ch-ua-full-version",
         "sec-ch-ua-bitness",
         "sec-ch-ua-full-version-list",
         "sec-ch-ua-mobile",
@@ -636,6 +638,9 @@ DATA len=7
         }
       ],
       "image_accept": "image/jxl,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+    },
+    "client_hints": {
+      "full_version_list": "\"Google Chrome\";v=\"155.0.8059.39\", \"Chromium\";v=\"155.0.8059.39\", \"Not(A:Brand\";v=\"24.0.0.0\""
     },
     "protocols": {
       "http3": true

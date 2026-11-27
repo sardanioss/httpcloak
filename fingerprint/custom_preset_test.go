@@ -854,6 +854,44 @@ func TestLoadAndBuildPresetFromJSON(t *testing.T) {
 	}
 }
 
+// The spec documents bare client hint values ("platform_version": "19.0.0"), and
+// Chrome sends the string hints quoted. They used to go out unquoted. A value
+// already in quotes, the boolean wow64 and the full version list go out as
+// written.
+func TestClientHintsSpecQuotesBareStrings(t *testing.T) {
+	p, err := LoadAndBuildPresetFromJSON([]byte(`{
+		"version": 1,
+		"preset": {
+			"name": "client-hints-quoting",
+			"based_on": "chrome-146-windows",
+			"client_hints": {
+				"platform_version":  "19.0.0",
+				"arch":              "x86",
+				"bitness":           "\"64\"",
+				"model":             "Pixel \"9\"",
+				"wow64":             "?0",
+				"full_version_list": "\"Chromium\";v=\"146.0.1.2\", \"Not-A.Brand\";v=\"24.0.0.0\", \"Google Chrome\";v=\"146.0.1.2\""
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	ch := p.ResolveClientHints()
+	for _, c := range []struct{ field, got, want string }{
+		{"platform_version", ch.UAPlatformVersion, `"19.0.0"`},
+		{"arch", ch.UAArch, `"x86"`},
+		{"bitness", ch.UABitness, `"64"`},
+		{"model", ch.UAModel, `"Pixel \"9\""`},
+		{"wow64", ch.UAWow64, `?0`},
+		{"full_version_list", ch.UAFullVersionList, `"Chromium";v="146.0.1.2", "Not-A.Brand";v="24.0.0.0", "Google Chrome";v="146.0.1.2"`},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: got %s, want %s", c.field, c.got, c.want)
+		}
+	}
+}
+
 func TestLoadPresetFromFile(t *testing.T) {
 	data := `{
 		"version": 1,

@@ -17,7 +17,7 @@ sidebar_position: 4
 
 ## File format
 
-The file is UTF-8 JSON, parseable by any JSON library. Schema version is 5; v3 and v4 files still load. Top-level keys: `version`, `created_at`, `updated_at`, `config`, `cookies` (keyed by domain), `tls_sessions` (keyed by `h1:`/`h2:`/`h3:` plus origin) and `ech_configs` (base64-encoded per host).
+The file is UTF-8 JSON, parseable by any JSON library. Schema version is 5; v3 and v4 files still load. Top-level keys: `version`, `created_at`, `updated_at`, `config`, `cookies` (keyed by domain), `tls_sessions` (keyed by `h1:`/`h2:`/`h3:` plus origin), `ech_configs` (base64-encoded per host) and `accept_ch` (the client hints each host asked for in `Accept-CH`, keyed by host; absent from older files and from sessions that learned none).
 
 The file is written with `0600` permissions because it carries live session credentials. Don't commit these to git, don't ship them in cleartext, treat them like a password. People have uploaded these to public S3 buckets. Don't do that.
 
@@ -213,6 +213,7 @@ using var s = Session.Unmarshal(blob);
 | TLS 1.3 session tickets | Yes |
 | TLS 1.2 session IDs | Yes |
 | ECH config cache | Yes |
+| What each host asked for in `Accept-CH`, so the first request after a load carries the high-entropy client hints, as Chrome's does after a restart | Yes |
 | Preset name and config | Yes |
 | Proxy URL | Yes |
 | Custom JA3, Akamai fingerprint, custom H2/TCP overrides | No, re-apply via the same options on load |

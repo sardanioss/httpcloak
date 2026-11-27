@@ -58,6 +58,7 @@ func GetPlatformInfo() PlatformInfo {
 // etc. in lockstep with sec-ch-ua + User-Agent.
 type ClientHintsProfile struct {
 	FullVersionList string // sec-ch-ua-full-version-list; "" -> derived from sec-ch-ua (brands/order/GREASE preserved, versions expanded)
+	FullVersion     string // sec-ch-ua-full-version; "" -> the browser brand's version in the full version list
 	PlatformVersion string // sec-ch-ua-platform-version override; "" -> platform default (Linux is "")
 	Arch            string // sec-ch-ua-arch; "" -> platform default
 	Bitness         string // sec-ch-ua-bitness; "" -> platform default
@@ -710,9 +711,9 @@ func (p *Preset) H2HeaderOrder() []string {
 	// the session-injected client hints in the same deterministic wire order.
 	return []string{
 		"cache-control",
-		"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
-		"sec-ch-ua-mobile", "sec-ch-ua-model",
-		"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-wow64",
+		"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-full-version", "sec-ch-ua-arch",
+		"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-model",
+		"sec-ch-ua-bitness", "sec-ch-ua-wow64", "sec-ch-ua-full-version-list",
 		"upgrade-insecure-requests", "user-agent",
 		"content-type", "content-length",
 		"accept", "origin",
@@ -1161,15 +1162,17 @@ func chromeH2Config() *H2FingerprintConfig {
 		HPACKHeaderOrder: []string{
 			"cache-control",
 			// Low- AND high-entropy UA client hints emit as one fixed cluster.
-			// The session injects the high-entropy set (sec-ch-ua-arch, -bitness,
-			// -full-version-list, -model, -platform-version, -wow64) once a host
-			// advertises Accept-CH; without them in this table they'd fall through
-			// to Go map iteration = random wire order per request = a stable tell.
-			// Real Chrome groups the high-entropy hints with the trio in this
-			// sequence, so we mirror it here.
-			"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
-			"sec-ch-ua-mobile", "sec-ch-ua-model",
-			"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-wow64",
+			// The session injects the high-entropy set (sec-ch-ua-full-version,
+			// -arch, -platform-version, -model, -bitness, -wow64,
+			// -full-version-list) once a host advertises Accept-CH; without them
+			// in this table they'd fall through to the sorted tail after priority.
+			// The sequence is the order Chromium adds them to a navigation, in
+			// UpdateNavigationRequestClientUaHeadersImpl
+			// (content/browser/client_hints/client_hints.cc). This table used to
+			// list them alphabetically, which is no order Chrome sends.
+			"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-full-version", "sec-ch-ua-arch",
+			"sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-model",
+			"sec-ch-ua-bitness", "sec-ch-ua-wow64", "sec-ch-ua-full-version-list",
 			"upgrade-insecure-requests", "user-agent",
 			"content-type", "content-length",
 			"accept", "origin",
@@ -1197,17 +1200,21 @@ func chromeH2Config() *H2FingerprintConfig {
 		// script, between sec-fetch-dest and referer. Their order relative to each
 		// other when several appear at once was not observed.
 		//
-		// The high-entropy hints were not in the capture, since the origins tested
-		// do not request them. They are placed next to their low-entropy siblings,
-		// which is inference rather than measurement; the navigation order emits
-		// the cluster alphabetically and this one plainly does not, so if a capture
-		// ever shows them, expect this grouping to be the part that is wrong.
+		// The high-entropy hints were not in that capture, since the origins tested
+		// do not request them, so they are placed next to their low-entropy
+		// siblings by inference. Two later Chrome 156 captures of Cloudflare
+		// challenge fetches carry them and show why no one table can be right
+		// here: a subresource's headers come out in an order that moves with the
+		// set of names present, and the hinted captures put user-agent after
+		// sec-ch-ua where the trio-only ones put it before. Both hinted captures
+		// do put sec-ch-ua-full-version directly after sec-ch-ua-arch, so it sits
+		// there.
 		HPACKHeaderOrderSubresource: []string{
 			"pragma", "cache-control", "origin",
 			"sec-ch-ua-platform", "sec-ch-ua-platform-version",
 			"user-agent",
-			"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness", "sec-ch-ua-full-version-list",
-			"sec-ch-ua-mobile", "sec-ch-ua-model", "sec-ch-ua-wow64",
+			"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-full-version", "sec-ch-ua-bitness",
+			"sec-ch-ua-full-version-list", "sec-ch-ua-mobile", "sec-ch-ua-model", "sec-ch-ua-wow64",
 			"content-type", "content-length",
 			"accept",
 			"sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-storage-access",

@@ -108,6 +108,35 @@ func TestChrome155AcceptAddsJXL(t *testing.T) {
 	}
 }
 
+// based_on inherits a pinned full version list, and a preset that moves
+// sec-ch-ua to another Chrome would then send the old build beside the new
+// major. It gets the list derived from its own sec-ch-ua instead, and no
+// built-in preset sends a list that disagrees with its sec-ch-ua.
+func TestPinnedFullVersionListFollowsSecCHUA(t *testing.T) {
+	p, err := LoadAndBuildPresetFromJSON([]byte(`{
+		"version": 1,
+		"preset": {
+			"name": "chrome-200-pin-test",
+			"based_on": "chrome-155-windows",
+			"headers": {"values": {"sec-ch-ua": "\"Google Chrome\";v=\"200\", \"Chromium\";v=\"200\", \"Not(A:Brand\";v=\"24\""}}
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `"Google Chrome";v="200.0.0.0", "Chromium";v="200.0.0.0", "Not(A:Brand";v="24.0.0.0"`
+	if got := p.ResolveClientHints().UAFullVersionList; got != want {
+		t.Errorf("chrome-200 on chrome-155-windows: sec-ch-ua-full-version-list = %s, want %s", got, want)
+	}
+
+	for _, name := range Available() {
+		ch := Get(name).ResolveClientHints()
+		if ch.UA != "" && !fullVersionListMatches(ch.UAFullVersionList, ch.UA) {
+			t.Errorf("%s: sec-ch-ua-full-version-list %s disagrees with sec-ch-ua %s", name, ch.UAFullVersionList, ch.UA)
+		}
+	}
+}
+
 // Replays Chromium's greased brand list over every desktop preset in the tree.
 // 153 was derived before a 153 binary existed; 154 and 155 were derived first
 // and then matched real captures, so the derivation has now been checked

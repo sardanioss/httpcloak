@@ -125,7 +125,7 @@ h := fingerprint.GenerateSecFetchHeaders(ctx)
 
 ## GenerateClientHints
 
-Client Hints are the `sec-ch-ua-*` family Chrome started shipping in 2021 to advertise the browser brand, version, platform, and (after server opt-in) high-entropy details like architecture and full version. The low-entropy hints go on every request. The high-entropy hints only go on requests to origins that have asked for them via an `Accept-CH` response header.
+Client Hints are the `sec-ch-ua-*` family Chrome started shipping in 2021 to advertise the browser brand, version, platform, and (after server opt-in) high-entropy details like architecture and full version. The low-entropy hints go on every request. The high-entropy hints only go on requests to origins that have asked for them via an `Accept-CH` response header. Only Chromium browsers send any of them: Firefox and Safari send no `sec-ch-*` header and ignore `Accept-CH`, and so does Chrome on iOS, which runs on WebKit. A `Session` on a preset that sends no `sec-ch-ua` does the same.
 
 Chrome's quoted-list format is unusual. The browser brands are emitted as a comma-separated list of `"brand";v="version"` triples, including a fake "Not_A Brand" entry that exists to discourage servers from string-matching the brand list:
 
@@ -157,15 +157,31 @@ type ClientHints struct {
     // High-entropy (only after Accept-CH opt-in)
     UAArch            string // sec-ch-ua-arch
     UABitness         string // sec-ch-ua-bitness
+    UAFullVersion     string // sec-ch-ua-full-version
     UAFullVersionList string // sec-ch-ua-full-version-list
     UAModel           string // sec-ch-ua-model
     UAPlatformVersion string // sec-ch-ua-platform-version
+    UAWow64           string // sec-ch-ua-wow64
 }
 ```
 
 Pass `includeHighEntropy: true` when you've already seen the server's `Accept-CH` and want to pre-build the full bundle. Pass `false` for the first request to a host, before you know what the server is going to ask for.
 
-In normal use you don't call this directly. `Session` parses incoming `Accept-CH` response headers via `parseAcceptCH` and starts emitting the matching high-entropy hints on subsequent requests to the same origin. `GenerateClientHints` is for cases where you want to construct the bundle outside of a `Session` (e.g. injecting it into a different transport, building a fixture for tests, or pre-warming a header set before opening a session).
+In normal use you don't call this directly. `Session` parses incoming `Accept-CH` response headers via `parseAcceptCH` and starts emitting the matching high-entropy hints on subsequent requests to the same origin. Like Chrome, it parses only the response to a top-level navigation, a request that goes out with `Sec-Fetch-Dest: document`, whether it was sent with `Request` or `RequestStream`: an iframe's document, a `fetch()` and a subresource can carry `Accept-CH` and teach the session nothing. So a challenge iframe that asks for them in `Accept-CH` and `Critical-CH` gets only the low-entropy trio, as it does from Chrome. A request with no `Sec-Fetch-Dest` at all (TLS-only, or a preset that sends no Sec-Fetch metadata) is treated as a navigation. `GenerateClientHints` is for cases where you want to construct the bundle outside of a `Session` (e.g. injecting it into a different transport, building a fixture for tests, or pre-warming a header set before opening a session).
+
+## What a session learned from Accept-CH
+
+Three `Session` methods read and set what each host asked for:
+
+```go
+s.AcceptCH("example.com")       // []string{"sec-ch-ua-arch", "sec-ch-ua-platform-version"}, or nil
+s.ClientHintsFor("example.com") // map[string]string{"sec-ch-ua-arch": `"x86"`, ...}, or nil
+s.SetAcceptCH("example.com", []string{"Sec-CH-UA-Arch", "Sec-CH-UA-Platform-Version"})
+```
+
+`AcceptCH` is the host's last `Accept-CH`, lowercase and sorted. `ClientHintsFor` is what the session adds to its next request to that host, lowercase header name to value. The request path reads the same map, so it is what goes on the wire, unless the session has the hints turned off (then it is nil) or the request sets one of them itself. `SetAcceptCH` replaces what the session has from the host, as a new `Accept-CH` would, and an empty list forgets the host. Each takes a host name or a URL.
+
+Chrome keeps every host's `Accept-CH` in the profile, so a host that asked last week gets the hints on the first request of the next visit. `Save` and `Marshal` keep them the same way. A session rebuilt from state you store yourself, cookies in your own database say, can be given them with `SetAcceptCH` before its first request, or the first request goes without hints the second one carries.
 
 ## HeaderCoherence
 
