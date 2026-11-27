@@ -338,6 +338,16 @@ type Request struct {
 	//
 	// Session-layer concept; the transport itself does not consult this field.
 	OnRedirect func(*Redirect) error
+
+	// RedirectHop marks a request built to follow a 3xx. The session sets it on
+	// every hop it follows; set it yourself only when you follow redirects by
+	// hand and want the hop to go out the way a browser's would.
+	//
+	// It matters for presets that order a hop differently from a first
+	// request. Firefox settles a hop's Referer before it picks a connection, so
+	// the hop takes the preset's HPACKHeaderOrderEarlyReferer, with Referer
+	// right after Accept-Encoding rather than after Connection.
+	RedirectHop bool
 }
 
 // ErrUseLastResponse, returned from a Request.OnRedirect callback, stops the
@@ -2043,7 +2053,7 @@ func (t *Transport) doHTTP1(ctx context.Context, req *Request) (*Response, error
 
 	// Set preset headers (with ordering for fingerprinting)
 	// Pass "h1" protocol so Chrome presets don't send Priority header on HTTP/1.1
-	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders, req.RedirectHop)
 
 	mergeCallerHeaders(httpReq, req, "h1")
 	stripH1Priority(httpReq, req, snap.preset, effectiveTLSOnly)
@@ -2149,7 +2159,7 @@ func (t *Transport) doHTTP1WithTLSConn(ctx context.Context, req *Request, alpnEr
 	}
 
 	// Set preset headers - pass "h1" protocol so Chrome presets don't send Priority header
-	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h1", req.Headers, req.DisableClientHints, req.ExactHeaders, req.RedirectHop)
 
 	mergeCallerHeaders(httpReq, req, "h1")
 	stripH1Priority(httpReq, req, snap.preset, effectiveTLSOnly)
@@ -2262,7 +2272,7 @@ func (t *Transport) doHTTP2(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h2", req.Headers, req.DisableClientHints, req.ExactHeaders, req.RedirectHop)
 
 	mergeCallerHeaders(httpReq, req, "h2")
 
@@ -2403,7 +2413,7 @@ func (t *Transport) doHTTP3(ctx context.Context, req *Request) (*Response, error
 	}
 
 	// Set preset headers (with ordering for fingerprinting)
-	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders)
+	applyPresetHeaders(httpReq, t.wireHeaders(snap.preset), t.effectiveHeaderOrder(req), t.getCustomPseudoOrder(), effectiveTLSOnly, "h3", req.Headers, req.DisableClientHints, req.ExactHeaders, req.RedirectHop)
 
 	mergeCallerHeaders(httpReq, req, "h3")
 
@@ -2726,6 +2736,12 @@ func isClientHintHeader(key string) bool {
 // de-duplicated. userHeaders may be nil when the caller has already merged
 // them into header.
 //
+// A preset order may carry fingerprint.OtherHeaders, and the sorted remainder
+// then goes where the marker stands instead of at the end. Firefox sends the
+// headers a page set on a fetch() between Referer and Content-Length, which is
+// where its presets put the marker. Only the preset's order is read for it; in
+// explicitOrder the marker is ignored, and it never appears in the result.
+//
 // Both remainders were previously emitted in Go map order, which is randomised
 // on every range. A header order that differs per request is itself a
 // fingerprint, and a strong one — no browser produces one. Sorted is not what a
@@ -2748,9 +2764,18 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 		buf = append(buf, lower)
 	}
 	for _, name := range explicitOrder {
-		place(name)
+		if name != fingerprint.OtherHeaders {
+			place(name)
+		}
 	}
+	others := -1 // where the preset's OtherHeaders marker stands, if it has one
 	for _, name := range presetOrder {
+		if name == fingerprint.OtherHeaders {
+			if others < 0 {
+				others = len(buf)
+			}
+			continue
+		}
 		place(name)
 	}
 
@@ -2759,6 +2784,12 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 		// The ordering keys are internal control entries, not headers, and must
 		// never reach the wire.
 		if strings.EqualFold(name, http.HeaderOrderKey) || strings.EqualFold(name, http.PHeaderOrderKey) {
+			return
+		}
+		// Connection has a place of its own on HTTP/1.1, right after Host
+		// unless an order names one, and HTTP/2 and HTTP/3 send none. A slot
+		// in the sorted tail would move a caller's Connection to the end.
+		if strings.EqualFold(name, "Connection") {
 			return
 		}
 		lower := lowerHeaderName(name)
@@ -2775,6 +2806,15 @@ func CompleteHeaderOrder(explicitOrder, presetOrder []string, header http.Header
 		collect(name)
 	}
 	slices.Sort(buf[named:])
+
+	// Rotate the remainder to the marker, still in the one buffer: reversing
+	// the names after the marker, then the remainder, then both together puts
+	// the remainder first.
+	if others >= 0 && others < named {
+		slices.Reverse(buf[others:named])
+		slices.Reverse(buf[named:])
+		slices.Reverse(buf[others:])
+	}
 
 	return buf
 }
@@ -3078,7 +3118,7 @@ func (t *Transport) wireHeaders(preset *fingerprint.Preset) *presetWireHeaders {
 	return w
 }
 
-func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool, exactHeaders []fingerprint.HeaderPair) {
+func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHeaderOrder []string, customPseudoOrder []string, tlsOnly bool, protocol string, userHeaders map[string][]string, stripClientHints bool, exactHeaders []fingerprint.HeaderPair, redirectHop bool) {
 	preset := wire.preset
 	if applyExactHeaders(httpReq, exactHeaders, preset, customPseudoOrder, protocol) {
 		return
@@ -3185,6 +3225,16 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 		if protocol == "h1" && !preset.SendsPriorityOverHTTP1() {
 			delete(httpReq.Header, "Priority")
 		}
+
+		// A preset's TE goes out on HTTP/2 only. Firefox, the one browser that
+		// sends it, adds te: trailers in its HTTP/2 encoder and sends no TE on
+		// HTTP/1.1 or HTTP/3, and an HTTP/1.1 TE without a matching Connection
+		// option is not well-formed (RFC 9110, section 10.1.4). Only the preset's
+		// is dropped: the caller's headers are merged after this, so a TE they
+		// set still goes out.
+		if protocol != "h2" {
+			delete(httpReq.Header, "Te")
+		}
 	} else {
 		// TLS-only mode: set empty User-Agent to prevent Go's default "Go-http-client/2.0"
 		// This marks didUA=true in httpcommon.EncodeHeaders but skips writing the value
@@ -3206,12 +3256,14 @@ func applyPresetHeaders(httpReq *http.Request, wire *presetWireHeaders, customHe
 	//
 	// The order is chosen by request shape. Chrome builds a top-level navigation
 	// and a subresource through different paths and the leading block comes out
-	// differently, so a preset carrying one order gets one of the two wrong. The
-	// dest read here is the final one: the Sec-Fetch inference above has already
-	// run, and the priority table a few lines up reads the same field.
+	// differently, so a preset carrying one order gets one of the two wrong.
+	// Firefox settles Referer earlier on a fetch() and on a redirect hop than on
+	// anything else, so those take an order of their own. The dest read here is
+	// the final one: the Sec-Fetch inference above has already run, and the
+	// priority table a few lines up reads the same field.
 	httpReq.Header[http.HeaderOrderKey] = CompleteHeaderOrder(
 		customHeaderOrder,
-		preset.H2HeaderOrderFor(httpReq.Header.Get("Sec-Fetch-Dest")),
+		preset.HeaderOrderFor(httpReq.Header.Get("Sec-Fetch-Dest"), redirectHop),
 		httpReq.Header, userHeaders)
 
 	// Set pseudo-header order: custom (Akamai) > preset H2Config > heuristic

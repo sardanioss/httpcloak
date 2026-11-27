@@ -1159,22 +1159,10 @@ func (t *HTTP1Transport) writeRequest(conn *http1Conn, req *http.Request) error 
 	// Connection header second, immediately after Host. Real Chrome emits
 	// "Connection: keep-alive" as the second request header on the HTTP/1.1 wire.
 	// Honor a caller-supplied value if present; otherwise default to keep-alive.
-	//
-	// Exact-headers mode is the exception. Its contract is that nothing the
-	// caller did not list goes on the wire, and a caller reproducing a captured
-	// request that carries no Connection cannot have one added back. Nothing
-	// breaks by leaving it out: HTTP/1.1 keeps connections alive by default, so
-	// the header is a restatement of the default rather than what enables it,
-	// which is why suppressing it here does not cost the connection pool
-	// anything. HTTP/1.0 would be a different matter, and this writer only
-	// speaks 1.1.
-	connValue := req.Header.Get("Connection")
-	exact := len(req.Header[exactHeadersKey]) > 0
-	if connValue == "" && !exact {
-		connValue = "keep-alive"
-	}
-	if connValue != "" {
-		fmt.Fprintf(conn.bw, "Connection: %s\r\n", connValue)
+	// A request whose order places it gets it there instead; see
+	// orderPlacesConnection.
+	if !orderPlacesConnection(req) {
+		fmt.Fprintf(conn.bw, "Connection: %s\r\n", connectionValue(req))
 	}
 
 	// Determine if we need chunked encoding (unknown content length with body)
@@ -1345,6 +1333,45 @@ func valuesForSlot(vals []string, n, i int) []string {
 	return vals[i : i+1]
 }
 
+// connectionValue is the Connection header the writer supplies: the caller's,
+// or keep-alive.
+func connectionValue(req *http.Request) string {
+	if v := req.Header.Get("Connection"); v != "" {
+		return v
+	}
+	return "keep-alive"
+}
+
+// orderPlacesConnection reports whether a request's order list, rather than
+// the slot right after Host, decides where Connection goes.
+//
+// Chrome writes Connection right after Host, and a preset whose order names no
+// place for it keeps that. Firefox 159 and Safari 26 write it after
+// Accept-Encoding instead, and a preset says so by naming connection in its
+// order, as a caller's own order can. CompleteHeaderOrder leaves it out of the
+// sorted tail, so a Connection the caller only set keeps the preset's place.
+//
+// Exact-headers mode always defers to the order. Its contract is that nothing
+// the caller did not list goes on the wire, and a caller reproducing a captured
+// request that carries no Connection cannot have one added back. Nothing
+// breaks by leaving it out: HTTP/1.1 keeps connections alive by default, so
+// the header is a restatement of the default rather than what enables it,
+// which is why suppressing it here does not cost the connection pool
+// anything. HTTP/1.0 would be a different matter, and this writer only
+// speaks 1.1. A Connection the caller did list is one of their pairs and goes
+// out like the rest, where they listed it and as they spelled it.
+func orderPlacesConnection(req *http.Request) bool {
+	if len(req.Header[exactHeadersKey]) > 0 {
+		return true
+	}
+	for _, k := range req.Header[http.HeaderOrderKey] {
+		if strings.EqualFold(k, "connection") {
+			return true
+		}
+	}
+	return false
+}
+
 // writeHeadersInOrder writes headers in a browser-like order
 func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request, useChunked bool) {
 	// Check if custom header order is specified (from preset or user)
@@ -1443,8 +1470,14 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 			continue
 		}
 
-		// Skip Connection - already written immediately after Host
-		if strings.EqualFold(key, "Connection") {
+		// Connection goes here when the request's order places it; otherwise
+		// writeRequest wrote it right after Host. An exact-headers request's
+		// Connection is one of the caller's pairs and is written below with
+		// the rest.
+		if strings.EqualFold(key, "Connection") && len(req.Header[exactHeadersKey]) == 0 {
+			if !written[canonicalKey] && orderPlacesConnection(req) {
+				fmt.Fprintf(w, "Connection: %s\r\n", connectionValue(req))
+			}
 			written[canonicalKey] = true
 			continue
 		}
@@ -1489,7 +1522,7 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 		if strings.EqualFold(key, "Host") {
 			continue
 		}
-		// Skip Connection - already written immediately after Host
+		// Skip Connection - written right after Host or at its place above
 		if strings.EqualFold(key, "Connection") {
 			continue
 		}
@@ -1528,8 +1561,8 @@ func (t *HTTP1Transport) writeHeadersInOrder(w *bufio.Writer, req *http.Request,
 		fmt.Fprintf(w, "Transfer-Encoding: chunked\r\n")
 	}
 
-	// Connection is written immediately after Host in writeRequest (Chrome emits
-	// it as the second header), so it is intentionally not written here.
+	// Connection needs no fallback here: writeRequest wrote it right after Host
+	// (Chrome emits it as the second header) unless the order placed it above.
 }
 
 // shouldKeepAlive determines if connection should be reused
@@ -1539,8 +1572,9 @@ func (t *HTTP1Transport) shouldKeepAlive(req *http.Request, resp *http.Response)
 		return false
 	}
 
-	// Check request Connection header
-	if strings.EqualFold(req.Header.Get("Connection"), "close") {
+	// Check request Connection header, in whatever spelling an exact-headers
+	// caller gave it
+	if strings.EqualFold(headerVal(req.Header, "Connection"), "close") {
 		return false
 	}
 

@@ -159,9 +159,10 @@ type HTTP2Spec struct {
 	PseudoOrder   []string           `json:"pseudo_order,omitempty"`
 
 	// HPACK config
-	HPACKHeaderOrder            []string `json:"hpack_header_order,omitempty"`
-	HPACKHeaderOrderSubresource []string `json:"hpack_header_order_subresource,omitempty"`
-	HPACKIndexingPolicy         *string  `json:"hpack_indexing_policy,omitempty"` // "chrome","never","always","default"
+	HPACKHeaderOrder             []string `json:"hpack_header_order,omitempty"`
+	HPACKHeaderOrderSubresource  []string `json:"hpack_header_order_subresource,omitempty"`
+	HPACKHeaderOrderEarlyReferer []string `json:"hpack_header_order_early_referer,omitempty"`
+	HPACKIndexingPolicy          *string  `json:"hpack_indexing_policy,omitempty"` // "chrome","never","always","default"
 	// HPACKRepresentation pins the HPACK representation per header name:
 	// "incremental", "without", "never" or "default". Override layer, empty
 	// for browser profiles, deltas only. See H2FingerprintConfig.
@@ -519,6 +520,10 @@ func clonePreset(src *Preset) *Preset {
 		if src.H2Config.HPACKHeaderOrderSubresource != nil {
 			h2.HPACKHeaderOrderSubresource = make([]string, len(src.H2Config.HPACKHeaderOrderSubresource))
 			copy(h2.HPACKHeaderOrderSubresource, src.H2Config.HPACKHeaderOrderSubresource)
+		}
+		if src.H2Config.HPACKHeaderOrderEarlyReferer != nil {
+			h2.HPACKHeaderOrderEarlyReferer = make([]string, len(src.H2Config.HPACKHeaderOrderEarlyReferer))
+			copy(h2.HPACKHeaderOrderEarlyReferer, src.H2Config.HPACKHeaderOrderEarlyReferer)
 		}
 		if src.H2Config.HPACKRepresentation != nil {
 			h2.HPACKRepresentation = make(map[string]string, len(src.H2Config.HPACKRepresentation))
@@ -1150,7 +1155,7 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 	// H2 fingerprinting config
 	if spec.SettingsOrder != nil || spec.PseudoOrder != nil ||
 		spec.HPACKHeaderOrder != nil || spec.HPACKHeaderOrderSubresource != nil ||
-		spec.HPACKIndexingPolicy != nil ||
+		spec.HPACKHeaderOrderEarlyReferer != nil || spec.HPACKIndexingPolicy != nil ||
 		spec.HPACKNeverIndex != nil || spec.HPACKRepresentation != nil ||
 		spec.StreamPriorityMode != nil ||
 		spec.DisableCookieSplit != nil || spec.PriorityTable != nil ||
@@ -1177,6 +1182,10 @@ func applyHTTP2(p *Preset, spec *HTTP2Spec) error {
 		if spec.HPACKHeaderOrderSubresource != nil {
 			p.H2Config.HPACKHeaderOrderSubresource = make([]string, len(spec.HPACKHeaderOrderSubresource))
 			copy(p.H2Config.HPACKHeaderOrderSubresource, spec.HPACKHeaderOrderSubresource)
+		}
+		if spec.HPACKHeaderOrderEarlyReferer != nil {
+			p.H2Config.HPACKHeaderOrderEarlyReferer = make([]string, len(spec.HPACKHeaderOrderEarlyReferer))
+			copy(p.H2Config.HPACKHeaderOrderEarlyReferer, spec.HPACKHeaderOrderEarlyReferer)
 		}
 		if spec.HPACKIndexingPolicy != nil {
 			p.H2Config.HPACKIndexingPolicy = *spec.HPACKIndexingPolicy

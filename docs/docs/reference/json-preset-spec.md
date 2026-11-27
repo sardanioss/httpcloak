@@ -312,6 +312,16 @@ How header compression and stream priorities behave on the wire.
 | `disable_cookie_split` | bool | When true, the `Cookie:` header is sent as one line instead of split into multiple HPACK entries. |
 | `hpack_never_index` | string[] | Lowercase header names that must be sent without HPACK indexing. |
 
+`hpack_header_order` orders HTTP/1.1 headers too. Name `connection` in it to put HTTP/1.1's `Connection` header at that place, as the Firefox presets do after `origin`. Leave it out and `Connection` goes right after `Host`, where Chrome sends it. HTTP/2 and HTTP/3 carry no `Connection`, so the entry changes nothing there.
+
+Headers the order does not name, usually ones the caller set, go after everything it does name, sorted. An entry of `"*"` puts them at that place instead:
+
+```json
+"hpack_header_order": ["user-agent", "accept", "accept-language", "accept-encoding", "content-type", "*", "content-length", "..."]
+```
+
+That is where Firefox sends the headers a page sets on a `fetch()` or an `XMLHttpRequest`, and the Firefox presets use it. The `"*"` itself never goes on the wire. A `te` entry places the header only on HTTP/2: the transport sends a preset's `TE` there and nowhere else, as Firefox does.
+
 ### `hpack_header_order_subresource`
 
 A second header order, used for every request that is not a top-level navigation.
@@ -338,6 +348,29 @@ order; everything else takes this one. Omit the field and a preset uses
 Measured across script, style, image, font, manifest and `fetch()` requests, all
 six produce a single order, so this is a two-way split rather than one order per
 resource type.
+
+### `hpack_header_order_early_referer`
+
+A header order for a request whose `Referer` the browser settles before it picks a
+connection: a `fetch()`, meaning `sec-fetch-dest: empty`, and every redirect hop.
+
+```json
+"http2": {
+  "hpack_header_order":               ["user-agent", "...", "origin", "connection", "referer", "cookie", "..."],
+  "hpack_header_order_early_referer": ["user-agent", "...", "accept-encoding", "referer", "...", "connection", "cookie", "..."]
+}
+```
+
+Firefox splits here rather than between navigations and subresources. It writes
+`Referer` right after `Accept-Encoding` on a `fetch()` and on a redirect hop, and
+after `Connection` on a navigation or a no-cors subresource from a page that set
+no `Referrer-Policy`. Everything else about the order is the same, so the two
+lists differ only in where `referer` sits.
+
+The session marks the hops it follows; a request you build to follow a redirect
+by hand can set `RedirectHop` itself. When the field is set it takes precedence
+over `hpack_header_order_subresource` for the requests it covers. Omit it and
+those requests use the same order as any other of their shape.
 
 ### Other `http2` fields
 

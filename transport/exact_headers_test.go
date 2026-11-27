@@ -154,7 +154,7 @@ func TestExactHeadersShortCircuitIsWired(t *testing.T) {
 	req, _ := http.NewRequest("GET", "https://example.com/", nil)
 	applyPresetHeaders(req, newPresetWireHeaders(fingerprint.Get("chrome-latest")), nil, nil, false, "h2",
 		map[string][]string{"X-User": {"1"}}, false,
-		[]fingerprint.HeaderPair{hp("Only-This", "1")})
+		[]fingerprint.HeaderPair{hp("Only-This", "1")}, false)
 
 	if _, ok := req.Header["User-Agent"]; ok {
 		t.Error("preset headers were applied despite ExactHeaders being set; " +

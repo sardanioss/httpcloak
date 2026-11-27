@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -76,8 +77,9 @@ func TestHeaderPipelineMatchesThePreviousOne(t *testing.T) {
 								}
 								old, cur := mk(), mk()
 								frozenApplyPresetHeaders(old, preset, order, nil, tlsOnly, proto, req.Headers, strip, exact)
+								changedSinceTheFreeze(old, preset, order, tlsOnly, proto, exact)
 								frozenMergeCallerHeaders(old, req)
-								applyPresetHeaders(cur, tr.wireHeaders(preset), order, nil, tlsOnly, proto, req.Headers, strip, exact)
+								applyPresetHeaders(cur, tr.wireHeaders(preset), order, nil, tlsOnly, proto, req.Headers, strip, exact, false)
 								// The frozen merge canonicalises every name. HTTP/1.1
 								// has since kept a caller's own spelling (see
 								// TestCallerHeaderCasingOverHTTP1), so the merge is
@@ -116,6 +118,47 @@ func TestHeaderPipelineMatchesThePreviousOne(t *testing.T) {
 		}
 	}
 	t.Logf("%d request cases identical", cases)
+}
+
+// changedSinceTheFreeze applies to the reference's result the changes made on
+// purpose after it was frozen, so the frozen code itself stays as it was and
+// every difference from it is listed here:
+//
+//   - A preset's TE goes out on HTTP/2 only. Firefox 159 adds te: trailers in
+//     its HTTP/2 encoder and sends no TE on HTTP/1.1 or HTTP/3.
+//   - A preset order can carry fingerprint.OtherHeaders, which takes the
+//     headers the order does not name, in place of the sorted tail at the end.
+//     The reference placed the marker as if it were a header name and sorted
+//     the rest after everything, so the rest moves to the marker.
+//
+// It runs before the caller's headers merge, where the pipeline makes the same
+// changes, and none of the shapes above sets a TE of its own.
+func changedSinceTheFreeze(req *http.Request, preset *fingerprint.Preset, explicit []string, tlsOnly bool, proto string, exact []fingerprint.HeaderPair) {
+	if exact != nil {
+		return
+	}
+	if !tlsOnly && proto != "h2" {
+		delete(req.Header, "Te")
+	}
+	order := req.Header[http.HeaderOrderKey]
+	marker := slices.Index(order, fingerprint.OtherHeaders)
+	if marker < 0 {
+		return
+	}
+	named := map[string]bool{}
+	for _, n := range explicit {
+		named[strings.ToLower(n)] = true
+	}
+	for _, n := range preset.HeaderOrderFor(req.Header.Get("Sec-Fetch-Dest"), false) {
+		named[strings.ToLower(n)] = true
+	}
+	rest := len(order)
+	for rest > 0 && !named[order[rest-1]] {
+		rest--
+	}
+	moved := append([]string(nil), order[:marker]...)
+	moved = append(moved, order[rest:]...)
+	req.Header[http.HeaderOrderKey] = append(moved, order[marker+1:rest]...)
 }
 
 func dumpHeader(h http.Header) string {
